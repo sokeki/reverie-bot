@@ -1,0 +1,30 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from utils.db import add_points
+
+
+class Admin(commands.Cog):
+    """Handles admin slash commands."""
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(name="addpoints", description="[Admin] Add or remove dream points from a member")
+    @app_commands.describe(
+        member="Target member",
+        amount="Points to add (use a negative number to remove)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def addpoints(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        await add_points(self.bot.users_col, member.id, interaction.guild_id, amount)
+        sign = "+" if amount >= 0 else ""
+        await interaction.response.send_message(
+            f"🌙 {sign}{amount} dream points woven into **{member.display_name}**'s reverie.",
+            ephemeral=True,
+        )
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Admin(bot))
