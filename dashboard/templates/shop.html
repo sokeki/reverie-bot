@@ -59,9 +59,22 @@
                 </div>
                 {% if item.type == "role" %}
                 <div class="field-row">
-                    <label>Role colour</label>
+                    <label>Role</label>
+                    <select name="role_id">
+                        <option value="">— keep current —</option>
+                        {% for role in guild_roles %}
+                        <option value="{{ role.id }}" {% if item.get("role_id")==role.id | int %}selected{% endif %}
+                            style="{% if role.colour_hex %}color:#{{ role.colour_hex }}{% endif %}">
+                            {{ role.name }}{% if role.colour_hex %} (#{{ role.colour_hex }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field-row">
+                    <label>Override colour</label>
                     <div class="colour-input-wrap">
-                        <input type="color" id="picker-{{ item._id }}" value="#{{ item.get('role_colour', '9b8ec4') }}"
+                        <input type="color" id="picker-{{ item._id }}"
+                            value="#{{ item.get('role_colour') or '9b8ec4' }}"
                             oninput="document.getElementById('col-{{ item._id }}').value=this.value.slice(1)">
                         <span>#</span>
                         <input type="text" id="col-{{ item._id }}" name="role_colour"
@@ -95,7 +108,7 @@
                 </div>
                 <div class="field-row">
                     <label>Type</label>
-                    <select name="type" id="add-type" onchange="toggleColourField()">
+                    <select name="type" id="add-type" onchange="toggleRoleField()">
                         <option value="role">🎭 Role</option>
                         <option value="title">✨ Title</option>
                         <option value="role_remover">🗑️ Role Remover</option>
@@ -109,15 +122,17 @@
                     <label>Description</label>
                     <input type="text" name="description" placeholder="A short description...">
                 </div>
-                <div class="field-row" id="colour-field">
-                    <label>Role colour</label>
-                    <div class="colour-input-wrap">
-                        <input type="color" id="add-colour-picker" value="#9b8ec4"
-                            oninput="document.getElementById('add-colour').value=this.value.slice(1)">
-                        <span>#</span>
-                        <input type="text" id="add-colour" name="role_colour" value="9b8ec4" maxlength="6"
-                            oninput="document.getElementById('add-colour-picker').value='#'+this.value">
-                    </div>
+                <div class="field-row" id="role-field">
+                    <label>Role <span class="req">*</span></label>
+                    <select name="role_id" id="add-role-select" onchange="syncColourFromRole(this)">
+                        <option value="">— select a role —</option>
+                        {% for role in guild_roles %}
+                        <option value="{{ role.id }}" data-colour="{{ role.colour_hex or '' }}"
+                            style="{% if role.colour_hex %}color:#{{ role.colour_hex }}{% endif %}">
+                            {{ role.name }}{% if role.colour_hex %} (#{{ role.colour_hex }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="edit-actions">
                     <button type="submit" class="btn-edit-save">Add item</button>
@@ -130,10 +145,15 @@
 {% endif %}
 
 <script>
-    function toggleColourField() {
+    function toggleRoleField() {
         const type = document.getElementById('add-type').value;
-        document.getElementById('colour-field').style.display = type === 'role' ? 'flex' : 'none';
+        document.getElementById('role-field').style.display = type === 'role' ? 'flex' : 'none';
     }
-    toggleColourField();
+
+    function syncColourFromRole(select) {
+        const colour = select.options[select.selectedIndex].dataset.colour;
+    }
+
+    toggleRoleField();
 </script>
 {% endblock %}

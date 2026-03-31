@@ -23,6 +23,28 @@ SECRET_KEY = os.getenv("DASHBOARD_SECRET_KEY", "change-me-in-production")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 DISCORD_API = "https://discord.com/api/v10"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+
+async def fetch_guild_roles() -> list[dict]:
+    """Fetch all roles for the guild using the bot token."""
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{DISCORD_API}/guilds/{GUILD_ID}/roles",
+            headers={"Authorization": f"Bot {BOT_TOKEN}"},
+        )
+        roles = r.json()
+        if not isinstance(roles, list):
+            return []
+        # Sort by position descending, exclude @everyone
+        roles = [r for r in roles if r["name"] != "@everyone"]
+        roles.sort(key=lambda r: r.get("position", 0), reverse=True)
+        # Add hex colour string
+        for role in roles:
+            colour_val = role.get("color", 0)
+            role["colour_hex"] = f"{colour_val:06X}" if colour_val else None
+        return roles
+
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI()
@@ -238,15 +260,17 @@ async def shop(request: Request, user: dict = Depends(require_user)):
         .sort("cost", -1)
         .to_list(length=100)
     )
-    # Convert ObjectId to str for template use
     for item in items:
         item["_id"] = str(item["_id"])
+    # Fetch guild roles for admin dropdowns
+    guild_roles = await fetch_guild_roles() if user.get("is_admin") else []
     return templates.TemplateResponse(
         "shop.html",
         {
             "request": request,
             "user": user,
             "items": items,
+            "guild_roles": guild_roles,
             "saved": request.query_params.get("saved"),
             "deleted": request.query_params.get("deleted"),
             "error": request.query_params.get("error"),
@@ -283,8 +307,14 @@ async def shop_add(request: Request, user: dict = Depends(require_admin)):
         "description": desc,
     }
     if item_type == "role":
-        colour = form.get("role_colour", "").lstrip("#").strip()
-        doc["role_colour"] = colour if colour else None
+        role_id_str = form.get("role_id", "").strip()
+        if not role_id_str:
+            return RedirectResponse("/shop?error=Please+select+a+role", status_code=303)
+        doc["role_id"] = int(role_id_str)
+        # Pull colour from Discord directly
+        roles = await fetch_guild_roles()
+        matched = next((r for r in roles if str(r["id"]) == role_id_str), None)
+        doc["role_colour"] = matched["colour_hex"] if matched else None
 
     await items_col.insert_one(doc)
     return RedirectResponse("/shop?saved=1", status_code=303)
@@ -306,6 +336,13 @@ async def shop_edit(
         changes["description"] = form.get("description").strip()
     if form.get("role_colour") is not None:
         changes["role_colour"] = form.get("role_colour").lstrip("#").strip() or None
+    if form.get("role_id"):
+        role_id_str = form.get("role_id").strip()
+        changes["role_id"] = int(role_id_str)
+        roles = await fetch_guild_roles()
+        matched = next((r for r in roles if str(r["id"]) == role_id_str), None)
+        if matched:
+            changes["role_colour"] = matched["colour_hex"]
 
     if changes:
         await items_col.update_one({"_id": ObjectId(item_id)}, {"$set": changes})

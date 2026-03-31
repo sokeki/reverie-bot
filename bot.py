@@ -110,6 +110,23 @@ async def on_ready():
                 updated += 1
     print(f"✨  Pre-populated {added} new and refreshed {updated} existing member(s).")
 
+    # Sync role colours for all shop role items on startup
+    colour_synced = 0
+    for guild in bot.guilds:
+        shop_items = await bot.items_col.find(
+            {"guild_id": guild.id, "type": "role"}
+        ).to_list(length=100)
+        for item in shop_items:
+            role = guild.get_role(item.get("role_id"))
+            if role:
+                colour = f"{role.colour.value:06X}" if role.colour.value else None
+                await bot.items_col.update_one(
+                    {"_id": item["_id"]},
+                    {"$set": {"role_colour": colour}},
+                )
+                colour_synced += 1
+    print(f"🎨  Synced role colours for {colour_synced} shop item(s).")
+
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -214,6 +231,18 @@ async def on_member_join(member: discord.Member):
             },
         },
         upsert=True,
+    )
+
+
+@bot.event
+async def on_guild_role_update(before: discord.Role, after: discord.Role):
+    """Update role_colour in shop items when a role's colour changes in Discord."""
+    if before.colour == after.colour:
+        return
+    colour = f"{after.colour.value:06X}" if after.colour.value else None
+    await bot.items_col.update_one(
+        {"guild_id": after.guild.id, "role_id": after.id},
+        {"$set": {"role_colour": colour}},
     )
 
 
