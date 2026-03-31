@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}— Shop{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🛒 The Dream Shop</h1>
+    <p class="subtitle"><em>{{ items | length }} item{% if items | length != 1 %}s{% endif %} available</em></p>
+</div>
+
+{% if not items %}
+<div class="empty-state">
+    <p>The shop shelves are bare... add items with <code>/additem</code> in Discord.</p>
+</div>
+{% else %}
+<div class="shop-grid">
+    {% for item in items %}
+    <div class="shop-card">
+        <div class="shop-type">
+            {% if item.type == "role" %}🎭 Role
+            {% elif item.type == "title" %}✨ Title
+            {% elif item.type == "role_remover" %}🗑️ Role Remover
+            {% endif %}
+        </div>
+        <h3 class="shop-name">{{ item.name }}</h3>
+        <p class="shop-desc">{{ item.get("description", "no description") }}</p>
+        <div class="shop-footer">
+            <span class="shop-cost">✨ {{ "{:,}".format(item.cost) }} pts</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

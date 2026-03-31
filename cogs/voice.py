@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands, tasks
 from datetime import datetime
 
-from config import POINTS_PER_VOICE_BLOCK, VOICE_BLOCK_MINUTES, VOICE_TICK_SECONDS
+from config import VOICE_TICK_SECONDS
 
 
 def _minutes_since(dt: datetime) -> int:
@@ -19,6 +19,15 @@ class Voice(commands.Cog):
 
     def cog_unload(self):
         self.voice_point_ticker.cancel()
+
+    async def _get_voice_settings(self) -> tuple[int, int]:
+        """Return (voice_block_minutes, points_per_voice_block) from live DB settings."""
+        doc = await self.bot.settings_col.find_one({})
+        if doc:
+            return doc.get("voice_block_minutes", 30), doc.get(
+                "points_per_voice_block", 1
+            )
+        return 30, 1
 
     @commands.Cog.listener()
     async def on_voice_state_update(
@@ -37,8 +46,9 @@ class Voice(commands.Cog):
             self.voice_join_times[member.id] = datetime.utcnow()
 
         elif left and member.id in self.voice_join_times:
+            block_mins, pts_per_block = await self._get_voice_settings()
             minutes = _minutes_since(self.voice_join_times.pop(member.id))
-            pts = (minutes // VOICE_BLOCK_MINUTES) * POINTS_PER_VOICE_BLOCK
+            pts = (minutes // block_mins) * pts_per_block
             update = {"$inc": {"voice_minutes": minutes}}
             if pts:
                 update["$inc"]["points"] = pts
@@ -50,6 +60,7 @@ class Voice(commands.Cog):
 
     @tasks.loop(seconds=VOICE_TICK_SECONDS)
     async def voice_point_ticker(self):
+        block_mins, pts_per_block = await self._get_voice_settings()
         now = datetime.utcnow()
         for guild in self.bot.guilds:
             for vc in guild.voice_channels:
@@ -60,8 +71,8 @@ class Voice(commands.Cog):
                         self.voice_join_times[member.id] = now
                         continue
                     minutes = _minutes_since(self.voice_join_times[member.id])
-                    if minutes >= VOICE_BLOCK_MINUTES:
-                        pts = (minutes // VOICE_BLOCK_MINUTES) * POINTS_PER_VOICE_BLOCK
+                    if minutes >= block_mins:
+                        pts = (minutes // block_mins) * pts_per_block
                         await self.bot.users_col.update_one(
                             {"user_id": member.id, "guild_id": guild.id},
                             {"$inc": {"points": pts, "voice_minutes": minutes}},

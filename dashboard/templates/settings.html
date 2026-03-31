@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}— Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>⚙️ Settings</h1>
+  <p class="subtitle"><em>changes take effect immediately</em></p>
+</div>
+
+{% if saved %}
+<div class="toast">✅ Settings saved!</div>
+{% endif %}
+
+<form method="POST" action="/settings" class="settings-form">
+
+  <section class="settings-section">
+    <h2>Points Rules</h2>
+
+    <div class="field">
+      <label for="messages_per_point">Messages per point</label>
+      <p class="field-hint">How many messages a member needs to send to earn 1 dream point.</p>
+      <input type="number" id="messages_per_point" name="messages_per_point"
+             value="{{ settings.messages_per_point }}" min="1" max="1000">
+    </div>
+
+    <div class="field">
+      <label for="voice_block_minutes">Voice block (minutes)</label>
+      <p class="field-hint">How many minutes in voice chat earns 1 block of points.</p>
+      <input type="number" id="voice_block_minutes" name="voice_block_minutes"
+             value="{{ settings.voice_block_minutes }}" min="1" max="120">
+    </div>
+
+    <div class="field">
+      <label for="points_per_voice_block">Points per voice block</label>
+      <p class="field-hint">How many dream points are awarded per voice block.</p>
+      <input type="number" id="points_per_voice_block" name="points_per_voice_block"
+             value="{{ settings.points_per_voice_block }}" min="1" max="100">
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <h2>Embed Colours</h2>
+    <p class="section-hint">These colours are used in Discord embeds sent by Reverie.</p>
+
+    <div class="field colour-field">
+      <label for="colour_main">Main colour</label>
+      <p class="field-hint">Used for /points and inventory embeds.</p>
+      <div class="colour-input-wrap">
+        <input type="color" id="colour_main_picker" value="#{{ settings.colour_main }}"
+               oninput="document.getElementById('colour_main').value=this.value.slice(1)">
+        <span>#</span>
+        <input type="text" id="colour_main" name="colour_main"
+               value="{{ settings.colour_main }}" maxlength="6" pattern="[0-9a-fA-F]{6}"
+               oninput="document.getElementById('colour_main_picker').value='#'+this.value">
+      </div>
+    </div>
+
+    <div class="field colour-field">
+      <label for="colour_lb">Leaderboard colour</label>
+      <p class="field-hint">Used for /leaderboard and /shop embeds.</p>
+      <div class="colour-input-wrap">
+        <input type="color" id="colour_lb_picker" value="#{{ settings.colour_lb }}"
+               oninput="document.getElementById('colour_lb').value=this.value.slice(1)">
+        <span>#</span>
+        <input type="text" id="colour_lb" name="colour_lb"
+               value="{{ settings.colour_lb }}" maxlength="6" pattern="[0-9a-fA-F]{6}"
+               oninput="document.getElementById('colour_lb_picker').value='#'+this.value">
+      </div>
+    </div>
+
+    <div class="field colour-field">
+      <label for="colour_confirm">Confirm colour</label>
+      <p class="field-hint">Used for purchase confirmations and success messages.</p>
+      <div class="colour-input-wrap">
+        <input type="color" id="colour_confirm_picker" value="#{{ settings.colour_confirm }}"
+               oninput="document.getElementById('colour_confirm').value=this.value.slice(1)">
+        <span>#</span>
+        <input type="text" id="colour_confirm" name="colour_confirm"
+               value="{{ settings.colour_confirm }}" maxlength="6" pattern="[0-9a-fA-F]{6}"
+               oninput="document.getElementById('colour_confirm_picker').value='#'+this.value">
+      </div>
+    </div>
+  </section>
+
+  <button type="submit" class="btn-save">Save Changes</button>
+</form>
+{% endblock %}

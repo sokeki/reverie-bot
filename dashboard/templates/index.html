@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}— Overview{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Overview</h1>
+    <p class="subtitle"><em>Hypnogogia at a glance</em></p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value">{{ total_members }}</div>
+        <div class="stat-label">Members Tracked</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">✨</div>
+        <div class="stat-value">{{ "{:,}".format(total_points) }}</div>
+        <div class="stat-label">Dream Points Given</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🎙️</div>
+        <div class="stat-value">{{ "{:,}".format(total_voice) }}</div>
+        <div class="stat-label">Voice Minutes Logged</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">💬</div>
+        <div class="stat-value">{{ "{:,}".format(total_messages) }}</div>
+        <div class="stat-label">Messages Sent</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🛒</div>
+        <div class="stat-value">{{ total_items }}</div>
+        <div class="stat-label">Shop Items</div>
+    </div>
+</div>
+
+<div class="info-grid">
+    <div class="info-card">
+        <h2>⚙️ Current Rules</h2>
+        <div class="rule-row">
+            <span class="rule-label">Points per message batch</span>
+            <span class="rule-value">1 pt per {{ settings.messages_per_point }} messages</span>
+        </div>
+        <div class="rule-row">
+            <span class="rule-label">Points per voice block</span>
+            <span class="rule-value">{{ settings.points_per_voice_block }} pt per {{ settings.voice_block_minutes }}
+                min</span>
+        </div>
+        {% if user.is_admin %}
+        <a href="/settings" class="btn-sm">Edit settings →</a>
+        {% endif %}
+    </div>
+
+    <div class="info-card">
+        <h2>🎨 Embed Colours</h2>
+        <div class="colour-row">
+            <span class="colour-swatch" style="background:#{{ settings.colour_main }}">&nbsp;</span>
+            <span>Main</span>
+            <code>#{{ settings.colour_main }}</code>
+        </div>
+        <div class="colour-row">
+            <span class="colour-swatch" style="background:#{{ settings.colour_lb }}">&nbsp;</span>
+            <span>Leaderboard</span>
+            <code>#{{ settings.colour_lb }}</code>
+        </div>
+        <div class="colour-row">
+            <span class="colour-swatch" style="background:#{{ settings.colour_confirm }}">&nbsp;</span>
+            <span>Confirm</span>
+            <code>#{{ settings.colour_confirm }}</code>
+        </div>
+        {% if user.is_admin %}
+        <a href="/settings" class="btn-sm">Edit colours →</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

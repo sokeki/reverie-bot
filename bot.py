@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from motor.motor_asyncio import AsyncIOMotorClient
 
+import os
 from config import (
     BOT_TOKEN,
     MONGO_URI,
@@ -9,6 +10,23 @@ from config import (
     MESSAGES_PER_POINT,
     BOT_NAME,
 )
+
+GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+
+
+async def get_live_settings(bot) -> dict:
+    """Fetch current settings from MongoDB, falling back to config.py defaults."""
+    doc = await bot.settings_col.find_one({"guild_id": GUILD_ID})
+    return {
+        "messages_per_point": (
+            doc.get("messages_per_point", MESSAGES_PER_POINT)
+            if doc
+            else MESSAGES_PER_POINT
+        ),
+        "voice_block_minutes": doc.get("voice_block_minutes", 30) if doc else 30,
+        "points_per_voice_block": doc.get("points_per_voice_block", 1) if doc else 1,
+    }
+
 
 # ── Bot setup ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +60,7 @@ async def on_ready():
     bot.users_col = db["users"]
     bot.items_col = db["shop_items"]
     bot.inv_col = db["inventories"]
+    bot.settings_col = db["guild_settings"]
     await bot.users_col.create_index([("guild_id", 1), ("points", -1)])
     await bot.items_col.create_index([("guild_id", 1), ("name", 1)])
 
@@ -51,7 +70,7 @@ async def on_ready():
 
     # Sync slash commands globally
     synced = await bot.tree.sync()
-    print(f"🌙  {BOT_NAME} online as {bot.user} - {len(synced)} slash commands synced.")
+    print(f"🌙  {BOT_NAME} online as {bot.user} — {len(synced)} slash commands synced.")
 
     await bot.change_presence(
         status=discord.Status.online,
@@ -75,6 +94,8 @@ async def on_ready():
                     {
                         "user_id": member.id,
                         "guild_id": guild.id,
+                        "username": member.display_name,
+                        "avatar_url": str(member.display_avatar.url),
                         "points": 0,
                         "voice_minutes": 0,
                         "messages_sent": 0,
@@ -99,7 +120,11 @@ async def on_message(message: discord.Message):
                 "points": 0,
                 "voice_minutes": 0,
                 "messages_sent": 0,
-            }
+            },
+            "$set": {
+                "username": message.author.display_name,
+                "avatar_url": str(message.author.display_avatar.url),
+            },
         },
         upsert=True,
     )
@@ -109,8 +134,9 @@ async def on_message(message: discord.Message):
         {"$inc": {"messages_sent": 1}},
         return_document=True,
     )
-    # Award 1 point every MESSAGES_PER_POINT messages
-    if result and result.get("messages_sent", 0) % MESSAGES_PER_POINT == 0:
+    # Award 1 point per live messages_per_point setting
+    settings = await get_live_settings(bot)
+    if result and result.get("messages_sent", 0) % settings["messages_per_point"] == 0:
         await bot.users_col.update_one(
             {"user_id": message.author.id, "guild_id": message.guild.id},
             {"$inc": {"points": 1}},
@@ -133,7 +159,11 @@ async def on_member_join(member: discord.Member):
                 "points": 0,
                 "voice_minutes": 0,
                 "messages_sent": 0,
-            }
+            },
+            "$set": {
+                "username": member.display_name,
+                "avatar_url": str(member.display_avatar.url),
+            },
         },
         upsert=True,
     )

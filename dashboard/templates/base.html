@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reverie {% block title %}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+    <div class="grain"></div>
+
+    <nav>
+        <a href="/" class="nav-brand">🌙 Reverie</a>
+        <div class="nav-links">
+            <a href="/" {% if request.url.path=="/" %}class="active" {% endif %}>Overview</a>
+            <a href="/leaderboard" {% if request.url.path=="/leaderboard" %}class="active" {% endif %}>Leaderboard</a>
+            <a href="/shop" {% if request.url.path=="/shop" %}class="active" {% endif %}>Shop</a>
+            {% if user.is_admin %}
+            <a href="/settings" {% if request.url.path=="/settings" %}class="active" {% endif %}>Settings</a>
+            {% endif %}
+        </div>
+        <div class="nav-user">
+            {% if user.avatar %}
+            <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" class="avatar"
+                alt="avatar">
+            {% else %}
+            <div class="avatar-placeholder">{{ user.username[0] }}</div>
+            {% endif %}
+            <span class="username">{{ user.username }}</span>
+            {% if user.is_admin %}<span class="badge">admin</span>{% endif %}
+            <a href="/logout" class="logout">↩</a>
+        </div>
+    </nav>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+</body>
+
+</html>
