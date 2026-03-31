@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import random
 
-from config import COLOUR_MAIN, COLOUR_LB, COLOUR_CONFIRM
+from config import COLOUR_LB
 
 
 # ── Agent data ────────────────────────────────────────────────────────────────
@@ -46,10 +46,10 @@ AGENTS: dict[str, list[str]] = {
 }
 
 ROLE_COLOURS = {
-    "Duelist": 0xFF4655,  # Valorant red
-    "Initiator": 0x4CAF50,  # green
-    "Controller": 0x9C27B0,  # purple
-    "Sentinel": 0x2196F3,  # blue
+    "Duelist": 0xFF4655,
+    "Initiator": 0x4CAF50,
+    "Controller": 0x9C27B0,
+    "Sentinel": 0x2196F3,
 }
 
 ROLE_EMOJIS = {
@@ -57,9 +57,11 @@ ROLE_EMOJIS = {
     "Initiator": "🔍",
     "Controller": "🌫️",
     "Sentinel": "🛡️",
+    "Free Pick": "🎯",
 }
 
 ALL_ROLES = list(AGENTS.keys())
+ALL_AGENTS = [agent for pool in AGENTS.values() for agent in pool]
 
 
 # ── Cog ───────────────────────────────────────────────────────────────────────
@@ -90,13 +92,11 @@ class Valorant(commands.Cog):
         self, interaction: discord.Interaction, role: app_commands.Choice[str] = None
     ):
         if role:
-            pool = AGENTS[role.value]
-            chosen = random.choice(pool)
             role_name = role.value
+            chosen = random.choice(AGENTS[role_name])
         else:
             role_name = random.choice(ALL_ROLES)
-            pool = AGENTS[role_name]
-            chosen = random.choice(pool)
+            chosen = random.choice(AGENTS[role_name])
 
         embed = discord.Embed(
             title=f"{ROLE_EMOJIS[role_name]}  {chosen}",
@@ -114,7 +114,7 @@ class Valorant(commands.Cog):
 
         embed = discord.Embed(
             title=f"{ROLE_EMOJIS[role]}  {role}",
-            description=f"*your role for this round*",
+            description="*your role for this round*",
             color=ROLE_COLOURS[role],
         )
         embed.set_footer(text="Reverie  •  Hypnogogia")
@@ -131,6 +131,7 @@ class Valorant(commands.Cog):
         player3="Player 3",
         player4="Player 4",
         player5="Player 5",
+        roll_agents="Also roll a random agent for each player",
     )
     async def randomcomp(
         self,
@@ -140,35 +141,44 @@ class Valorant(commands.Cog):
         player3: discord.Member,
         player4: discord.Member,
         player5: discord.Member,
+        roll_agents: bool = False,
     ):
         players = [player1, player2, player3, player4, player5]
         random.shuffle(players)
 
-        # Assign roles — 4 fixed + 1 free pick
-        fixed_roles = ALL_ROLES.copy()
-        assignments = {}
-        for i, role in enumerate(fixed_roles):
+        role_order = ["Duelist", "Initiator", "Controller", "Sentinel", "Free Pick"]
+
+        # Assign roles
+        assignments: dict[str, discord.Member] = {}
+        for i, role in enumerate(ALL_ROLES):
             assignments[role] = players[i]
         assignments["Free Pick"] = players[4]
 
-        # Build ping list for the message content so players get notified
+        # Optionally roll agents
+        rolled_agents: dict[str, str] = {}
+        if roll_agents:
+            for role in ALL_ROLES:
+                rolled_agents[role] = random.choice(AGENTS[role])
+            rolled_agents["Free Pick"] = random.choice(ALL_AGENTS)
+
+        # Build one line per role
+        lines = []
+        for role in role_order:
+            emoji = ROLE_EMOJIS[role]
+            member = assignments[role].mention
+            if roll_agents:
+                agent = rolled_agents[role]
+                lines.append(f"{emoji} **{role}** — {member}  ›  *{agent}*")
+            else:
+                lines.append(f"{emoji} **{role}** — {member}")
+
         pings = " ".join(p.mention for p in players)
 
         embed = discord.Embed(
             title="🎲 Random Team Comp",
-            description="*roles have been assigned — good luck!*",
+            description="\n".join(lines),
             color=COLOUR_LB,
         )
-
-        role_order = ["Duelist", "Initiator", "Controller", "Sentinel", "Free Pick"]
-        for role in role_order:
-            emoji = ROLE_EMOJIS.get(role, "🎯")
-            embed.add_field(
-                name=f"{emoji}  {role}",
-                value=assignments[role].mention,
-                inline=True,
-            )
-
         embed.set_footer(text="Reverie  •  Hypnogogia")
         await interaction.response.send_message(content=pings, embed=embed)
 
