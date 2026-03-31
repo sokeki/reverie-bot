@@ -26,6 +26,7 @@ COGS = [
     "cogs.admin",
     "cogs.voice",
     "cogs.shop",
+    "cogs.valorant",
 ]
 
 
