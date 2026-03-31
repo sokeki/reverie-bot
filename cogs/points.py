@@ -31,9 +31,9 @@ class Points(commands.Cog):
         active_title = inv_doc.get("active_title") if inv_doc else None
 
         description = (
-            f"*{active_title}*\n*drifting through hypnogogia, one dream at a time...*"
+            f"*{active_title}*\n*drifting through hypnagogia, one dream at a time...*"
             if active_title
-            else "*drifting through hypnogogia, one dream at a time...*"
+            else "*drifting through hypnagogia, one dream at a time...*"
         )
 
         embed = discord.Embed(
@@ -51,7 +51,7 @@ class Points(commands.Cog):
             name="💬 Messages Sent", value=f"`{doc['messages_sent']:,}`", inline=True
         )
         embed.set_thumbnail(url=target.display_avatar.url)
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  hypnagogia")
         await interaction.response.send_message(embed=embed)
 
 

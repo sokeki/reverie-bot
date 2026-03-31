@@ -98,7 +98,7 @@ class RoleRemoverSelect(discord.ui.Select):
             description=f"The **{role.name}** role has been removed from your profile.",
             color=COLOUR_CONFIRM,
         )
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  hypnagogia")
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -268,7 +268,7 @@ class Shop(commands.Cog):
             ),
             color=colour,
         )
-        embed.set_footer(text="Use /buy to purchase  •  Reverie  •  Hypnogogia")
+        embed.set_footer(text="Use /buy to purchase  •  Reverie  •  hypnagogia")
         await interaction.response.send_message(embed=embed)
 
     # ── /buy ──────────────────────────────────────────────────────────────────
@@ -362,7 +362,7 @@ class Shop(commands.Cog):
         )
         if shop_item["type"] == "role_remover":
             embed.description += "\n\nUse `/removerole` to use it and remove one of your purchased roles."
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  hypnagogia")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /removerole ───────────────────────────────────────────────────────────
@@ -459,7 +459,7 @@ class Shop(commands.Cog):
             if any(i["type"] == "title" for i in inventory):
                 embed.set_footer(text="Use /settitle <n> to equip a title  •  Reverie")
             else:
-                embed.set_footer(text="Reverie  •  Hypnogogia")
+                embed.set_footer(text="Reverie  •  hypnagogia")
 
         await interaction.response.send_message(embed=embed)
 

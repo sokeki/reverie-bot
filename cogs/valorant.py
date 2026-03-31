@@ -103,7 +103,7 @@ class Valorant(commands.Cog):
             description=f"**Role:** {role_name}",
             color=ROLE_COLOURS[role_name],
         )
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  hypnagogia")
         await interaction.response.send_message(embed=embed)
 
     # ── /randomrole ───────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ class Valorant(commands.Cog):
             description="*your role for this round*",
             color=ROLE_COLOURS[role],
         )
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  hypnagogia")
         await interaction.response.send_message(embed=embed)
 
     # ── /randomcomp ───────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ class Valorant(commands.Cog):
             description="\n".join(lines),
             color=COLOUR_LB,
         )
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  hypnagogia")
         await interaction.response.send_message(content=pings, embed=embed)
 
 
