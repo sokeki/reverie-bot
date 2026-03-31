@@ -6,6 +6,9 @@ from config import COLOUR_MAIN
 from utils.db import get_user
 from utils.ranks import get_rank
 
+# Invisible spacer for Discord embed column alignment
+_BLANK = "\u200b"
+
 
 class Points(commands.Cog):
     """Handles the /points slash command."""
@@ -25,15 +28,19 @@ class Points(commands.Cog):
         users_col = self.bot.users_col
         doc = await get_user(users_col, target.id, interaction.guild_id)
 
-        # Fetch active title from inventory
+        # Fetch active title
         inv_doc = await self.bot.inv_col.find_one(
             {"user_id": target.id, "guild_id": interaction.guild_id}
         )
         active_title = inv_doc.get("active_title") if inv_doc else None
 
-        # Calculate rank based on voice minutes + messages sent
+        # Rank
         activity_score = doc.get("voice_minutes", 0) + doc.get("messages_sent", 0)
         rank = get_rank(activity_score)
+
+        # Streak
+        streak = doc.get("streak", 0)
+        best_streak = doc.get("streak_best", 0)
 
         description = (
             f"*{active_title}*"
@@ -42,55 +49,66 @@ class Points(commands.Cog):
         )
 
         embed = discord.Embed(
-            title=f"🌙 {target.display_name}'s Reverie",
+            title=f"🌙  {target.display_name}",
             description=description,
             color=COLOUR_MAIN,
         )
+
+        # ── Row 1: three stats — always fills a clean 3-column row ───────────
         embed.add_field(
-            name="✨ Dream Points", value=f"`{doc['points']:,}`", inline=True
-        )
-        embed.add_field(
-            name="🎙️ Voice Time",
-            value=f"`{_fmt_voice(doc.get('voice_minutes', 0))}`",
+            name="✨  Dream Points",
+            value=f"```{doc['points']:,}```",
             inline=True,
         )
         embed.add_field(
-            name="💬 Messages Sent", value=f"`{doc['messages_sent']:,}`", inline=True
+            name="🎙️  Voice Time",
+            value=f"```{_fmt_voice(doc.get('voice_minutes', 0))}```",
+            inline=True,
+        )
+        embed.add_field(
+            name="💬  Messages",
+            value=f"```{doc.get('messages_sent', 0):,}```",
+            inline=True,
         )
 
-        # Rank field
-        rank_display = f"{rank['symbol']}  {rank['name']}"
+        # ── Divider ───────────────────────────────────────────────────────────
+        embed.add_field(name=_BLANK, value="▸  **Rank & Activity**", inline=False)
+
+        # ── Row 2: rank (full width) ──────────────────────────────────────────
         progress_bar = _progress_bar(rank["progress_pct"])
-        rank_value = (
-            f"`{rank_display}`\n"
-            f"{progress_bar} `{rank['progress_pct']}%`\n"
-            f"*{rank['points_to_next']:,} until {rank['next_symbol']} {rank['next_name']}*"
+        embed.add_field(
+            name=f"🏅  {rank['symbol']}  {rank['name']}",
+            value=(
+                f"{progress_bar}  `{rank['progress_pct']}%`\n"
+                f"-# *{rank['points_to_next']:,} until  {rank['next_symbol']}  {rank['next_name']}*"
+            ),
+            inline=True,
         )
-        embed.add_field(name="🏅 Rank", value=rank_value, inline=False)
 
-        # Streak field
-        streak = doc.get("streak", 0)
-        best_streak = doc.get("streak_best", 0)
+        # ── Row 3: streak + spacer to keep layout clean ───────────────────────
         if streak > 0:
-            flame = "🔥" * min(streak // 7 + 1, 5)  # more flames every 7 days, max 5
+            flame = "🔥" * min(streak // 7 + 1, 5)
             plural = "s" if streak != 1 else ""
-            streak_val = f"`{streak} day{plural}` {flame}\n*best: {best_streak} days*"
+            streak_val = (
+                f"```{streak} day{plural}```{flame}\n-# *best: {best_streak} days*"
+            )
         else:
-            streak_val = "*no active streak yet*"
-        embed.add_field(name="📅 Streak", value=streak_val, inline=False)
+            streak_val = f"```0 days```\n-# *start chatting to begin a streak!*"
+
+        embed.add_field(name="📅  Streak", value=streak_val, inline=True)
+        embed.add_field(name=_BLANK, value=_BLANK, inline=True)  # spacer
 
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.send_message(embed=embed)
 
 
-def _progress_bar(pct: int, length: int = 10) -> str:
+def _progress_bar(pct: int, length: int = 12) -> str:
     filled = round(pct / 100 * length)
     return "█" * filled + "░" * (length - filled)
 
 
 def _fmt_voice(minutes: int) -> str:
-    """Convert minutes to a human-readable hours/minutes string."""
     if minutes < 60:
         return f"{minutes}m"
     h, m = divmod(minutes, 60)
