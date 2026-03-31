@@ -237,18 +237,48 @@ async def index(request: Request, user: dict = Depends(require_user)):
 
 @app.get("/leaderboard", response_class=HTMLResponse)
 async def leaderboard(request: Request, user: dict = Depends(require_user)):
+    sort_param = request.query_params.get("sort", "points")
+    sort_map = {
+        "points": "points",
+        "rank": "voice_minutes",  # activity score proxy
+        "voice": "voice_minutes",
+        "messages": "messages_sent",
+    }
+    db_field = sort_map.get(sort_param, "points")
+
     docs = (
         await users_col.find({"guild_id": GUILD_ID})
-        .sort("points", -1)
+        .sort(db_field, -1)
         .limit(25)
         .to_list(length=25)
     )
+
+    # For rank, sort by combined activity score
+    if sort_param == "rank":
+        docs.sort(
+            key=lambda d: d.get("voice_minutes", 0) + d.get("messages_sent", 0),
+            reverse=True,
+        )
+
+    # Add computed rank and formatted voice time to each doc
+    from utils.ranks import get_rank as _get_rank
+
+    for doc in docs:
+        score = doc.get("voice_minutes", 0) + doc.get("messages_sent", 0)
+        r = _get_rank(score)
+        doc["rank_symbol"] = r["symbol"]
+        doc["rank_name"] = r["name"]
+        mins = doc.get("voice_minutes", 0)
+        h, m = divmod(mins, 60)
+        doc["voice_fmt"] = f"{h}h {m}m" if h else f"{m}m"
+
     return templates.TemplateResponse(
         "leaderboard.html",
         {
             "request": request,
             "user": user,
             "members": docs,
+            "sort": sort_param,
         },
     )
 

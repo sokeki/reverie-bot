@@ -50,7 +50,9 @@ class Points(commands.Cog):
             name="✨ Dream Points", value=f"`{doc['points']:,}`", inline=True
         )
         embed.add_field(
-            name="🎙️ Voice Minutes", value=f"`{doc['voice_minutes']:,}`", inline=True
+            name="🎙️ Voice Time",
+            value=f"`{_fmt_voice(doc.get('voice_minutes', 0))}`",
+            inline=True,
         )
         embed.add_field(
             name="💬 Messages Sent", value=f"`{doc['messages_sent']:,}`", inline=True
@@ -74,6 +76,14 @@ class Points(commands.Cog):
 def _progress_bar(pct: int, length: int = 10) -> str:
     filled = round(pct / 100 * length)
     return "█" * filled + "░" * (length - filled)
+
+
+def _fmt_voice(minutes: int) -> str:
+    """Convert minutes to a human-readable hours/minutes string."""
+    if minutes < 60:
+        return f"{minutes}m"
+    h, m = divmod(minutes, 60)
+    return f"{h}h {m}m" if m else f"{h}h"
 
 
 async def setup(bot: commands.Bot):

@@ -833,3 +833,56 @@ body.login-page {
     color: #e06c75;
     background: rgba(224, 108, 117, 0.1);
 }
+
+/* ── Leaderboard sort controls ───────────────────────────────────────────── */
+.lb-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.lb-sort-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+}
+
+.lb-sort-pills {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.sort-pill {
+    font-size: 0.82rem;
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+    letter-spacing: 0.02em;
+}
+
+.sort-pill:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.sort-pill.active {
+    border-color: var(--accent);
+    background: rgba(155, 142, 196, 0.12);
+    color: var(--accent);
+}
+
+/* ── Rank cell ───────────────────────────────────────────────────────────── */
+.rank-cell {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.greek-sym {
+    font-size: 1rem;
+    color: var(--accent);
+}
