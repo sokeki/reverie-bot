@@ -101,8 +101,13 @@ async def is_guild_admin(token: str) -> bool:
 # ── OAuth routes ──────────────────────────────────────────────────────────────
 
 
-@app.get("/login")
-async def login():
+@app.get("/login", response_class=HTMLResponse)
+async def login(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/auth")
+async def auth():
     oauth_url = (
         "https://discord.com/oauth2/authorize"
         f"?client_id={DISCORD_CLIENT_ID}"
