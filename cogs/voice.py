@@ -13,7 +13,7 @@ class Voice(commands.Cog):
     """Tracks voice channel time and awards points."""
 
     def __init__(self, bot: commands.Bot):
-        self.bot             = bot
+        self.bot = bot
         self.voice_join_times: dict[int, datetime] = {}
         self.voice_point_ticker.start()
 
@@ -21,20 +21,25 @@ class Voice(commands.Cog):
         self.voice_point_ticker.cancel()
 
     @commands.Cog.listener()
-    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ):
         if member.bot:
             return
 
         joined = after.channel is not None and before.channel is None
-        left   = after.channel is None and before.channel is not None
+        left = after.channel is None and before.channel is not None
 
         if joined:
             self.voice_join_times[member.id] = datetime.utcnow()
 
         elif left and member.id in self.voice_join_times:
             minutes = _minutes_since(self.voice_join_times.pop(member.id))
-            pts     = (minutes // VOICE_BLOCK_MINUTES) * POINTS_PER_VOICE_BLOCK
-            update  = {"$inc": {"voice_minutes": minutes}}
+            pts = (minutes // VOICE_BLOCK_MINUTES) * POINTS_PER_VOICE_BLOCK
+            update = {"$inc": {"voice_minutes": minutes}}
             if pts:
                 update["$inc"]["points"] = pts
             await self.bot.users_col.update_one(

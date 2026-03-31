@@ -168,9 +168,9 @@ class Valorant(commands.Cog):
             member = assignments[role].mention
             if roll_agents:
                 agent = rolled_agents[role]
-                lines.append(f"{emoji} **{role}** — {member}  ›  *{agent}*")
+                lines.append(f"{emoji} **{role}** - {member}  ›  *{agent}*")
             else:
-                lines.append(f"{emoji} **{role}** — {member}")
+                lines.append(f"{emoji} **{role}** - {member}")
 
         pings = " ".join(p.mention for p in players)
 

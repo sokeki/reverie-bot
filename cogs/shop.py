@@ -143,7 +143,7 @@ def _build_shop_embed(
             if role and role.colour.value:
                 colour_str = f"  •  🎨 `#{role.colour.value:06X}`"
         embed.add_field(
-            name=f"{item['name']}  —  ✨ {item['cost']:,} pts",
+            name=f"{item['name']}  -  ✨ {item['cost']:,} pts",
             value=f"{label}{colour_str}  •  {item.get('description', 'no description')}",
             inline=False,
         )
@@ -194,7 +194,7 @@ class ShopView(discord.ui.View):
 
 
 class Shop(commands.Cog):
-    """Dream shop — spend your points on roles and titles."""
+    """Dream shop - spend your points on roles and titles."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -242,7 +242,7 @@ class Shop(commands.Cog):
 
         if shop_item["type"] != "role":
             await interaction.response.send_message(
-                f"**{shop_item['name']}** is not a role — no colour to preview!",
+                f"**{shop_item['name']}** is not a role - no colour to preview!",
                 ephemeral=True,
             )
             return
@@ -259,7 +259,7 @@ class Shop(commands.Cog):
         hex_str = f"#{role.colour.value:06X}" if role.colour.value else "No colour set"
 
         embed = discord.Embed(
-            title=f"🎨 Role Preview — {role.name}",
+            title=f"🎨 Role Preview - {role.name}",
             description=(
                 f"The sidebar on the left shows the exact colour of this role.\n\n"
                 f"🎨 Colour: `{hex_str}`\n"
@@ -290,7 +290,7 @@ class Shop(commands.Cog):
             self.inv_col, interaction.user.id, interaction.guild_id
         )
 
-        # Role removers are consumable — can own multiple, so skip duplicate check
+        # Role removers are consumable - can own multiple, so skip duplicate check
         if shop_item["type"] != "role_remover":
             if any(i["name"].lower() == shop_item["name"].lower() for i in inventory):
                 await interaction.followup.send(
@@ -339,7 +339,7 @@ class Shop(commands.Cog):
                     {"$inc": {"points": shop_item["cost"]}},
                 )
                 await interaction.followup.send(
-                    "⚠️ I don't have permission to assign that role. Points have been refunded — please let an admin know!",
+                    "⚠️ I don't have permission to assign that role. Points have been refunded - please let an admin know!",
                     ephemeral=True,
                 )
                 return
@@ -442,7 +442,7 @@ class Shop(commands.Cog):
 
         if not inventory:
             embed.description = (
-                "*nothing here yet — visit the `/shop` to spend your dream points!*"
+                "*nothing here yet - visit the `/shop` to spend your dream points!*"
             )
         else:
             active_title = await self._get_active_title(target.id, interaction.guild_id)
@@ -598,7 +598,7 @@ class Shop(commands.Cog):
         new_name="New name for the item (leave empty to keep current)",
         new_cost="New point cost (leave empty to keep current)",
         new_description="New description (leave empty to keep current)",
-        new_role="New role to grant — role items only (leave empty to keep current)",
+        new_role="New role to grant - role items only (leave empty to keep current)",
     )
     @app_commands.default_permissions(administrator=True)
     async def edititem(
