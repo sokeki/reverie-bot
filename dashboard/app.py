@@ -117,11 +117,9 @@ async def login():
 async def callback(request: Request, code: str = None, error: str = None):
     # Discord sends ?error= if the user denied access
     if error:
-        print(f"[OAuth] Discord returned error: {error}")
         return RedirectResponse("/login")
 
     if not code:
-        print("[OAuth] No code received in callback")
         raise HTTPException(status_code=400, detail="No code received")
 
     try:
@@ -138,17 +136,14 @@ async def callback(request: Request, code: str = None, error: str = None):
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         token_data = token_resp.json()
-        print(f"[OAuth] Token response: {token_data}")
 
         access_token = token_data.get("access_token")
         if not access_token:
             raise HTTPException(status_code=400, detail=f"OAuth failed: {token_data}")
 
         user = await fetch_discord(access_token, "/users/@me")
-        print(f"[OAuth] User: {user.get('username')} ({user.get('id')})")
 
         is_admin = await is_guild_admin(access_token)
-        print(f"[OAuth] is_admin: {is_admin}")
 
         request.session["user"] = {
             "id": user["id"],
@@ -161,7 +156,6 @@ async def callback(request: Request, code: str = None, error: str = None):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[OAuth] Unexpected error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

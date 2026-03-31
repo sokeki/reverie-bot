@@ -80,29 +80,35 @@ async def on_ready():
         ),
     )
 
-    # Pre-populate all existing server members
+    # Pre-populate all existing server members and always refresh username/avatar
     added = 0
+    updated = 0
     for guild in bot.guilds:
         for member in guild.members:
             if member.bot:
                 continue
-            existing = await bot.users_col.find_one(
-                {"user_id": member.id, "guild_id": guild.id}
-            )
-            if existing is None:
-                await bot.users_col.insert_one(
-                    {
+            result = await bot.users_col.update_one(
+                {"user_id": member.id, "guild_id": guild.id},
+                {
+                    "$setOnInsert": {
                         "user_id": member.id,
                         "guild_id": guild.id,
-                        "username": member.display_name,
-                        "avatar_url": str(member.display_avatar.url),
                         "points": 0,
                         "voice_minutes": 0,
                         "messages_sent": 0,
-                    }
-                )
+                    },
+                    "$set": {
+                        "username": member.display_name,
+                        "avatar_url": str(member.display_avatar.url),
+                    },
+                },
+                upsert=True,
+            )
+            if result.upserted_id:
                 added += 1
-    print(f"✨  Pre-populated {added} new member(s) into the DB.")
+            else:
+                updated += 1
+    print(f"✨  Pre-populated {added} new and refreshed {updated} existing member(s).")
 
 
 @bot.event
