@@ -4,6 +4,7 @@ from discord.ext import commands
 
 from config import COLOUR_MAIN
 from utils.db import get_user
+from utils.ranks import get_rank
 
 
 class Points(commands.Cog):
@@ -30,10 +31,13 @@ class Points(commands.Cog):
         )
         active_title = inv_doc.get("active_title") if inv_doc else None
 
+        # Calculate rank based on voice minutes + messages sent
+        activity_score = doc.get("voice_minutes", 0) + doc.get("messages_sent", 0)
+        rank = get_rank(activity_score)
+
+        title_line = f"*{active_title}*\n" if active_title else ""
         description = (
-            f"*{active_title}*\n*drifting through hypnagogia, one dream at a time...*"
-            if active_title
-            else "*drifting through hypnagogia, one dream at a time...*"
+            f"{title_line}" f"*drifting through hypnagogia, one dream at a time...*"
         )
 
         embed = discord.Embed(
@@ -50,9 +54,25 @@ class Points(commands.Cog):
         embed.add_field(
             name="💬 Messages Sent", value=f"`{doc['messages_sent']:,}`", inline=True
         )
+
+        # Rank field
+        rank_display = f"{rank['symbol']}  {rank['name']}"
+        progress_bar = _progress_bar(rank["progress_pct"])
+        rank_value = (
+            f"`{rank_display}`\n"
+            f"{progress_bar} `{rank['progress_pct']}%`\n"
+            f"*{rank['points_to_next']:,} until {rank['next_symbol']} {rank['next_name']}*"
+        )
+        embed.add_field(name="🏅 Rank", value=rank_value, inline=False)
+
         embed.set_thumbnail(url=target.display_avatar.url)
-        embed.set_footer(text="Reverie  •  hypnagogia")
+        embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.send_message(embed=embed)
+
+
+def _progress_bar(pct: int, length: int = 10) -> str:
+    filled = round(pct / 100 * length)
+    return "█" * filled + "░" * (length - filled)
 
 
 async def setup(bot: commands.Bot):

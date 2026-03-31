@@ -1,3 +1,4 @@
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -7,12 +8,16 @@ from config import COLOUR_MAIN, COLOUR_LB, COLOUR_CONFIRM
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+CUSTOM_TITLE_MAX_LEN = 32
+CUSTOM_TITLE_PATTERN = re.compile(r"^[a-zA-Z0-9 '\-!?.]+$")
+
 
 def _item_type_label(item_type: str) -> str:
     return {
         "role": "🎭 Role",
         "title": "✨ Title",
         "role_remover": "🗑️ Role Remover",
+        "custom_title": "🖊️ Custom Title",
     }.get(item_type, item_type.capitalize())
 
 
@@ -98,7 +103,7 @@ class RoleRemoverSelect(discord.ui.Select):
             description=f"The **{role.name}** role has been removed from your profile.",
             color=COLOUR_CONFIRM,
         )
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -268,7 +273,7 @@ class Shop(commands.Cog):
             ),
             color=colour,
         )
-        embed.set_footer(text="Use /buy to purchase  •  Reverie  •  Hypnogogia")
+        embed.set_footer(text="Use /buy to purchase  •  Reverie  •  Hypnagogia")
         await interaction.response.send_message(embed=embed)
 
     # ── /buy ──────────────────────────────────────────────────────────────────
@@ -362,7 +367,9 @@ class Shop(commands.Cog):
         )
         if shop_item["type"] == "role_remover":
             embed.description += "\n\nUse `/removerole` to use it and remove one of your purchased roles."
-        embed.set_footer(text="Reverie  •  Hypnogogia")
+        elif shop_item["type"] == "custom_title":
+            embed.description += "\n\nUse `/setcustomtitle` to set your custom title. It will consume this item."
+        embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ── /removerole ───────────────────────────────────────────────────────────
@@ -459,7 +466,7 @@ class Shop(commands.Cog):
             if any(i["type"] == "title" for i in inventory):
                 embed.set_footer(text="Use /settitle <n> to equip a title  •  Reverie")
             else:
-                embed.set_footer(text="Reverie  •  Hypnogogia")
+                embed.set_footer(text="Reverie  •  Hypnagogia")
 
         await interaction.response.send_message(embed=embed)
 
@@ -520,6 +527,7 @@ class Shop(commands.Cog):
             app_commands.Choice(name="Role", value="role"),
             app_commands.Choice(name="Title", value="title"),
             app_commands.Choice(name="Role Remover", value="role_remover"),
+            app_commands.Choice(name="Custom Title", value="custom_title"),
         ]
     )
     @app_commands.default_permissions(administrator=True)
@@ -660,6 +668,63 @@ class Shop(commands.Cog):
             f"✅ **{name}** updated:{chr(10)}{bullet_list}",
             ephemeral=True,
         )
+
+    # ── /setcustomtitle ───────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="setcustomtitle",
+        description="Use a custom title item to set your own unique title",
+    )
+    @app_commands.describe(
+        title="Your custom title (max 32 characters, letters/numbers/spaces only)"
+    )
+    async def setcustomtitle(self, interaction: discord.Interaction, title: str):
+        # Validate length
+        if len(title) > CUSTOM_TITLE_MAX_LEN:
+            await interaction.response.send_message(
+                f"⚠️ Title must be **{CUSTOM_TITLE_MAX_LEN} characters or fewer** (yours is {len(title)}).",
+                ephemeral=True,
+            )
+            return
+
+        # Validate characters
+        if not CUSTOM_TITLE_PATTERN.match(title):
+            await interaction.response.send_message(
+                "⚠️ Title can only contain letters, numbers, spaces, and these characters: `' - ! ? .`",
+                ephemeral=True,
+            )
+            return
+
+        # Check they own a custom title item
+        inventory = await _get_inventory(
+            self.inv_col, interaction.user.id, interaction.guild_id
+        )
+        custom_item = next((i for i in inventory if i["type"] == "custom_title"), None)
+        if not custom_item:
+            await interaction.response.send_message(
+                "*you don't own a Custom Title item.* Pick one up in the `/shop`! 🛒",
+                ephemeral=True,
+            )
+            return
+
+        # Consume the item and set the title
+        await self.inv_col.update_one(
+            {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
+            {
+                "$pull": {
+                    "items": {"type": "custom_title", "name": custom_item["name"]}
+                },
+                "$set": {"active_title": title},
+            },
+        )
+
+        embed = discord.Embed(
+            title="🖊️ Custom Title Set",
+            description=f"Your title is now **{title}**. It will show on your `/points` profile!",
+            color=COLOUR_CONFIRM,
+        )
+        embed.set_footer(text="Buy another Custom Title item to change it  •  Reverie")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── Internal helper ───────────────────────────────────────────────────────
 
