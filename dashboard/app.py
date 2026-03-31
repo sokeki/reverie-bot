@@ -1,5 +1,6 @@
 import os
 import httpx
+from urllib.parse import quote
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,13 +23,6 @@ SECRET_KEY = os.getenv("DASHBOARD_SECRET_KEY", "change-me-in-production")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 DISCORD_API = "https://discord.com/api/v10"
-OAUTH_URL = (
-    f"https://discord.com/oauth2/authorize"
-    f"?client_id={DISCORD_CLIENT_ID}"
-    f"&redirect_uri={DISCORD_REDIRECT_URI}"
-    f"&response_type=code"
-    f"&scope=identify+guilds.members.read"
-)
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI()
@@ -109,38 +103,66 @@ async def is_guild_admin(token: str) -> bool:
 
 @app.get("/login")
 async def login():
-    return RedirectResponse(OAUTH_URL)
+    oauth_url = (
+        "https://discord.com/oauth2/authorize"
+        f"?client_id={DISCORD_CLIENT_ID}"
+        f"&redirect_uri={quote(DISCORD_REDIRECT_URI, safe='')}"
+        "&response_type=code"
+        "&scope=identify+guilds.members.read"
+    )
+    return RedirectResponse(oauth_url, status_code=302)
 
 
 @app.get("/callback")
-async def callback(request: Request, code: str):
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            f"{DISCORD_API}/oauth2/token",
-            data={
-                "client_id": DISCORD_CLIENT_ID,
-                "client_secret": DISCORD_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": DISCORD_REDIRECT_URI,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-    token_data = token_resp.json()
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=400, detail="OAuth failed")
+async def callback(request: Request, code: str = None, error: str = None):
+    # Discord sends ?error= if the user denied access
+    if error:
+        print(f"[OAuth] Discord returned error: {error}")
+        return RedirectResponse("/login")
 
-    user = await fetch_discord(access_token, "/users/@me")
-    is_admin = await is_guild_admin(access_token)
+    if not code:
+        print("[OAuth] No code received in callback")
+        raise HTTPException(status_code=400, detail="No code received")
 
-    request.session["user"] = {
-        "id": user["id"],
-        "username": user["username"],
-        "avatar": user.get("avatar"),
-        "is_admin": is_admin,
-    }
-    return RedirectResponse("/")
+    try:
+        async with httpx.AsyncClient() as client:
+            token_resp = await client.post(
+                f"{DISCORD_API}/oauth2/token",
+                data={
+                    "client_id": DISCORD_CLIENT_ID,
+                    "client_secret": DISCORD_CLIENT_SECRET,
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": DISCORD_REDIRECT_URI,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        token_data = token_resp.json()
+        print(f"[OAuth] Token response: {token_data}")
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail=f"OAuth failed: {token_data}")
+
+        user = await fetch_discord(access_token, "/users/@me")
+        print(f"[OAuth] User: {user.get('username')} ({user.get('id')})")
+
+        is_admin = await is_guild_admin(access_token)
+        print(f"[OAuth] is_admin: {is_admin}")
+
+        request.session["user"] = {
+            "id": user["id"],
+            "username": user["username"],
+            "avatar": user.get("avatar"),
+            "is_admin": is_admin,
+        }
+        return RedirectResponse("/", status_code=302)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[OAuth] Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/logout")
