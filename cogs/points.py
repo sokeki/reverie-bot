@@ -95,8 +95,8 @@ class Points(commands.Cog):
         else:
             streak_val = f"```0 days```\n-# *start chatting to begin a streak!*"
 
-        embed.add_field(name="📅  Streak", value=streak_val, inline=True)
         embed.add_field(name=_BLANK, value=_BLANK, inline=True)  # spacer
+        embed.add_field(name="📅  Streak", value=streak_val, inline=True)
 
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.set_footer(text="Reverie  •  Hypnagogia")
