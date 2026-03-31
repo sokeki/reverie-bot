@@ -688,3 +688,148 @@ body.login-page {
     font-size: 1rem;
     color: var(--text);
 }
+
+/* ── Shop admin panels ───────────────────────────────────────────────────── */
+.colour-pill {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 20px;
+    color: #fff;
+    mix-blend-mode: normal;
+    filter: brightness(1.1);
+    letter-spacing: 0.03em;
+}
+
+.edit-panel {
+    margin-top: 0.75rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+}
+
+.edit-panel summary {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    letter-spacing: 0.03em;
+    list-style: none;
+}
+
+.edit-panel summary::-webkit-details-marker {
+    display: none;
+}
+
+.edit-panel summary:hover {
+    color: var(--text);
+}
+
+.edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 0.75rem;
+}
+
+.field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.field-row label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    min-width: 80px;
+    flex-shrink: 0;
+}
+
+.field-row input[type="text"],
+.field-row input[type="number"],
+.field-row select {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    padding: 0.35rem 0.6rem;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.field-row input:focus,
+.field-row select:focus {
+    border-color: var(--accent);
+}
+
+.field-row select option {
+    background: var(--bg3);
+}
+
+.req {
+    color: var(--accent);
+}
+
+.edit-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.btn-edit-save {
+    background: var(--accent2);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-edit-save:hover {
+    background: var(--accent);
+}
+
+.btn-delete {
+    background: transparent;
+    color: #e06c75;
+    border: 1px solid rgba(224, 108, 117, 0.3);
+    border-radius: 6px;
+    padding: 0.4rem 1rem;
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    margin-top: 0.4rem;
+    width: 100%;
+}
+
+.btn-delete:hover {
+    background: rgba(224, 108, 117, 0.1);
+    border-color: #e06c75;
+}
+
+.add-card {
+    border-style: dashed;
+    border-color: rgba(155, 142, 196, 0.25);
+}
+
+.add-card:hover {
+    border-color: var(--accent);
+}
+
+.toast-warn {
+    border-color: #e5c07b;
+    color: #e5c07b;
+    background: rgba(229, 192, 123, 0.1);
+}
+
+.toast-error {
+    border-color: #e06c75;
+    color: #e06c75;
+    background: rgba(224, 108, 117, 0.1);
+}

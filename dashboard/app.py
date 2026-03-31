@@ -238,14 +238,88 @@ async def shop(request: Request, user: dict = Depends(require_user)):
         .sort("cost", -1)
         .to_list(length=100)
     )
+    # Convert ObjectId to str for template use
+    for item in items:
+        item["_id"] = str(item["_id"])
     return templates.TemplateResponse(
         "shop.html",
         {
             "request": request,
             "user": user,
             "items": items,
+            "saved": request.query_params.get("saved"),
+            "deleted": request.query_params.get("deleted"),
+            "error": request.query_params.get("error"),
         },
     )
+
+
+@app.post("/shop/add")
+async def shop_add(request: Request, user: dict = Depends(require_admin)):
+    from bson import ObjectId
+
+    form = await request.form()
+    name = form.get("name", "").strip()
+    item_type = form.get("type", "title")
+    cost = int(form.get("cost", 0))
+    desc = form.get("description", "no description").strip()
+
+    if not name:
+        return RedirectResponse("/shop?error=Name+is+required", status_code=303)
+
+    existing = await items_col.find_one(
+        {"guild_id": GUILD_ID, "name": {"$regex": f"^{name}$", "$options": "i"}}
+    )
+    if existing:
+        return RedirectResponse(
+            "/shop?error=An+item+with+that+name+already+exists", status_code=303
+        )
+
+    doc = {
+        "guild_id": GUILD_ID,
+        "name": name,
+        "type": item_type,
+        "cost": cost,
+        "description": desc,
+    }
+    if item_type == "role":
+        colour = form.get("role_colour", "").lstrip("#").strip()
+        doc["role_colour"] = colour if colour else None
+
+    await items_col.insert_one(doc)
+    return RedirectResponse("/shop?saved=1", status_code=303)
+
+
+@app.post("/shop/edit/{item_id}")
+async def shop_edit(
+    item_id: str, request: Request, user: dict = Depends(require_admin)
+):
+    from bson import ObjectId
+
+    form = await request.form()
+    changes = {}
+    if form.get("name"):
+        changes["name"] = form.get("name").strip()
+    if form.get("cost"):
+        changes["cost"] = int(form.get("cost"))
+    if form.get("description"):
+        changes["description"] = form.get("description").strip()
+    if form.get("role_colour") is not None:
+        changes["role_colour"] = form.get("role_colour").lstrip("#").strip() or None
+
+    if changes:
+        await items_col.update_one({"_id": ObjectId(item_id)}, {"$set": changes})
+    return RedirectResponse("/shop?saved=1", status_code=303)
+
+
+@app.post("/shop/delete/{item_id}")
+async def shop_delete(
+    item_id: str, request: Request, user: dict = Depends(require_admin)
+):
+    from bson import ObjectId
+
+    await items_col.delete_one({"_id": ObjectId(item_id)})
+    return RedirectResponse("/shop?deleted=1", status_code=303)
 
 
 @app.get("/settings", response_class=HTMLResponse)

@@ -7,27 +7,133 @@
     <p class="subtitle"><em>{{ items | length }} item{% if items | length != 1 %}s{% endif %} available</em></p>
 </div>
 
-{% if not items %}
+{% if saved %}<div class="toast">✅ Shop updated!</div>{% endif %}
+{% if deleted %}<div class="toast toast-warn">🗑️ Item deleted.</div>{% endif %}
+{% if error %}<div class="toast toast-error">⚠️ {{ error }}</div>{% endif %}
+
+{% if not items and not user.is_admin %}
 <div class="empty-state">
-    <p>The shop shelves are bare... add items with <code>/additem</code> in Discord.</p>
+    <p>The shop shelves are bare...</p>
 </div>
 {% else %}
+
 <div class="shop-grid">
     {% for item in items %}
-    <div class="shop-card">
+    <div class="shop-card" id="card-{{ item._id }}">
         <div class="shop-type">
             {% if item.type == "role" %}🎭 Role
             {% elif item.type == "title" %}✨ Title
             {% elif item.type == "role_remover" %}🗑️ Role Remover
             {% endif %}
         </div>
-        <h3 class="shop-name">{{ item.name }}</h3>
+
+        <h3 class="shop-name" {% if item.get('role_colour') and item.role_colour !='None' %}
+            style="color:#{{ item.role_colour }}" {% endif %}>
+            {{ item.name }}
+        </h3>
+
         <p class="shop-desc">{{ item.get("description", "no description") }}</p>
+
         <div class="shop-footer">
             <span class="shop-cost">✨ {{ "{:,}".format(item.cost) }} pts</span>
+            {% if item.get("role_colour") and item.role_colour != "None" %}
+            <span class="colour-pill" style="background:#{{ item.role_colour }}">#{{ item.role_colour }}</span>
+            {% endif %}
         </div>
+
+        {% if user.is_admin %}
+        <details class="edit-panel">
+            <summary>✏️ Edit</summary>
+            <form method="POST" action="/shop/edit/{{ item._id }}" class="edit-form">
+                <div class="field-row">
+                    <label>Name</label>
+                    <input type="text" name="name" value="{{ item.name }}">
+                </div>
+                <div class="field-row">
+                    <label>Cost</label>
+                    <input type="number" name="cost" value="{{ item.cost }}" min="0">
+                </div>
+                <div class="field-row">
+                    <label>Description</label>
+                    <input type="text" name="description" value="{{ item.get('description', '') }}">
+                </div>
+                {% if item.type == "role" %}
+                <div class="field-row">
+                    <label>Role colour</label>
+                    <div class="colour-input-wrap">
+                        <input type="color" id="picker-{{ item._id }}" value="#{{ item.get('role_colour', '9b8ec4') }}"
+                            oninput="document.getElementById('col-{{ item._id }}').value=this.value.slice(1)">
+                        <span>#</span>
+                        <input type="text" id="col-{{ item._id }}" name="role_colour"
+                            value="{{ item.get('role_colour', '') }}" maxlength="6"
+                            oninput="document.getElementById('picker-{{ item._id }}').value='#'+this.value">
+                    </div>
+                </div>
+                {% endif %}
+                <div class="edit-actions">
+                    <button type="submit" class="btn-edit-save">Save</button>
+                </div>
+            </form>
+            <form method="POST" action="/shop/delete/{{ item._id }}"
+                onsubmit="return confirm('Delete {{ item.name }}?')">
+                <button type="submit" class="btn-delete">Delete item</button>
+            </form>
+        </details>
+        {% endif %}
     </div>
     {% endfor %}
+
+    {% if user.is_admin %}
+    <div class="shop-card add-card">
+        <div class="shop-type">➕ New item</div>
+        <details class="edit-panel" open>
+            <summary>Add item to shop</summary>
+            <form method="POST" action="/shop/add" class="edit-form">
+                <div class="field-row">
+                    <label>Name <span class="req">*</span></label>
+                    <input type="text" name="name" placeholder="e.g. Night Owl" required>
+                </div>
+                <div class="field-row">
+                    <label>Type</label>
+                    <select name="type" id="add-type" onchange="toggleColourField()">
+                        <option value="role">🎭 Role</option>
+                        <option value="title">✨ Title</option>
+                        <option value="role_remover">🗑️ Role Remover</option>
+                    </select>
+                </div>
+                <div class="field-row">
+                    <label>Cost</label>
+                    <input type="number" name="cost" value="100" min="0">
+                </div>
+                <div class="field-row">
+                    <label>Description</label>
+                    <input type="text" name="description" placeholder="A short description...">
+                </div>
+                <div class="field-row" id="colour-field">
+                    <label>Role colour</label>
+                    <div class="colour-input-wrap">
+                        <input type="color" id="add-colour-picker" value="#9b8ec4"
+                            oninput="document.getElementById('add-colour').value=this.value.slice(1)">
+                        <span>#</span>
+                        <input type="text" id="add-colour" name="role_colour" value="9b8ec4" maxlength="6"
+                            oninput="document.getElementById('add-colour-picker').value='#'+this.value">
+                    </div>
+                </div>
+                <div class="edit-actions">
+                    <button type="submit" class="btn-edit-save">Add item</button>
+                </div>
+            </form>
+        </details>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
+
+<script>
+    function toggleColourField() {
+        const type = document.getElementById('add-type').value;
+        document.getElementById('colour-field').style.display = type === 'role' ? 'flex' : 'none';
+    }
+    toggleColourField();
+</script>
 {% endblock %}
