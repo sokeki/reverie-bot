@@ -40,7 +40,7 @@ class Leaderboard(commands.Cog):
             m = interaction.guild.get_member(doc["user_id"])
             name = m.display_name if m else f"Dreamer {doc['user_id']}"
             medal = medals.get(rank, f"`#{rank}`")
-            lines.append(f"{medal} **{name}** > {doc['points']:,} dream points")
+            lines.append(f"{medal} **{name}** › {doc['points']:,} dream points")
 
         embed = discord.Embed(
             title="🌒 Hall of Dreamers",
