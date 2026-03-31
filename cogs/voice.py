@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands, tasks
 from datetime import datetime
@@ -29,7 +30,8 @@ class Voice(commands.Cog):
 
     async def _get_voice_settings(self) -> tuple[int, int]:
         """Return (voice_block_minutes, points_per_voice_block) from live DB settings."""
-        doc = await self.bot.settings_col.find_one({})
+        guild_id = int(os.getenv("GUILD_ID", "0"))
+        doc = await self.bot.settings_col.find_one({"guild_id": guild_id})
         if doc:
             return doc.get("voice_block_minutes", 30), doc.get(
                 "points_per_voice_block", 1
