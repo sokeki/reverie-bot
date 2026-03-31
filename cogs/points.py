@@ -35,9 +35,10 @@ class Points(commands.Cog):
         activity_score = doc.get("voice_minutes", 0) + doc.get("messages_sent", 0)
         rank = get_rank(activity_score)
 
-        title_line = f"*{active_title}*\n" if active_title else ""
         description = (
-            f"{title_line}" f"*drifting through hypnagogia, one dream at a time...*"
+            f"*{active_title}*"
+            if active_title
+            else "*drifting through hypnagogia, one dream at a time...*"
         )
 
         embed = discord.Embed(
