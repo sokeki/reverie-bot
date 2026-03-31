@@ -34,7 +34,6 @@ AGENTS: dict[str, list[str]] = {
         "Astra",
         "Harbor",
         "Clove",
-        "Miks",
     ],
     "Sentinel": [
         "Sage",
@@ -43,7 +42,6 @@ AGENTS: dict[str, list[str]] = {
         "Chamber",
         "Deadlock",
         "Vyse",
-        "Veto",
     ],
 }
 
@@ -137,21 +135,24 @@ class Valorant(commands.Cog):
     async def randomcomp(
         self,
         interaction: discord.Interaction,
-        player1: str,
-        player2: str,
-        player3: str,
-        player4: str,
-        player5: str,
+        player1: discord.Member,
+        player2: discord.Member,
+        player3: discord.Member,
+        player4: discord.Member,
+        player5: discord.Member,
     ):
         players = [player1, player2, player3, player4, player5]
         random.shuffle(players)
 
         # Assign roles — 4 fixed + 1 free pick
-        fixed_roles = ALL_ROLES.copy()  # Duelist, Initiator, Controller, Sentinel
+        fixed_roles = ALL_ROLES.copy()
         assignments = {}
         for i, role in enumerate(fixed_roles):
             assignments[role] = players[i]
         assignments["Free Pick"] = players[4]
+
+        # Build ping list for the message content so players get notified
+        pings = " ".join(p.mention for p in players)
 
         embed = discord.Embed(
             title="🎲 Random Team Comp",
@@ -164,12 +165,12 @@ class Valorant(commands.Cog):
             emoji = ROLE_EMOJIS.get(role, "🎯")
             embed.add_field(
                 name=f"{emoji}  {role}",
-                value=f"**{assignments[role]}**",
+                value=assignments[role].mention,
                 inline=True,
             )
 
         embed.set_footer(text="Reverie  •  Hypnogogia")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(content=pings, embed=embed)
 
 
 async def setup(bot: commands.Bot):
