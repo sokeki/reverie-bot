@@ -152,6 +152,48 @@ async def on_message(message: discord.Message):
 
 
 @bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    """Update username and avatar whenever a member changes their profile."""
+    if after.bot:
+        return
+    if (
+        before.display_name == after.display_name
+        and before.display_avatar == after.display_avatar
+    ):
+        return  # nothing relevant changed
+    await bot.users_col.update_one(
+        {"user_id": after.id, "guild_id": after.guild.id},
+        {
+            "$set": {
+                "username": after.display_name,
+                "avatar_url": str(after.display_avatar.url),
+            }
+        },
+    )
+
+
+@bot.event
+async def on_user_update(before: discord.User, after: discord.User):
+    """Update username and avatar when a user changes their global Discord profile."""
+    if after.bot:
+        return
+    if (
+        before.display_name == after.display_name
+        and before.display_avatar == after.display_avatar
+    ):
+        return
+    await bot.users_col.update_many(
+        {"user_id": after.id},
+        {
+            "$set": {
+                "username": after.display_name,
+                "avatar_url": str(after.display_avatar.url),
+            }
+        },
+    )
+
+
+@bot.event
 async def on_member_join(member: discord.Member):
     """Add brand new members to the DB as soon as they join."""
     if member.bot:
