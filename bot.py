@@ -63,6 +63,9 @@ async def on_ready():
     bot.inv_col = db["inventories"]
     bot.settings_col = db["guild_settings"]
     bot.voice_sessions_col = db["voice_sessions"]
+    await bot.voice_sessions_col.create_index(
+        [("user_id", 1), ("guild_id", 1)], unique=True
+    )
     await bot.users_col.create_index([("guild_id", 1), ("points", -1)])
     await bot.items_col.create_index([("guild_id", 1), ("name", 1)])
 

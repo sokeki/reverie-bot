@@ -211,7 +211,12 @@ class Voice(commands.Cog):
 
     @voice_minutes_sync.before_loop
     async def before_minutes_sync(self):
+        # Wait for voice_point_ticker to finish restoring sessions first
         await self.bot.wait_until_ready()
+        while not self.voice_point_ticker.is_running():
+            import asyncio
+
+            await asyncio.sleep(0.5)
 
 
 async def setup(bot: commands.Bot):
