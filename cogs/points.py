@@ -68,6 +68,17 @@ class Points(commands.Cog):
         )
         embed.add_field(name="🏅 Rank", value=rank_value, inline=False)
 
+        # Streak field
+        streak = doc.get("streak", 0)
+        best_streak = doc.get("streak_best", 0)
+        if streak > 0:
+            flame = "🔥" * min(streak // 7 + 1, 5)  # more flames every 7 days, max 5
+            plural = "s" if streak != 1 else ""
+            streak_val = f"`{streak} day{plural}` {flame}\n*best: {best_streak} days*"
+        else:
+            streak_val = "*no active streak yet*"
+        embed.add_field(name="📅 Streak", value=streak_val, inline=False)
+
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.send_message(embed=embed)

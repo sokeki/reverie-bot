@@ -1,5 +1,6 @@
 import os
 import discord
+from utils.streaks import record_activity as _record_streak
 from discord.ext import commands, tasks
 from datetime import datetime
 
@@ -56,6 +57,7 @@ class Voice(commands.Cog):
         if joined:
             self.voice_join_times[member.id] = datetime.utcnow()
             self.last_sync[member.id] = datetime.utcnow()
+            await _record_streak(self.bot.users_col, member.id, member.guild.id)
 
         elif left and member.id in self.voice_join_times:
             block_mins, pts_per_block = await self._get_voice_settings()

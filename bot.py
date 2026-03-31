@@ -10,6 +10,7 @@ from config import (
     MESSAGES_PER_POINT,
     BOT_NAME,
 )
+from utils.streaks import record_activity as _record_streak
 
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
@@ -96,6 +97,9 @@ async def on_ready():
                         "points": 0,
                         "voice_minutes": 0,
                         "messages_sent": 0,
+                        "streak": 0,
+                        "streak_best": 0,
+                        "streak_last_date": None,
                     },
                     "$set": {
                         "username": member.display_name,
@@ -164,6 +168,9 @@ async def on_message(message: discord.Message):
             {"user_id": message.author.id, "guild_id": message.guild.id},
             {"$inc": {"points": 1}},
         )
+
+    # Record streak activity
+    await _record_streak(bot.users_col, message.author.id, message.guild.id)
 
     await bot.process_commands(message)
 
