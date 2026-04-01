@@ -41,6 +41,27 @@ class GuestInvite(commands.Cog):
             ephemeral=True,
         )
 
+    # ── /setlingeringrole (admin) ────────────────────────────────────────────
+
+    @app_commands.command(
+        name="setlingeringrole",
+        description="[Admin] Set the role that members must have to be dragged with /drag",
+    )
+    @app_commands.describe(role="The role that can be dragged into a VC")
+    @app_commands.default_permissions(administrator=True)
+    async def setlingeringrole(
+        self, interaction: discord.Interaction, role: discord.Role
+    ):
+        await self.bot.settings_col.update_one(
+            {"guild_id": interaction.guild_id},
+            {"$set": {"lingering_role_id": role.id}},
+            upsert=True,
+        )
+        await interaction.response.send_message(
+            f"✅ Members with **{role.name}** can now be dragged with `/drag`.",
+            ephemeral=True,
+        )
+
     # ── /guestinvite ──────────────────────────────────────────────────────────
 
     @app_commands.command(
@@ -137,11 +158,12 @@ class GuestInvite(commands.Cog):
 
         try:
             await interaction.user.send(embed=embed)
+            # Public confirmation in channel, private invite stays in DMs
             await interaction.response.send_message(
-                "🌙 Invite sent to your DMs!",
-                ephemeral=True,
+                f"🌙 **{interaction.user.display_name}** is inviting a guest — invite sent to their DMs!",
             )
         except discord.Forbidden:
+            # DMs closed — send invite ephemerally so the link stays private
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── on_member_join — tag guest and start 1-hour kick timer ───────────────
@@ -259,6 +281,93 @@ class GuestInvite(commands.Cog):
                 )
             except discord.Forbidden:
                 pass
+
+    # ── /drag ────────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="drag",
+        description="Drag a member into your current voice channel",
+    )
+    @app_commands.describe(member="The member to drag into your VC")
+    async def drag(self, interaction: discord.Interaction, member: discord.Member):
+        settings = await _get_settings(self.bot.settings_col, interaction.guild_id)
+
+        # Check invite role is configured
+        invite_role_id = settings.get("invite_role_id")
+        if not invite_role_id:
+            await interaction.response.send_message(
+                "⚠️ No invite role has been set. Ask an admin to run `/setinviterole` first.",
+                ephemeral=True,
+            )
+            return
+
+        # Check the caller has the required role
+        if invite_role_id not in [r.id for r in interaction.user.roles]:
+            role = interaction.guild.get_role(invite_role_id)
+            await interaction.response.send_message(
+                f"⚠️ You need the **{role.name if role else 'required'}** role to use `/drag`.",
+                ephemeral=True,
+            )
+            return
+
+        # Check the caller is in a VC
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.response.send_message(
+                "⚠️ You need to be in a voice channel to drag someone.",
+                ephemeral=True,
+            )
+            return
+
+        # Check the lingering role is configured
+        lingering_role_id = settings.get("lingering_role_id")
+        if not lingering_role_id:
+            await interaction.response.send_message(
+                "⚠️ No lingering role has been set. Ask an admin to run `/setlingeringrole` first.",
+                ephemeral=True,
+            )
+            return
+
+        # Check the target has the lingering role
+        if lingering_role_id not in [r.id for r in member.roles]:
+            lingering_role = interaction.guild.get_role(lingering_role_id)
+            await interaction.response.send_message(
+                f"⚠️ **{member.display_name}** doesn't have the **{lingering_role.name if lingering_role else 'lingering'}** role and can't be dragged.",
+                ephemeral=True,
+            )
+            return
+
+        # Check the target is in a VC
+        if not member.voice or not member.voice.channel:
+            await interaction.response.send_message(
+                f"⚠️ **{member.display_name}** is not in a voice channel.",
+                ephemeral=True,
+            )
+            return
+
+        # Don't drag them if they're already in the same VC
+        target_vc = interaction.user.voice.channel
+        if member.voice.channel.id == target_vc.id:
+            await interaction.response.send_message(
+                f"⚠️ **{member.display_name}** is already in **{target_vc.name}**.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await member.move_to(
+                target_vc, reason=f"Dragged by {interaction.user.display_name}"
+            )
+            await interaction.response.send_message(
+                f"🌙 **{member.display_name}** has been dragged to **{target_vc.name}** by {interaction.user.mention}.",
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "⚠️ I don't have permission to move that member.",
+            )
+        except discord.HTTPException:
+            await interaction.response.send_message(
+                "⚠️ Something went wrong trying to move them.",
+            )
 
 
 async def setup(bot: commands.Bot):
