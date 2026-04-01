@@ -389,6 +389,17 @@ async def shop_delete(
     return RedirectResponse("/shop?deleted=1", status_code=303)
 
 
+@app.get("/commands", response_class=HTMLResponse)
+async def commands_page(request: Request, user: dict = Depends(require_user)):
+    return templates.TemplateResponse(
+        "commands.html",
+        {
+            "request": request,
+            "user": user,
+        },
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, user: dict = Depends(require_admin)):
     settings = await get_settings()

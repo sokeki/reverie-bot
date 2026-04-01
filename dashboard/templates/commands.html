@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}— Commands{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📖 Commands</h1>
+    <p class="subtitle"><em>everything Reverie can do</em></p>
+</div>
+
+<div class="commands-grid">
+
+    <div class="cmd-section">
+        <h2>Everyone</h2>
+
+        <div class="cmd-card">
+            <div class="cmd-name">/points</div>
+            <div class="cmd-desc">Check your dream points, voice time, rank and streak. Add <code>@user</code> to check
+                someone else.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/leaderboard</div>
+            <div class="cmd-desc">See the Hall of Dreamers. Sortable by points, rank, voice time or messages. Use
+                <code>top</code> to change how many are shown.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/shop</div>
+            <div class="cmd-desc">Browse the dream shop. 5 items per page, sorted by cost.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/buy &lt;item&gt;</div>
+            <div class="cmd-desc">Purchase an item from the shop. Points are deducted instantly.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/inventory</div>
+            <div class="cmd-desc">See the items you own. Add <code>@user</code> to check someone else's inventory.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/settitle &lt;title&gt;</div>
+            <div class="cmd-desc">Equip a purchased title to display on your /points profile. Leave empty to remove your
+                title.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setcustomtitle &lt;text&gt;</div>
+            <div class="cmd-desc">Use a Custom Title item to set your own unique title (max 32 characters). Consumes the
+                item on use. Buy another to change it.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/rolepreview &lt;item&gt;</div>
+            <div class="cmd-desc">Preview a role item's colour before buying. The embed sidebar shows the exact role
+                colour.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/removerole</div>
+            <div class="cmd-desc">Use a Role Remover item to remove one of your purchased shop roles. Shows a dropdown
+                of eligible roles.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/dashboard</div>
+            <div class="cmd-desc">Posts the dashboard link in chat with a preview image.</div>
+        </div>
+    </div>
+
+    <div class="cmd-section">
+        <h2>Valorant</h2>
+
+        <div class="cmd-card">
+            <div class="cmd-name">/randomagent</div>
+            <div class="cmd-desc">Get a random Valorant agent. Use the <code>role</code> option to filter by Duelist,
+                Initiator, Controller or Sentinel.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/randomrole</div>
+            <div class="cmd-desc">Get a random Valorant role.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/randomcomp</div>
+            <div class="cmd-desc">Randomly assign 5 members to Valorant roles. Enable <code>roll_agents</code> to also
+                roll a random agent for each role.</div>
+        </div>
+    </div>
+
+    <div class="cmd-section">
+        <h2>Invite role only</h2>
+
+        <div class="cmd-card">
+            <div class="cmd-name">/guestinvite</div>
+            <div class="cmd-desc">Generate a one-use guest invite that expires in 10 minutes. The invite link is sent to
+                your DMs. When the guest joins the server and enters any voice channel, they are moved to your VC
+                automatically. They are kicked when they leave.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/drag @member</div>
+            <div class="cmd-desc">Drag a member with the lingering role into your current voice channel. Both you and
+                the target must be in a VC.</div>
+        </div>
+    </div>
+
+    <div class="cmd-section">
+        <h2>Admin only</h2>
+
+        <div class="cmd-card">
+            <div class="cmd-name">/addpoints @user &lt;amount&gt;</div>
+            <div class="cmd-desc">Manually add or remove dream points from a member. Use a negative number to remove
+                points.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/additem</div>
+            <div class="cmd-desc">Add an item to the dream shop. Choose from Role, Title, Custom Title or Role Remover.
+                Can also be done from the dashboard.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/removeitem &lt;name&gt;</div>
+            <div class="cmd-desc">Remove an item from the shop by name. Can also be done from the dashboard.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/edititem &lt;name&gt;</div>
+            <div class="cmd-desc">Edit an existing shop item's name, cost, description or linked role. Can also be done
+                from the dashboard.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setinviterole @role</div>
+            <div class="cmd-desc">Set the role required to generate guest invites and use /drag.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setlingeringrole @role</div>
+            <div class="cmd-desc">Set the role that members must have to be dragged with /drag.</div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
