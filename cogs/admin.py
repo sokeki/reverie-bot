@@ -45,11 +45,7 @@ class Admin(commands.Cog):
 
         embed = discord.Embed(
             title="🌙 Reverie Dashboard",
-            description=(
-                "View the leaderboard, shop, and server stats.\n\n"
-                f"**[Open Dashboard]({url})**"
-                f"**[Open Dashboard]({url})**"
-            ),
+            description=f"View the leaderboard, shop, and server stats.\n\n{url}",
             color=COLOUR_MAIN,
             url=url,
         )
