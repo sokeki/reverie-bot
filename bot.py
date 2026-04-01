@@ -35,6 +35,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 intents.members = True
+intents.invites = True
 
 bot = commands.Bot(command_prefix="r!", intents=intents)
 
@@ -46,6 +47,7 @@ COGS = [
     "cogs.voice",
     "cogs.shop",
     "cogs.valorant",
+    "cogs.guest_invite",
 ]
 
 
