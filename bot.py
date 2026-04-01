@@ -48,6 +48,7 @@ COGS = [
     "cogs.shop",
     "cogs.valorant",
     "cogs.guest_invite",
+    "cogs.anonymous",
 ]
 
 
@@ -65,6 +66,8 @@ async def on_ready():
     bot.inv_col = db["inventories"]
     bot.settings_col = db["guild_settings"]
     bot.voice_sessions_col = db["voice_sessions"]
+    bot.questions_col = db["questions"]
+    bot.anon_rounds_col = db["anon_rounds"]
     await bot.voice_sessions_col.create_index(
         [("user_id", 1), ("guild_id", 1)], unique=True
     )
