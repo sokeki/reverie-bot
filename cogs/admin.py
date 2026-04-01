@@ -1,8 +1,10 @@
+import os
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from utils.db import add_points
+from config import COLOUR_MAIN
 
 
 class Admin(commands.Cog):
@@ -28,6 +30,32 @@ class Admin(commands.Cog):
             f"🌙 {sign}{amount} dream points woven into **{member.display_name}**'s reverie.",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name="dashboard", description="Get the link to the Reverie dashboard"
+    )
+    async def dashboard(self, interaction: discord.Interaction):
+        url = os.getenv("DISCORD_REDIRECT_URI", "").replace("/callback", "")
+        if not url:
+            await interaction.response.send_message(
+                "⚠️ Dashboard URL is not configured.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🌙 Reverie Dashboard",
+            description=(
+                "View the leaderboard, shop, and server stats.\n\n"
+                f"**[Open Dashboard]({url})**"
+                f"**[Open Dashboard]({url})**"
+            ),
+            color=COLOUR_MAIN,
+            url=url,
+        )
+        embed.set_image(url=f"{url}/static/og-image.png")
+        embed.set_footer(text="Reverie  •  Hypnagogia")
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):
