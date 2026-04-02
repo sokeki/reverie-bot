@@ -21,7 +21,7 @@ class AnswerModal(discord.ui.Modal, title="Answer Anonymously"):
     answer = discord.ui.TextInput(
         label="Your answer",
         style=discord.TextStyle.paragraph,
-        placeholder="Write your answer here (more than 3 words)...",
+        placeholder="Write your answer here (more than 2 words)...",
         min_length=1,
         max_length=500,
     )
@@ -36,9 +36,9 @@ class AnswerModal(discord.ui.Modal, title="Answer Anonymously"):
         text = self.answer.value.strip()
 
         # Validate word count
-        if len(text.split()) <= 3:
+        if len(text.split()) < 3:
             await interaction.response.send_message(
-                "⚠️ Your answer must be more than 3 words. Try again with `/answer`.",
+                "⚠️ Your answer must be more than 2 words. Try again with `/answer`.",
                 ephemeral=True,
             )
             return
