@@ -21,7 +21,7 @@ class AnswerModal(discord.ui.Modal, title="Answer Anonymously"):
     answer = discord.ui.TextInput(
         label="Your answer",
         style=discord.TextStyle.paragraph,
-        placeholder="Write your answer here (more than 3 words)...",
+        placeholder="Write your answer here ... try to trick people, else you won't get points!",
         min_length=1,
         max_length=500,
     )
