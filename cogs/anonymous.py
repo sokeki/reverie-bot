@@ -21,7 +21,7 @@ class AnswerModal(discord.ui.Modal, title="Answer Anonymously"):
     answer = discord.ui.TextInput(
         label="Your answer",
         style=discord.TextStyle.paragraph,
-        placeholder="Write your answer here ... try to trick people, else you won't get points!",
+        placeholder="Write your answer here (more than 3 words)...",
         min_length=1,
         max_length=500,
     )
@@ -89,11 +89,15 @@ class GuessMemberView(discord.ui.View):
 
 class GuessView(discord.ui.View):
     def __init__(self, cog, round_id: str):
-        super().__init__(timeout=None)  # managed by background task
+        super().__init__(timeout=None)
         self.cog = cog
         self.round_id = round_id
 
-    @discord.ui.button(label="🌙 Make a Guess", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(
+        label="🌙 Make a Guess",
+        style=discord.ButtonStyle.secondary,
+        custom_id="anon_guess_button",
+    )
     async def guess_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
