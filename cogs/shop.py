@@ -726,6 +726,163 @@ class Shop(commands.Cog):
         embed.set_footer(text="Buy another Custom Title item to change it  •  Reverie")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    # ── /equip ───────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="equip", description="Equip a purchased role from your inventory"
+    )
+    async def equip(self, interaction: discord.Interaction):
+        inventory = await _get_inventory(
+            self.inv_col, interaction.user.id, interaction.guild_id
+        )
+        owned_role_items = [i for i in inventory if i["type"] == "role"]
+
+        if not owned_role_items:
+            await interaction.response.send_message(
+                "*you don't own any roles yet — visit the `/shop` to pick one up!*",
+                ephemeral=True,
+            )
+            return
+
+        # Fetch shop docs to get role_id
+        shop_docs = []
+        for inv_item in owned_role_items:
+            doc = await self.items_col.find_one(
+                {
+                    "guild_id": interaction.guild_id,
+                    "name": inv_item["name"],
+                    "type": "role",
+                }
+            )
+            if doc:
+                shop_docs.append(doc)
+
+        if not shop_docs:
+            await interaction.response.send_message(
+                "*couldn't find your roles in the shop. They may have been removed.*",
+                ephemeral=True,
+            )
+            return
+
+        options = [
+            discord.SelectOption(
+                label=doc["name"][:100],
+                value=str(doc.get("role_id", 0)),
+            )
+            for doc in shop_docs[:25]
+        ]
+
+        select = discord.ui.Select(
+            placeholder="Choose a role to equip...",
+            options=options,
+            min_values=1,
+            max_values=1,
+        )
+
+        async def equip_callback(select_interaction: discord.Interaction):
+            role = interaction.guild.get_role(int(select.values[0]))
+            if not role:
+                await select_interaction.response.edit_message(
+                    content="⚠️ That role no longer exists. Contact an admin.", view=None
+                )
+                return
+            try:
+                await select_interaction.user.add_roles(role, reason="Equip role")
+                await select_interaction.response.edit_message(
+                    content=f"🌙 **{role.name}** equipped.", view=None
+                )
+            except discord.Forbidden:
+                await select_interaction.response.edit_message(
+                    content="⚠️ I don't have permission to assign that role.", view=None
+                )
+
+        select.callback = equip_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.response.send_message(
+            "*choose a role to equip:*", view=view, ephemeral=True
+        )
+
+    # ── /unequip ──────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="unequip", description="Unequip a role you currently have equipped"
+    )
+    async def unequip(self, interaction: discord.Interaction):
+        inventory = await _get_inventory(
+            self.inv_col, interaction.user.id, interaction.guild_id
+        )
+        owned_role_items = [i for i in inventory if i["type"] == "role"]
+
+        if not owned_role_items:
+            await interaction.response.send_message(
+                "*you don't own any roles yet.*",
+                ephemeral=True,
+            )
+            return
+
+        # Only show roles they currently have equipped
+        equipped = []
+        for inv_item in owned_role_items:
+            doc = await self.items_col.find_one(
+                {
+                    "guild_id": interaction.guild_id,
+                    "name": inv_item["name"],
+                    "type": "role",
+                }
+            )
+            if not doc:
+                continue
+            role = interaction.guild.get_role(doc.get("role_id"))
+            if role and role in interaction.user.roles:
+                equipped.append((doc, role))
+
+        if not equipped:
+            await interaction.response.send_message(
+                "*you don't have any roles equipped right now.*",
+                ephemeral=True,
+            )
+            return
+
+        options = [
+            discord.SelectOption(
+                label=role.name[:100],
+                value=str(role.id),
+            )
+            for doc, role in equipped[:25]
+        ]
+
+        select = discord.ui.Select(
+            placeholder="Choose a role to unequip...",
+            options=options,
+            min_values=1,
+            max_values=1,
+        )
+
+        async def unequip_callback(select_interaction: discord.Interaction):
+            role = interaction.guild.get_role(int(select.values[0]))
+            if not role:
+                await select_interaction.response.edit_message(
+                    content="⚠️ That role no longer exists.", view=None
+                )
+                return
+            try:
+                await select_interaction.user.remove_roles(role, reason="Unequip role")
+                await select_interaction.response.edit_message(
+                    content=f"🌙 **{role.name}** unequipped.", view=None
+                )
+            except discord.Forbidden:
+                await select_interaction.response.edit_message(
+                    content="⚠️ I don't have permission to remove that role.", view=None
+                )
+
+        select.callback = unequip_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.response.send_message(
+            "*choose a role to unequip:*", view=view, ephemeral=True
+        )
+
     # ── Internal helper ───────────────────────────────────────────────────────
 
     async def _get_active_title(self, user_id: int, guild_id: int) -> str | None:
