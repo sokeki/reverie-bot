@@ -128,7 +128,7 @@ class RoleRemoverView(discord.ui.View):
 
 # ── Shop paginator ───────────────────────────────────────────────────────────
 
-ITEMS_PER_PAGE = 5
+ITEMS_PER_PAGE = 10
 
 
 def _build_shop_embed(
@@ -211,11 +211,10 @@ class Shop(commands.Cog):
 
     @app_commands.command(name="shop", description="Browse the dream shop")
     async def shop(self, interaction: discord.Interaction):
-        items = (
-            await self.items_col.find({"guild_id": interaction.guild_id})
-            .sort("cost", -1)
-            .to_list(length=100)
+        items = await self.items_col.find({"guild_id": interaction.guild_id}).to_list(
+            length=200
         )
+        items.sort(key=lambda i: (i.get("cost", 0), i.get("name", "").lower()))
 
         if not items:
             await interaction.response.send_message(
