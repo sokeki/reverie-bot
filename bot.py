@@ -50,6 +50,7 @@ COGS = [
     "cogs.guest_invite",
     "cogs.anonymous",
     "cogs.recap",
+    "cogs.rr_tracker",
 ]
 
 
@@ -71,6 +72,9 @@ async def on_ready():
     bot.anon_rounds_col = db["anon_rounds"]
     bot.weekly_snapshots_col = db["weekly_snapshots"]
     bot.comp_rolls_col = db["comp_rolls"]
+    bot.val_accounts_col = db["val_accounts"]
+    bot.val_games_col = db["val_games"]
+    bot.val_accounts_col = db["val_accounts"]
     await bot.voice_sessions_col.create_index(
         [("user_id", 1), ("guild_id", 1)], unique=True
     )

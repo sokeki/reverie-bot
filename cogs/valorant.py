@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
+from datetime import datetime, timezone, timedelta
 
 from config import COLOUR_LB
 
@@ -183,14 +184,8 @@ class Valorant(commands.Cog):
         await interaction.response.send_message(content=pings, embed=embed)
 
         # Record role assignments for weekly recap stats
-        from datetime import datetime, timezone
-
-        week = (
-            datetime.now(timezone.utc)
-            - __import__("datetime").timedelta(
-                days=(datetime.now(timezone.utc).weekday() + 1) % 7
-            )
-        ).strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc)
+        week = (now - timedelta(days=(now.weekday() + 1) % 7)).strftime("%Y-%m-%d")
         for role, member in assignments.items():
             await self.bot.comp_rolls_col.update_one(
                 {
