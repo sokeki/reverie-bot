@@ -257,7 +257,7 @@ class RRTracker(commands.Cog):
 
     # ── Poll task (every 2 minutes) ───────────────────────────────────────────
 
-    @tasks.loop(minutes=2)
+    @tasks.loop(minutes=1)
     async def poll_task(self):
         for guild in self.bot.guilds:
             settings = await self.bot.settings_col.find_one({"guild_id": guild.id})
