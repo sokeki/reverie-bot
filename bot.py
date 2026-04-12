@@ -70,6 +70,7 @@ async def on_ready():
     bot.questions_col = db["questions"]
     bot.anon_rounds_col = db["anon_rounds"]
     bot.weekly_snapshots_col = db["weekly_snapshots"]
+    bot.comp_rolls_col = db["comp_rolls"]
     await bot.voice_sessions_col.create_index(
         [("user_id", 1), ("guild_id", 1)], unique=True
     )

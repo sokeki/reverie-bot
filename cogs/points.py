@@ -95,8 +95,41 @@ class Points(commands.Cog):
         else:
             streak_val = f"```0 days```\n-# *start chatting to begin a streak!*"
 
-        embed.add_field(name=_BLANK, value=_BLANK, inline=True)  # spacer
         embed.add_field(name="📅  Streak", value=streak_val, inline=True)
+        embed.add_field(name=_BLANK, value=_BLANK, inline=True)  # spacer
+
+        # ── Comp roll counts (all-time) ──────────────────────────────────────
+        ROLE_ICONS = {
+            "Duelist": "⚔️",
+            "Initiator": "🔍",
+            "Controller": "💨",
+            "Sentinel": "🛡️",
+            "Free Pick": "🌀",
+        }
+        roll_docs = await self.bot.comp_rolls_col.find(
+            {"guild_id": interaction.guild_id, "user_id": target.id}
+        ).to_list(length=100)
+
+        if roll_docs:
+            # Sum counts per role across all weeks
+            totals: dict[str, int] = {}
+            for doc in roll_docs:
+                totals[doc["role"]] = totals.get(doc["role"], 0) + doc["count"]
+
+            role_order = ["Duelist", "Initiator", "Controller", "Sentinel", "Free Pick"]
+            parts = [f"{ROLE_ICONS[r]} {totals[r]}" for r in role_order if r in totals]
+            embed.add_field(
+                name=_BLANK,
+                value="▸  **Comp Rolls**",
+                inline=False,
+            )
+            embed.add_field(
+                name="🎲  Role History",
+                value="  ".join(parts),
+                inline=True,
+            )
+            embed.add_field(name=_BLANK, value=_BLANK, inline=True)
+            embed.add_field(name=_BLANK, value=_BLANK, inline=True)
 
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.set_footer(text="Reverie  •  Hypnagogia")

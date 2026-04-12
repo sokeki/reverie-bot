@@ -103,7 +103,7 @@ class Valorant(commands.Cog):
             description=f"**Role:** {role_name}",
             color=ROLE_COLOURS[role_name],
         )
-        embed.set_footer(text="Reverie  •  hypnagogia")
+        embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.send_message(embed=embed)
 
     # ── /randomrole ───────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ class Valorant(commands.Cog):
             description="*your role for this round*",
             color=ROLE_COLOURS[role],
         )
-        embed.set_footer(text="Reverie  •  hypnagogia")
+        embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.send_message(embed=embed)
 
     # ── /randomcomp ───────────────────────────────────────────────────────────
@@ -168,9 +168,9 @@ class Valorant(commands.Cog):
             member = assignments[role].mention
             if roll_agents:
                 agent = rolled_agents[role]
-                lines.append(f"{emoji} **{role}** - {member}  ›  *{agent}*")
+                lines.append(f"{emoji} **{role}** — {member}  ›  *{agent}*")
             else:
-                lines.append(f"{emoji} **{role}** - {member}")
+                lines.append(f"{emoji} **{role}** — {member}")
 
         pings = " ".join(p.mention for p in players)
 
@@ -179,8 +179,29 @@ class Valorant(commands.Cog):
             description="\n".join(lines),
             color=COLOUR_LB,
         )
-        embed.set_footer(text="Reverie  •  hypnagogia")
+        embed.set_footer(text="Reverie  •  Hypnagogia")
         await interaction.response.send_message(content=pings, embed=embed)
+
+        # Record role assignments for weekly recap stats
+        from datetime import datetime, timezone
+
+        week = (
+            datetime.now(timezone.utc)
+            - __import__("datetime").timedelta(
+                days=(datetime.now(timezone.utc).weekday() + 1) % 7
+            )
+        ).strftime("%Y-%m-%d")
+        for role, member in assignments.items():
+            await self.bot.comp_rolls_col.update_one(
+                {
+                    "guild_id": interaction.guild_id,
+                    "user_id": member.id,
+                    "week": week,
+                    "role": role,
+                },
+                {"$inc": {"count": 1}},
+                upsert=True,
+            )
 
 
 async def setup(bot: commands.Bot):

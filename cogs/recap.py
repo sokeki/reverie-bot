@@ -273,19 +273,66 @@ class Recap(commands.Cog):
                 name="🏅 Rank Achievements", value="\n".join(lines), inline=False
             )
 
-        if not any([top_points, top_voice, top_msgs, rank_ups]):
+        # Comp roll stats
+        ROLE_LABELS = {
+            "Duelist": "🎯 Happiest five stack player",
+            "Initiator": "🔍 Initiator victim",
+            "Controller": "💨 Smokes fill main",
+            "Sentinel": "🔒 Chamber role",
+            "Free Pick": "🌀 Freest",
+        }
+        comp_lines = []
+        for role, label in ROLE_LABELS.items():
+            # Find who got this role the most this week
+            top = None
+            top_count = 0
+            async for doc in (
+                self.bot.comp_rolls_col.find(
+                    {
+                        "guild_id": guild.id,
+                        "week": last_week,
+                        "role": role,
+                    }
+                )
+                .sort("count", -1)
+                .limit(1)
+            ):
+                top = doc
+                top_count = doc["count"]
+
+            if top:
+                m = guild.get_member(top["user_id"])
+                name = m.display_name if m else f"Dreamer {top['user_id']}"
+                comp_lines.append(f"{label}: **{name}** ({top_count}x)")
+
+        if comp_lines:
+            embed.add_field(
+                name="🎲 Comp Roll Awards",
+                value="\n".join(comp_lines),
+                inline=False,
+            )
+
+        if not any([top_points, top_voice, top_msgs, rank_ups, comp_lines]):
             embed.add_field(
                 name="A quiet week",
                 value="*no activity recorded this week — come back and earn some points!*",
                 inline=False,
             )
 
-        embed.set_footer(text=f"Week of {last_week}  -  Reverie  -  Hypnogogia")
+        embed.set_footer(text=f"Week of {last_week}  -  Reverie  -  Hypnagogia")
 
         await channel.send(embed=embed)
 
         # Take a fresh snapshot for next week
         await self._take_snapshot(guild.id)
+
+        # Clear this week's comp rolls — they reset weekly
+        await self.bot.comp_rolls_col.delete_many(
+            {
+                "guild_id": guild.id,
+                "week": last_week,
+            }
+        )
 
         return True
 
