@@ -521,14 +521,30 @@ class RRTracker(commands.Cog):
 
         print(f"[RR Tracker] New game detected for {name}#{tag}: {match_id}")
 
-        # Get RR data from MMR history entry (no extra API call needed)
-        tier_name = latest_entry.get("currenttier_patched", "Unrated")
-        rr = latest_entry.get("ranking_in_tier", 0)
-        rr_change = latest_entry.get("mmr_change_to_last_game", 0)
+        # Get RR data - try history entry first, fall back to live MMR
+        tier_name = (
+            latest_entry.get("currenttier_patched")
+            or latest_entry.get("tier", {}).get("name")
+            or None
+        )
+        rr = latest_entry.get("ranking_in_tier") or latest_entry.get("rr", 0)
+        rr_change = latest_entry.get("mmr_change_to_last_game") or latest_entry.get(
+            "last_change", 0
+        )
         raw_map = latest_entry.get("map", {})
         map_name = (
             raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
         )
+
+        # If tier is missing or Unrated, fetch live MMR instead
+        if not tier_name or tier_name == "Unrated":
+            mmr = await self._get_mmr(name, tag)
+            if mmr:
+                tier_name = mmr["current"]["tier"]["name"]
+                rr = mmr["current"]["rr"]
+                rr_change = mmr["current"].get("last_change", rr_change)
+        if not tier_name:
+            tier_name = "Unrated"
 
         # Fetch full match only for KDA, score, player card, won/loss
         latest = await self._get_match_details(name, tag)
