@@ -79,14 +79,25 @@ class Recap(commands.Cog):
     @tasks.loop(minutes=1)
     async def weekly_recap_task(self):
         now = datetime.now(timezone.utc)
-        # Fire on Sunday (weekday 6) at midnight UTC (00:00)
-        if now.weekday() != 6:
+        # Fire on Sunday (weekday 6) at midnight UTC
+        # Use a 5 minute window to be robust against Heroku clock drift
+        if now.weekday() != 0:
             return
-        if now.hour != 0 or now.minute != 0:
+        if now.hour != 5 or now.minute >= 35:
             return
 
+        # Use last_recap_date to ensure we only post once per week
+        today = now.strftime("%Y-%m-%d")
         for guild in self.bot.guilds:
+            settings = await self.bot.settings_col.find_one({"guild_id": guild.id})
+            if settings and settings.get("last_recap_date") == today:
+                continue
             await self._post_recap(guild)
+            await self.bot.settings_col.update_one(
+                {"guild_id": guild.id},
+                {"$set": {"last_recap_date": today}},
+                upsert=True,
+            )
 
     @weekly_recap_task.before_loop
     async def before_recap(self):
