@@ -584,6 +584,10 @@ class RRTracker(commands.Cog):
         player_card_id = None
 
         if latest:
+            raw_map = latest.get("metadata", {}).get("map", "Unknown")
+            map_name = (
+                raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
+            )
             puuid = account.get("puuid", "")
             raw_players = latest.get("players", [])
             if isinstance(raw_players, list):
