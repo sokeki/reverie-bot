@@ -10,6 +10,7 @@ Set channel with /setrrchannel
 """
 
 import os
+import asyncio
 import aiohttp
 from datetime import datetime, timezone, timedelta
 
@@ -414,6 +415,7 @@ class RRTracker(commands.Cog):
                     print(
                         f"[RR Tracker] Error checking {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
+                await asyncio.sleep(4)  # stagger requests to avoid rate limiting
 
     async def _check_new_game(
         self, account: dict, channel: discord.TextChannel, guild: discord.Guild
