@@ -79,7 +79,7 @@ class Recap(commands.Cog):
     @tasks.loop(minutes=1)
     async def weekly_recap_task(self):
         now = datetime.now(timezone.utc)
-        # Fire on Sunday (weekday 6) at midnight UTC
+        # Fire on Monday (weekday 0) at midnight UTC
         # Use a 5 minute window to be robust against Heroku clock drift
         if now.weekday() != 0:
             return
