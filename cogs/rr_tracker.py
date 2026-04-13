@@ -38,6 +38,48 @@ TIER_COLOURS = {
 }
 
 
+# Caches for agent and map lookups
+_agent_uuid_cache: dict[str, str] = {}
+_map_image_cache: dict[str, str] = {}
+
+
+async def _get_agent_icon(
+    session: aiohttp.ClientSession, agent_name: str
+) -> str | None:
+    """Return the display icon URL for an agent by name."""
+    global _agent_uuid_cache
+    if not _agent_uuid_cache:
+        try:
+            async with session.get(
+                "https://valorant-api.com/v1/agents?isPlayableCharacter=true"
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for a in data.get("data", []):
+                        _agent_uuid_cache[a["displayName"].lower()] = a["uuid"]
+        except Exception:
+            pass
+    uuid = _agent_uuid_cache.get(agent_name.lower())
+    if uuid:
+        return f"https://media.valorant-api.com/agents/{uuid}/displayicon.png"
+    return None
+
+
+async def _get_map_image(session: aiohttp.ClientSession, map_name: str) -> str | None:
+    """Return the splash image URL for a map by name."""
+    global _map_image_cache
+    if not _map_image_cache:
+        try:
+            async with session.get("https://valorant-api.com/v1/maps") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    for m in data.get("data", []):
+                        _map_image_cache[m["displayName"].lower()] = m.get("splash", "")
+        except Exception:
+            pass
+    return _map_image_cache.get(map_name.lower())
+
+
 def _tier_colour(tier_name: str) -> int:
     for name, colour in TIER_COLOURS.items():
         if tier_name.startswith(name):
@@ -523,22 +565,39 @@ class RRTracker(commands.Cog):
                     rounds_lost = team_data.get("rounds_won", 0)
         score_str = f"{rounds_won}-{rounds_lost}"
         result_str = "WIN" if won else "LOSS"
+        embed_colour = COLOUR_MAIN if won else 0x8B4A4A
+
+        session = await self._get_session()
+        player_card_id = player.get("player_card")
+        card_url = (
+            f"https://media.valorant-api.com/playercards/{player_card_id}/smallart.png"
+            if player_card_id
+            else None
+        )
+        agent_icon_url = await _get_agent_icon(session, agent)
+        map_image_url = await _get_map_image(session, map_name)
 
         embed = discord.Embed(
-            title=f"{'🟢' if won else '🔴'}  {name}#{tag}  -  {result_str}",
-            color=_tier_colour(tier_name),
+            title=f"{name}#{tag}  -  {result_str}",
+            color=embed_colour,
         )
-        embed.add_field(name="🏅 Rank", value=f"**{tier_name}**\n{rr} RR", inline=True)
+        if card_url:
+            embed.set_author(name=f"{name}#{tag}", icon_url=card_url)
+        else:
+            embed.set_author(name=f"{name}#{tag}")
+        embed.add_field(name="Rank", value=f"**{tier_name}**\n{rr} RR", inline=True)
+        embed.add_field(name="Change", value=f"**{_rr_arrow(rr_change)}**", inline=True)
         embed.add_field(
-            name="📈 Change", value=f"**{_rr_arrow(rr_change)}**", inline=True
+            name="KDA", value=f"**{kills}/{deaths}/{assists}**", inline=True
         )
-        embed.add_field(
-            name="⚔️ KDA", value=f"**{kills}/{deaths}/{assists}**", inline=True
-        )
-        embed.add_field(name="🗺️ Map", value=f"**{map_name}**", inline=True)
-        embed.add_field(name="📊 Score", value=f"**{score_str}**", inline=True)
-        embed.add_field(name="🧑‍✈️ Agent", value=f"**{agent}**", inline=True)
-        embed.set_footer(text=f"Reverie  •  {guild.name}")
+        embed.add_field(name="Map", value=f"**{map_name}**", inline=True)
+        embed.add_field(name="Score", value=f"**{score_str}**", inline=True)
+        embed.add_field(name="Agent", value=f"**{agent}**", inline=True)
+        if agent_icon_url:
+            embed.set_thumbnail(url=agent_icon_url)
+        if map_image_url:
+            embed.set_image(url=map_image_url)
+        embed.set_footer(text=f"Reverie  -  {guild.name}")
 
         await channel.send(embed=embed)
 
