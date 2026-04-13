@@ -495,9 +495,12 @@ class RRTracker(commands.Cog):
                 try:
                     await self._post_new_game(account, match_id, channel, guild)
                 except Exception as e:
+                    import traceback
+
                     print(
                         f"[RR Tracker] Error posting {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
+                    traceback.print_exc()
                 await asyncio.sleep(3)
 
     async def _detect_new_game(self, account: dict) -> str | None:
