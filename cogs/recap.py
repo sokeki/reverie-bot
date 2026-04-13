@@ -83,7 +83,7 @@ class Recap(commands.Cog):
         # Use a 5 minute window to be robust against Heroku clock drift
         if now.weekday() != 0:
             return
-        if now.hour != 5 or now.minute >= 35:
+        if now.hour != 0 or now.minute >= 5:
             return
 
         # Use last_recap_date to ensure we only post once per week
