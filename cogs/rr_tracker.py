@@ -57,9 +57,17 @@ def _today_utc() -> str:
 
 
 def _winning_team(match: dict) -> str:
-    for team in match.get("teams", []):
-        if team.get("won"):
-            return team["team_id"]
+    teams = match.get("teams", {})
+    # v3 format: list of dicts with team_id and won
+    if isinstance(teams, list):
+        for team in teams:
+            if team.get("won"):
+                return team["team_id"]
+    # v2 format: dict with "red" and "blue" keys
+    elif isinstance(teams, dict):
+        for team_name, team_data in teams.items():
+            if team_data.get("has_won"):
+                return team_name
     return ""
 
 
@@ -104,7 +112,7 @@ class RRTracker(commands.Cog):
 
     async def _get_matches(self, name: str, tag: str, count: int = 1) -> list:
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{PLATFORM}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -282,7 +290,7 @@ class RRTracker(commands.Cog):
         from urllib.parse import quote
 
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{PLATFORM}/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
         try:
             async with session.get(url) as resp:
                 status = resp.status
@@ -358,7 +366,9 @@ class RRTracker(commands.Cog):
             return
 
         latest = matches[0]
-        match_id = latest["metadata"]["match_id"]
+        match_id = latest["metadata"].get("match_id") or latest["metadata"].get(
+            "matchid"
+        )
         last_id = account.get("last_match_id")
 
         if match_id == last_id:
@@ -374,9 +384,14 @@ class RRTracker(commands.Cog):
         if last_id is None:
             return
 
-        # Find this player in the match
+        # Find this player in the match — handle both v2 and v3 player list formats
         puuid = account.get("puuid", "")
-        player = next((p for p in latest["players"] if p["puuid"] == puuid), None)
+        all_players = (
+            latest["players"]
+            if isinstance(latest["players"], list)
+            else latest["players"].get("all_players", [])
+        )
+        player = next((p for p in all_players if p["puuid"] == puuid), None)
         if not player:
             return
 
@@ -389,23 +404,37 @@ class RRTracker(commands.Cog):
         tier_name = current["tier"]["name"]
         rr = current["rr"]
         rr_change = current.get("last_change", 0)
-        won = player["team_id"].lower() == _winning_team(latest).lower()
+        won = (
+            player.get("team_id") or player.get("team", "")
+        ).lower() == _winning_team(latest).lower()
 
         kills = player["stats"]["kills"]
         deaths = player["stats"]["deaths"]
         assists = player["stats"]["assists"]
-        agent = player["agent"]["name"]
-        map_name = latest["metadata"]["map"]["name"]
+        agent = player.get("agent", {}).get("name") or player.get(
+            "character", "Unknown"
+        )
+        map_name = latest["metadata"].get("map", {}).get("name") or latest[
+            "metadata"
+        ].get("map", "Unknown")
 
-        # Match score - find player's team rounds won/lost
-        player_team = player["team_id"].lower()
+        # Match score - handle both v2 and v3 format
+        player_team = (player.get("team_id") or player.get("team", "")).lower()
         rounds_won = 0
         rounds_lost = 0
-        for team in latest.get("teams", []):
-            if team["team_id"].lower() == player_team:
-                rounds_won = team.get("rounds_won", 0)
-            else:
-                rounds_lost = team.get("rounds_won", 0)
+        teams = latest.get("teams", {})
+        if isinstance(teams, list):
+            for team in teams:
+                if team["team_id"].lower() == player_team:
+                    rounds_won = team.get("rounds_won", 0)
+                else:
+                    rounds_lost = team.get("rounds_won", 0)
+        elif isinstance(teams, dict):
+            for team_name, team_data in teams.items():
+                if team_name.lower() == player_team:
+                    rounds_won = team_data.get("rounds_won", 0)
+                else:
+                    rounds_lost = team_data.get("rounds_won", 0)
         score_str = f"{rounds_won}-{rounds_lost}"
         result_str = "WIN" if won else "LOSS"
 
