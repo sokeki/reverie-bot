@@ -449,13 +449,29 @@ class RRTracker(commands.Cog):
 
         # Find this player in the match - handle both v2 and v3 player list formats
         puuid = account.get("puuid", "")
-        all_players = (
-            latest["players"]
-            if isinstance(latest["players"], list)
-            else latest["players"].get("all_players", [])
+        raw_players = latest.get("players", [])
+        if isinstance(raw_players, list):
+            all_players = raw_players
+        elif isinstance(raw_players, dict):
+            # v2 format: {"all_players": [...], "red": [...], "blue": [...]}
+            all_players = raw_players.get("all_players", [])
+            if not all_players:
+                # fallback: flatten all team lists
+                all_players = []
+                for val in raw_players.values():
+                    if isinstance(val, list):
+                        all_players.extend(val)
+        else:
+            all_players = []
+
+        player = next(
+            (p for p in all_players if isinstance(p, dict) and p.get("puuid") == puuid),
+            None,
         )
-        player = next((p for p in all_players if p["puuid"] == puuid), None)
         if not player:
+            print(
+                f"[RR Tracker] Could not find player {puuid} in match for {name}#{tag}"
+            )
             return
 
         # Fetch current MMR for fresh RR + last_change
