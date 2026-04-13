@@ -87,13 +87,11 @@ class Points(commands.Cog):
 
         # ── Row 3: streak + spacer to keep layout clean ───────────────────────
         if streak > 0:
-            flame = "🔥" * min(streak // 7 + 1, 5)
+            flame = "🔥"
             plural = "s" if streak != 1 else ""
-            streak_val = (
-                f"```{streak} day{plural}```{flame}\n-# *best: {best_streak} days*"
-            )
+            streak_val = f"`{streak} day{plural}` {flame}  -# *best: {best_streak}*"
         else:
-            streak_val = f"```0 days```\n-# *start chatting to begin a streak!*"
+            streak_val = "*no streak yet*"
 
         # ── Comp roll counts (all-time) ──────────────────────────────────────
         ROLE_ICONS = {
