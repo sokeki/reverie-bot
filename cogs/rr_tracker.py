@@ -169,6 +169,24 @@ class RRTracker(commands.Cog):
             print(f"[RR Tracker] Matches request failed for {name}#{tag}: {e}")
             return []
 
+    async def _get_mmr_history(self, name: str, tag: str) -> list:
+        """Lightweight poll endpoint - returns recent MMR changes with match IDs."""
+        session = await self._get_session()
+        url = f"{API_BASE}/valorant/v1/mmr-history/{REGION}/{quote(name)}/{quote(tag)}"
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                return data.get("data", [])
+        except Exception:
+            return []
+
+    async def _get_match_details(self, name: str, tag: str) -> dict | None:
+        """Fetch full match details for KDA, score, player card - only called when new game detected."""
+        matches = await self._get_matches(name, tag, count=1)
+        return matches[0] if matches else None
+
     # ── /registerval ──────────────────────────────────────────────────────────
 
     @app_commands.command(
@@ -456,7 +474,7 @@ class RRTracker(commands.Cog):
                     print(
                         f"[RR Tracker] Error checking {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
-                await asyncio.sleep(4)  # stagger requests to avoid rate limiting
+                await asyncio.sleep(2)  # stagger requests to avoid rate limiting
 
     async def _check_new_game(
         self, account: dict, channel: discord.TextChannel, guild: discord.Guild
@@ -464,16 +482,14 @@ class RRTracker(commands.Cog):
         name = account["val_name"]
         tag = account["val_tag"]
 
-        matches = await self._get_matches(name, tag, count=1)
-        if not matches:
-            print(f"[RR Tracker] No matches returned for {name}#{tag}")
+        # Use lightweight MMR history for polling - only fetch full match if new game found
+        history = await self._get_mmr_history(name, tag)
+        if not history:
             return
 
-        latest = matches[0]
-        match_id = latest["metadata"].get("match_id") or latest["metadata"].get(
-            "matchid"
-        )
-        game_start = latest["metadata"].get("game_start", 0)
+        latest_entry = history[0]
+        match_id = latest_entry.get("match_id")
+        game_start = latest_entry.get("date_raw", 0)
         last_id = account.get("last_match_id")
         last_start = account.get("last_game_start", 0)
 
@@ -505,85 +521,82 @@ class RRTracker(commands.Cog):
 
         print(f"[RR Tracker] New game detected for {name}#{tag}: {match_id}")
 
-        # Find this player in the match - handle both v2 and v3 player list formats
-        puuid = account.get("puuid", "")
-        raw_players = latest.get("players", [])
-        if isinstance(raw_players, list):
-            all_players = raw_players
-        elif isinstance(raw_players, dict):
-            # v2 format: {"all_players": [...], "red": [...], "blue": [...]}
-            all_players = raw_players.get("all_players", [])
-            if not all_players:
-                # fallback: flatten all team lists
-                all_players = []
-                for val in raw_players.values():
-                    if isinstance(val, list):
-                        all_players.extend(val)
-        else:
-            all_players = []
-
-        player = next(
-            (p for p in all_players if isinstance(p, dict) and p.get("puuid") == puuid),
-            None,
-        )
-        if not player:
-            print(
-                f"[RR Tracker] Could not find player {puuid} in match for {name}#{tag}"
-            )
-            return
-
-        print(f"[RR Tracker] Found player in match for {name}#{tag}, fetching MMR...")
-        # Fetch current MMR for fresh RR + last_change
-        mmr = await self._get_mmr(name, tag)
-        if not mmr:
-            print(f"[RR Tracker] MMR fetch failed for {name}#{tag}")
-            return
-
-        current = mmr["current"]
-        tier_name = current["tier"]["name"]
-        rr = current["rr"]
-        rr_change = current.get("last_change", 0)
-        won = (
-            player.get("team_id") or player.get("team", "")
-        ).lower() == _winning_team(latest).lower()
-
-        kills = player["stats"]["kills"]
-        deaths = player["stats"]["deaths"]
-        assists = player["stats"]["assists"]
-        agent = player.get("agent", {}).get("name") or player.get(
-            "character", "Unknown"
-        )
-        raw_map = latest["metadata"].get("map", "Unknown")
+        # Get RR data from MMR history entry (no extra API call needed)
+        tier_name = latest_entry.get("currenttier_patched", "Unrated")
+        rr = latest_entry.get("ranking_in_tier", 0)
+        rr_change = latest_entry.get("mmr_change_to_last_game", 0)
+        raw_map = latest_entry.get("map", {})
         map_name = (
             raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
         )
 
-        # Match score - handle both v2 and v3 format
-        player_team = (player.get("team_id") or player.get("team", "")).lower()
-        rounds_won = 0
-        rounds_lost = 0
-        teams = latest.get("teams", {})
-        if isinstance(teams, list):
-            for team in teams:
-                if isinstance(team, dict):
-                    if team.get("team_id", "").lower() == player_team:
-                        rounds_won = team.get("rounds_won", 0)
-                    else:
-                        rounds_lost = team.get("rounds_won", 0)
-        elif isinstance(teams, dict):
-            for team_name, team_data in teams.items():
-                if not isinstance(team_data, dict):
-                    continue
-                if team_name.lower() == player_team:
-                    rounds_won = team_data.get("rounds_won", 0)
-                else:
-                    rounds_lost = team_data.get("rounds_won", 0)
-        score_str = f"{rounds_won}-{rounds_lost}"
+        # Fetch full match only for KDA, score, player card, won/loss
+        latest = await self._get_match_details(name, tag)
+        kills = deaths = assists = 0
+        agent = "Unknown"
+        score_str = "-"
+        won = rr_change >= 0
+        player_card_id = None
+
+        if latest:
+            puuid = account.get("puuid", "")
+            raw_players = latest.get("players", [])
+            if isinstance(raw_players, list):
+                all_players = raw_players
+            elif isinstance(raw_players, dict):
+                all_players = raw_players.get("all_players", [])
+                if not all_players:
+                    all_players = []
+                    for val in raw_players.values():
+                        if isinstance(val, list):
+                            all_players.extend(val)
+            else:
+                all_players = []
+
+            player = next(
+                (
+                    p
+                    for p in all_players
+                    if isinstance(p, dict) and p.get("puuid") == puuid
+                ),
+                None,
+            )
+            if player:
+                kills = player["stats"]["kills"]
+                deaths = player["stats"]["deaths"]
+                assists = player["stats"]["assists"]
+                agent = player.get("agent", {}).get("name") or player.get(
+                    "character", "Unknown"
+                )
+                won = (
+                    player.get("team_id") or player.get("team", "")
+                ).lower() == _winning_team(latest).lower()
+                player_card_id = player.get("player_card")
+
+                player_team = (player.get("team_id") or player.get("team", "")).lower()
+                rounds_won = rounds_lost = 0
+                teams = latest.get("teams", {})
+                if isinstance(teams, list):
+                    for team in teams:
+                        if isinstance(team, dict):
+                            if team.get("team_id", "").lower() == player_team:
+                                rounds_won = team.get("rounds_won", 0)
+                            else:
+                                rounds_lost = team.get("rounds_won", 0)
+                elif isinstance(teams, dict):
+                    for tname, tdata in teams.items():
+                        if not isinstance(tdata, dict):
+                            continue
+                        if tname.lower() == player_team:
+                            rounds_won = tdata.get("rounds_won", 0)
+                        else:
+                            rounds_lost = tdata.get("rounds_won", 0)
+                score_str = f"{rounds_won}-{rounds_lost}"
+
         result_str = "WIN" if won else "LOSS"
         embed_colour = COLOUR_MAIN if won else 0x8B4A4A
 
         session = await self._get_session()
-        player_card_id = player.get("player_card")
         card_url = (
             f"https://media.valorant-api.com/playercards/{player_card_id}/smallart.png"
             if player_card_id
