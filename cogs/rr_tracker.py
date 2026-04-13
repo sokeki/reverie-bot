@@ -475,25 +475,39 @@ class RRTracker(commands.Cog):
             accounts = await self.bot.val_accounts_col.find(
                 {"guild_id": guild.id}
             ).to_list(length=100)
+
+            # Phase 1: lightweight poll - check MMR history for all accounts
+            # Only 1 API call per account, 2s apart
+            new_games = []
             for account in accounts:
                 try:
-                    await self._check_new_game(account, channel, guild)
+                    new_game = await self._detect_new_game(account)
+                    if new_game:
+                        new_games.append((account, new_game))
                 except Exception as e:
                     print(
-                        f"[RR Tracker] Error checking {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                        f"[RR Tracker] Error polling {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
-                await asyncio.sleep(3)  # stagger requests to avoid rate limiting
+                await asyncio.sleep(2)
 
-    async def _check_new_game(
-        self, account: dict, channel: discord.TextChannel, guild: discord.Guild
-    ):
+            # Phase 2: process new games - heavier calls, but only for accounts that have new games
+            for account, match_id in new_games:
+                try:
+                    await self._post_new_game(account, match_id, channel, guild)
+                except Exception as e:
+                    print(
+                        f"[RR Tracker] Error posting {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                    )
+                await asyncio.sleep(3)
+
+    async def _detect_new_game(self, account: dict) -> str | None:
+        """Lightweight check - returns match_id if a new game is found, else None."""
         name = account["val_name"]
         tag = account["val_tag"]
 
-        # Use lightweight MMR history for polling - only fetch full match if new game found
         history = await self._get_mmr_history(name, tag)
         if not history:
-            return
+            return None
 
         latest_entry = history[0]
         match_id = latest_entry.get("match_id")
@@ -501,43 +515,47 @@ class RRTracker(commands.Cog):
         last_id = account.get("last_match_id")
         last_start = account.get("last_game_start", 0)
 
-        if match_id == last_id:
-            return
+        if not match_id or match_id == last_id:
+            return None
 
-        # Guard against duplicate posts within the same session (per player, not per match)
         post_key = f"{account['discord_id']}:{match_id}"
         if post_key in self._recently_posted:
-            return
+            return None
 
-        # Only reject if this game is strictly older than the last stored one
         if game_start and last_start and game_start < last_start:
-            return
+            return None
 
         self._recently_posted.add(post_key)
         if len(self._recently_posted) > 100:
             self._recently_posted.pop()
 
-        # Update stored match ID and timestamp
+        # Update stored match ID
         await self.bot.val_accounts_col.update_one(
             {"_id": account["_id"]},
             {"$set": {"last_match_id": match_id, "last_game_start": game_start}},
         )
 
-        # First time seeing this account - just store ID, no post
         if last_id is None:
             print(f"[RR Tracker] First match ID stored for {name}#{tag}: {match_id}")
-            return
+            return None
 
         print(f"[RR Tracker] New game detected for {name}#{tag}: {match_id}")
+        return match_id
 
-        # Always fetch live MMR for accurate rank, RR and last_change
-        rr_change = latest_entry.get("mmr_change_to_last_game") or latest_entry.get(
-            "last_change", 0
-        )
-        raw_map = latest_entry.get("map", {})
-        map_name = (
-            raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
-        )
+    async def _post_new_game(
+        self,
+        account: dict,
+        match_id: str,
+        channel: discord.TextChannel,
+        guild: discord.Guild,
+    ):
+        """Heavy lifting - fetch MMR and match details, build and send embed."""
+        name = account["val_name"]
+        tag = account["val_tag"]
+
+        # Fetch live MMR for accurate rank, RR and last_change
+        rr_change = 0
+        map_name = "Unknown"
 
         print(f"[RR Tracker] Fetching MMR for {name}#{tag}...")
         mmr = await self._get_mmr(name, tag)
@@ -547,13 +565,9 @@ class RRTracker(commands.Cog):
             rr_change = mmr["current"].get("last_change", rr_change)
             print(f"[RR Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
         else:
-            tier_name = (
-                latest_entry.get("currenttier_patched")
-                or latest_entry.get("tier", {}).get("name")
-                or "Unrated"
-            )
-            rr = latest_entry.get("ranking_in_tier") or latest_entry.get("rr", 0)
-            print(f"[RR Tracker] MMR failed for {name}#{tag}, using history fallback")
+            tier_name = "Unrated"
+            rr = 0
+            print(f"[RR Tracker] MMR failed for {name}#{tag}")
 
         # Fetch full match only for KDA, score, player card, won/loss
         print(f"[RR Tracker] Fetching match details for {name}#{tag}...")
