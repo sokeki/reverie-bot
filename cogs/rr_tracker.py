@@ -119,7 +119,9 @@ class RRTracker(commands.Cog):
         self.bot = bot
         self.session: aiohttp.ClientSession | None = None
         self.api_key = os.getenv("HENRIK_API_KEY", "")
-        self._recently_posted: set[str] = set()  # guard against duplicate posts
+        self._recently_posted: set[str] = (
+            set()
+        )  # guard against duplicate posts — stores 'discord_id:match_id'
         self.poll_task.start()
         self.daily_summary_task.start()
 
@@ -502,16 +504,17 @@ class RRTracker(commands.Cog):
         if match_id == last_id:
             return
 
-        # Guard against duplicate posts within the same session
-        if match_id in self._recently_posted:
+        # Guard against duplicate posts within the same session (per player, not per match)
+        post_key = f"{account['discord_id']}:{match_id}"
+        if post_key in self._recently_posted:
             return
 
         # Only reject if this game is strictly older than the last stored one
         if game_start and last_start and game_start < last_start:
             return
 
-        self._recently_posted.add(match_id)
-        if len(self._recently_posted) > 50:
+        self._recently_posted.add(post_key)
+        if len(self._recently_posted) > 100:
             self._recently_posted.pop()
 
         # Update stored match ID and timestamp
