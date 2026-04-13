@@ -255,7 +255,37 @@ class RRTracker(commands.Cog):
                 "*you don't have a Valorant account linked.*", ephemeral=True
             )
 
-    # ── Poll task (every 2 minutes) ───────────────────────────────────────────
+    # ── /rrtrackerstatus ─────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="rrtrackerstatus", description="[Admin] Check if the RR tracker is running"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def rrtrackerstatus(self, interaction: discord.Interaction):
+        accounts = await self.bot.val_accounts_col.find(
+            {"guild_id": interaction.guild_id}
+        ).to_list(length=100)
+        settings = await self.bot.settings_col.find_one(
+            {"guild_id": interaction.guild_id}
+        )
+        channel_id = settings.get("rr_channel_id") if settings else None
+        channel = interaction.guild.get_channel(channel_id) if channel_id else None
+
+        lines = [
+            f"**Poll task running:** {self.poll_task.is_running()}",
+            f"**Next poll:** {self.poll_task.next_iteration.strftime('%H:%M:%S UTC') if self.poll_task.next_iteration else 'unknown'}",
+            f"**RR channel:** {channel.mention if channel else '⚠️ not set - run /setrrchannel'}",
+            f"**Registered accounts:** {len(accounts)}",
+        ]
+        if accounts:
+            for a in accounts:
+                lines.append(
+                    f"- {a['val_name']}#{a['val_tag']} — last match ID: `{a.get('last_match_id') or 'null'}`"
+                )
+
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    # ── Poll task ─────────────────────────────────────────────────────────────
 
     @tasks.loop(minutes=1)
     async def poll_task(self):
