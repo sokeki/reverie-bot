@@ -105,10 +105,15 @@ class RRTracker(commands.Cog):
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
+                    text = await resp.text()
+                    print(
+                        f"[RR Tracker] Matches API {resp.status} for {name}#{tag}: {text[:200]}"
+                    )
                     return []
                 data = await resp.json()
                 return data.get("data", [])
-        except Exception:
+        except Exception as e:
+            print(f"[RR Tracker] Matches request failed for {name}#{tag}: {e}")
             return []
 
     # ── /registerval ──────────────────────────────────────────────────────────
@@ -302,8 +307,10 @@ class RRTracker(commands.Cog):
             for account in accounts:
                 try:
                     await self._check_new_game(account, channel, guild)
-                except Exception:
-                    pass  # don't let one bad account break the whole poll
+                except Exception as e:
+                    print(
+                        f"[RR Tracker] Error checking {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                    )
 
     async def _check_new_game(
         self, account: dict, channel: discord.TextChannel, guild: discord.Guild
@@ -313,6 +320,7 @@ class RRTracker(commands.Cog):
 
         matches = await self._get_matches(name, tag, count=1)
         if not matches:
+            print(f"[RR Tracker] No matches returned for {name}#{tag}")
             return
 
         latest = matches[0]
