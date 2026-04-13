@@ -78,10 +78,7 @@ class Points(commands.Cog):
         progress_bar = _progress_bar(rank["progress_pct"])
         embed.add_field(
             name=f"🏅  {rank['symbol']}  {rank['name']}",
-            value=(
-                f"{progress_bar}  `{rank['progress_pct']}%`\n"
-                f"-# *{rank['points_to_next']:,} until  {rank['next_symbol']}  {rank['next_name']}*"
-            ),
+            value=(f"{progress_bar}  `{rank['progress_pct']}%`\n"),
             inline=True,
         )
 
@@ -89,9 +86,9 @@ class Points(commands.Cog):
         if streak > 0:
             flame = "🔥"
             plural = "s" if streak != 1 else ""
-            streak_val = f"`{streak} day{plural}` {flame}  -# *best: {best_streak}*"
+            streak_val = f"`{streak} day{plural}` 🔥  `best: {best_streak}`"
         else:
-            streak_val = "*no streak yet*"
+            streak_val = "`0 days`"
 
         # ── Comp roll counts (all-time) ──────────────────────────────────────
         ROLE_ICONS = {
