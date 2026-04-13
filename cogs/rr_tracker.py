@@ -14,6 +14,7 @@ import aiohttp
 from datetime import datetime, timezone, timedelta
 
 import discord
+from urllib.parse import quote
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -89,7 +90,9 @@ class RRTracker(commands.Cog):
 
     async def _get_mmr(self, name: str, tag: str) -> dict | None:
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/mmr/{REGION}/{PLATFORM}/{name}/{tag}"
+        url = (
+            f"{API_BASE}/valorant/v3/mmr/{REGION}/{PLATFORM}/{quote(name)}/{quote(tag)}"
+        )
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -101,7 +104,7 @@ class RRTracker(commands.Cog):
 
     async def _get_matches(self, name: str, tag: str, count: int = 1) -> list:
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{name}/{tag}?mode=competitive&size={count}"
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
