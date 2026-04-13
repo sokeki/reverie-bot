@@ -86,9 +86,9 @@ class Points(commands.Cog):
         if streak > 0:
             flame = "🔥"
             plural = "s" if streak != 1 else ""
-            streak_val = f"`{streak} day{plural}` 🔥  `best: {best_streak}`"
+            streak_val = f"`{streak}d` 🔥 `b:{best_streak}`"
         else:
-            streak_val = "`0 days`"
+            streak_val = "`0d`"
 
         # ── Comp roll counts (all-time) ──────────────────────────────────────
         ROLE_ICONS = {
