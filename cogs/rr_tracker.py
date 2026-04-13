@@ -539,11 +539,13 @@ class RRTracker(commands.Cog):
             raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
         )
 
+        print(f"[RR Tracker] Fetching MMR for {name}#{tag}...")
         mmr = await self._get_mmr(name, tag)
         if mmr:
             tier_name = mmr["current"]["tier"]["name"]
             rr = mmr["current"]["rr"]
             rr_change = mmr["current"].get("last_change", rr_change)
+            print(f"[RR Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
         else:
             tier_name = (
                 latest_entry.get("currenttier_patched")
@@ -551,10 +553,15 @@ class RRTracker(commands.Cog):
                 or "Unrated"
             )
             rr = latest_entry.get("ranking_in_tier") or latest_entry.get("rr", 0)
+            print(f"[RR Tracker] MMR failed for {name}#{tag}, using history fallback")
 
         # Fetch full match only for KDA, score, player card, won/loss
+        print(f"[RR Tracker] Fetching match details for {name}#{tag}...")
         await asyncio.sleep(1)
         latest = await self._get_match_details(name, tag)
+        print(
+            f"[RR Tracker] Match details {'OK' if latest else 'FAILED'} for {name}#{tag}"
+        )
         kills = deaths = assists = 0
         hs_pct = 0
         agent = "Unknown"
