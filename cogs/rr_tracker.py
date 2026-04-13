@@ -576,8 +576,10 @@ class RRTracker(commands.Cog):
         )
         agent_icon_url = await _get_agent_icon(session, agent)
 
+        tracker_url = f"https://tracker.gg/valorant/match/{match_id}"
         embed = discord.Embed(
             title=f"{name}#{tag}  -  {result_str}",
+            url=tracker_url,
             color=embed_colour,
         )
         if card_url:
