@@ -54,7 +54,7 @@ class Points(commands.Cog):
             color=COLOUR_MAIN,
         )
 
-        # ── Row 1: three stats — always fills a clean 3-column row ───────────
+        # ── Row 1: three stats - always fills a clean 3-column row ───────────
         embed.add_field(
             name="✨  Dream Points",
             value=f"```{doc['points']:,}```",
@@ -132,7 +132,7 @@ class Points(commands.Cog):
             embed.add_field(name=_BLANK, value=_BLANK, inline=True)
 
         embed.set_thumbnail(url=target.display_avatar.url)
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.response.send_message(embed=embed)
 
 

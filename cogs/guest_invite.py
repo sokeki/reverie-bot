@@ -13,7 +13,7 @@ async def _get_settings(settings_col, guild_id: int) -> dict:
 
 
 class GuestInvite(commands.Cog):
-    """Guest invite system — generates a one-use invite that drags guests into VC."""
+    """Guest invite system - generates a one-use invite that drags guests into VC."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -66,7 +66,7 @@ class GuestInvite(commands.Cog):
 
     @app_commands.command(
         name="guestinvite",
-        description="Generate a one-use guest invite — guest is moved to your VC when they join one",
+        description="Generate a one-use guest invite - guest is moved to your VC when they join one",
     )
     async def guestinvite(self, interaction: discord.Interaction):
         settings = await _get_settings(self.bot.settings_col, interaction.guild_id)
@@ -89,10 +89,10 @@ class GuestInvite(commands.Cog):
             )
             return
 
-        # Determine target VC — only use inviter's current VC if they're in one
+        # Determine target VC - only use inviter's current VC if they're in one
         if interaction.user.voice and interaction.user.voice.channel:
             vc = interaction.user.voice.channel
-            vc_note = f"your current VC — **{vc.name}**"
+            vc_note = f"your current VC - **{vc.name}**"
             vc_id = vc.id
             vc_name = vc.name
         else:
@@ -154,19 +154,19 @@ class GuestInvite(commands.Cog):
             ),
             color=COLOUR_CONFIRM,
         )
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
 
         try:
             await interaction.user.send(embed=embed)
             # Public confirmation in channel, private invite stays in DMs
             await interaction.response.send_message(
-                f"🌙 **{interaction.user.display_name}** is inviting a guest — invite sent to their DMs!",
+                f"🌙 **{interaction.user.display_name}** is inviting a guest - invite sent to their DMs!",
             )
         except discord.Forbidden:
-            # DMs closed — send invite ephemerally so the link stays private
+            # DMs closed - send invite ephemerally so the link stays private
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # ── on_member_join — tag guest and start 1-hour kick timer ───────────────
+    # ── on_member_join - tag guest and start 1-hour kick timer ───────────────
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
@@ -193,7 +193,7 @@ class GuestInvite(commands.Cog):
 
         invite_data = self.pending_invites.pop(used_code)
 
-        # Mark as pending guest — move them when they join a VC
+        # Mark as pending guest - move them when they join a VC
         # vc_id may be None if inviter wasn't in a VC
         self.pending_guests[member.id] = {
             "guild_id": guild.id,
@@ -207,7 +207,7 @@ class GuestInvite(commands.Cog):
             upsert=True,
         )
 
-        # Start 1-hour timer — kick if they never join a VC
+        # Start 1-hour timer - kick if they never join a VC
         self.bot.loop.create_task(self._kick_if_idle(member, guild))
 
     async def _kick_if_idle(self, member: discord.Member, guild: discord.Guild):
@@ -231,7 +231,7 @@ class GuestInvite(commands.Cog):
         except (discord.Forbidden, discord.NotFound):
             pass
 
-    # ── on_voice_state_update — move pending guest, kick on leave ─────────────
+    # ── on_voice_state_update - move pending guest, kick on leave ─────────────
 
     @commands.Cog.listener()
     async def on_voice_state_update(
@@ -244,7 +244,7 @@ class GuestInvite(commands.Cog):
         joined = before.channel is None and after.channel is not None
         left_vc = before.channel is not None and after.channel is None
 
-        # Pending guest just joined a VC — move them to target if one was set
+        # Pending guest just joined a VC - move them to target if one was set
         if joined and member.id in self.pending_guests:
             guest_data = self.pending_guests.pop(member.id)
             target_vc_id = guest_data.get("vc_id")
@@ -254,13 +254,13 @@ class GuestInvite(commands.Cog):
                     if after.channel and after.channel.id != target_vc.id:
                         try:
                             await member.move_to(
-                                target_vc, reason="Guest invite — moved to inviter's VC"
+                                target_vc, reason="Guest invite - moved to inviter's VC"
                             )
                         except (discord.Forbidden, discord.HTTPException):
                             pass
-            # If vc_id is None the inviter wasn't in a VC — guest stays wherever they joined
+            # If vc_id is None the inviter wasn't in a VC - guest stays wherever they joined
 
-        # Tagged guest left VC entirely — kick them
+        # Tagged guest left VC entirely - kick them
         if left_vc:
             doc = await self.bot.settings_col.find_one({"guild_id": guild.id})
             if not doc:
@@ -277,7 +277,7 @@ class GuestInvite(commands.Cog):
             )
             try:
                 await member.kick(
-                    reason="Guest left the voice channel — temporary membership ended"
+                    reason="Guest left the voice channel - temporary membership ended"
                 )
             except discord.Forbidden:
                 pass

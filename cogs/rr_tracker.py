@@ -1,10 +1,10 @@
 """
-RR Tracker cog — polls the HenrikDev Valorant API every 2 minutes to detect
+RR Tracker cog - polls the HenrikDev Valorant API every 2 minutes to detect
 new competitive games and posts per-game updates. Posts a daily summary at
 midnight UTC.
 
 Required env vars:
-  HENRIK_API_KEY  — your api.henrikdev.xyz key
+  HENRIK_API_KEY  - your api.henrikdev.xyz key
 
 Set channel with /setrrchannel
 """
@@ -49,7 +49,7 @@ def _rr_arrow(change: int) -> str:
         return f"▲ +{change}"
     elif change < 0:
         return f"▼ {change}"
-    return f"— {change}"
+    return f"- {change}"
 
 
 def _today_utc() -> str:
@@ -271,6 +271,67 @@ class RRTracker(commands.Cog):
                 "*you don't have a Valorant account linked.*", ephemeral=True
             )
 
+    # ── /rrleaderboard ───────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="rrleaderboard",
+        description="See the RR leaderboard for registered players",
+    )
+    async def rrleaderboard(self, interaction: discord.Interaction):
+        accounts = await self.bot.val_accounts_col.find(
+            {"guild_id": interaction.guild_id}
+        ).to_list(length=100)
+
+        if not accounts:
+            await interaction.response.send_message(
+                "*no Valorant accounts registered yet.*",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+
+        rows = []
+        for account in accounts:
+            mmr = await self._get_mmr(account["val_name"], account["val_tag"])
+            if not mmr:
+                continue
+            current = mmr["current"]
+            rows.append(
+                {
+                    "name": f"{account['val_name']}#{account['val_tag']}",
+                    "tier": current["tier"]["name"],
+                    "rr": current["rr"],
+                    "elo": current.get("elo", 0),
+                    "change": current.get("last_change", 0),
+                }
+            )
+
+        if not rows:
+            await interaction.followup.send(
+                "*couldn't fetch RR data right now.*", ephemeral=True
+            )
+            return
+
+        rows.sort(key=lambda r: r["elo"], reverse=True)
+
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        lines = []
+        for i, row in enumerate(rows):
+            medal = medals.get(i, f"`#{i+1}`")
+            change = f" `{_rr_arrow(row['change'])}`" if row["change"] != 0 else ""
+            lines.append(
+                f"{medal} **{row['name']}** - {row['tier']} {row['rr']} RR{change}"
+            )
+
+        embed = discord.Embed(
+            title="🎯 RR Leaderboard",
+            description="\n".join(lines),
+            color=COLOUR_LB,
+        )
+        embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
+        await interaction.followup.send(embed=embed)
+
     # ── /rrtrackertest ───────────────────────────────────────────────────────
 
     @app_commands.command(
@@ -327,7 +388,7 @@ class RRTracker(commands.Cog):
         if accounts:
             for a in accounts:
                 lines.append(
-                    f"- {a['val_name']}#{a['val_tag']} — last match ID: `{a.get('last_match_id') or 'null'}`"
+                    f"- {a['val_name']}#{a['val_tag']} - last match ID: `{a.get('last_match_id') or 'null'}`"
                 )
 
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
@@ -380,11 +441,11 @@ class RRTracker(commands.Cog):
             {"$set": {"last_match_id": match_id}},
         )
 
-        # First time seeing this account — just store ID, no post
+        # First time seeing this account - just store ID, no post
         if last_id is None:
             return
 
-        # Find this player in the match — handle both v2 and v3 player list formats
+        # Find this player in the match - handle both v2 and v3 player list formats
         puuid = account.get("puuid", "")
         all_players = (
             latest["players"]
@@ -452,7 +513,7 @@ class RRTracker(commands.Cog):
         embed.add_field(name="🗺️ Map", value=f"**{map_name}**", inline=True)
         embed.add_field(name="📊 Score", value=f"**{score_str}**", inline=True)
         embed.add_field(name="🧑‍✈️ Agent", value=f"**{agent}**", inline=True)
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {guild.name}")
 
         await channel.send(embed=embed)
 
@@ -540,7 +601,7 @@ class RRTracker(commands.Cog):
             description="\n\n".join(lines),
             color=COLOUR_LB,
         )
-        embed.set_footer(text=f"{yesterday}  •  Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"{yesterday}  •  Reverie  •  {guild.name}")
         await channel.send(embed=embed)
 
     @poll_task.before_loop

@@ -416,14 +416,14 @@ class Anonymous(commands.Cog):
                 )
                 await self._close_round(round_id, interaction.guild_id, reveal=False)
                 await interaction.response.send_message(
-                    f"❌ Wrong — it wasn't **{guessed_name}**. "
-                    f"3 wrong guesses reached — the answerer earned **{anon_pts}** dream points and their identity stays secret!",
+                    f"❌ Wrong - it wasn't **{guessed_name}**. "
+                    f"3 wrong guesses reached - the answerer earned **{anon_pts}** dream points and their identity stays secret!",
                     ephemeral=True,
                 )
             else:
                 remaining = 3 - wrong
                 await interaction.response.send_message(
-                    f"❌ Wrong — it wasn't **{guessed_name}**. "
+                    f"❌ Wrong - it wasn't **{guessed_name}**. "
                     f"**{remaining}** wrong guess{'es' if remaining != 1 else ''} remaining.",
                     ephemeral=True,
                 )
@@ -466,7 +466,7 @@ class Anonymous(commands.Cog):
         answerer_name = answerer.display_name if answerer else "someone"
 
         embed = discord.Embed(
-            title="🌙 Anonymous Answer — Closed",
+            title="🌙 Anonymous Answer - Closed",
             color=COLOUR_CONFIRM if reveal else COLOUR_LB,
         )
         embed.add_field(name="Question", value=round_doc["question"], inline=False)
@@ -485,15 +485,15 @@ class Anonymous(commands.Cog):
                     value=winner.mention,
                     inline=True,
                 )
-            embed.set_footer(text="Correctly guessed - Reverie - Hypnagogia")
+            embed.set_footer(text=f"Correctly guessed - Reverie - {guild.name}")
         else:
             total_wrong = round_doc["wrong_count"]
             embed.add_field(
                 name="Result",
-                value=f"*{total_wrong} wrong guess{'es' if total_wrong != 1 else ''} — identity remains a secret*",
+                value=f"*{total_wrong} wrong guess{'es' if total_wrong != 1 else ''} - identity remains a secret*",
                 inline=False,
             )
-            embed.set_footer(text="Round closed - Reverie - Hypnagogia")
+            embed.set_footer(text=f"Round closed - Reverie - {guild.name}")
 
         await msg.edit(embed=embed, view=None)
 

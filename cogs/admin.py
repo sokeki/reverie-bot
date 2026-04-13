@@ -50,7 +50,7 @@ class Admin(commands.Cog):
             url=url,
         )
         embed.set_image(url=f"{url}/static/og-image.png")
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.response.send_message(embed=embed)
 
 

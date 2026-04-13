@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}— Commands{% endblock %}
+{% block title %}- Commands{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -14,8 +14,8 @@
 
         <div class="cmd-card">
             <div class="cmd-name">/points</div>
-            <div class="cmd-desc">Check your dream points, voice time, rank and streak. Add <code>@user</code> to check
-                someone else.</div>
+            <div class="cmd-desc">Check your dream points, voice time, rank, streak and comp roll history. Add
+                <code>@user</code> to check someone else.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/leaderboard</div>
@@ -24,7 +24,7 @@
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/shop</div>
-            <div class="cmd-desc">Browse the dream shop. 5 items per page, sorted by cost.</div>
+            <div class="cmd-desc">Browse the dream shop. 10 items per page, sorted by price then alphabetically.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/buy &lt;item&gt;</div>
@@ -33,6 +33,16 @@
         <div class="cmd-card">
             <div class="cmd-name">/inventory</div>
             <div class="cmd-desc">See the items you own. Add <code>@user</code> to check someone else's inventory.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/equip</div>
+            <div class="cmd-desc">Equip a purchased role from your inventory. Shows a dropdown of your owned roles.
+            </div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/unequip</div>
+            <div class="cmd-desc">Unequip a role you currently have equipped. Only shows roles you are currently
+                wearing.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/settitle &lt;title&gt;</div>
@@ -51,8 +61,12 @@
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/removerole</div>
-            <div class="cmd-desc">Use a Role Remover item to remove one of your purchased shop roles. Shows a dropdown
-                of eligible roles.</div>
+            <div class="cmd-desc">Use a Role Remover item to remove one of your purchased shop roles.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/answer</div>
+            <div class="cmd-desc">Answer today's anonymous question. A modal popup appears with a random question -
+                answer once per day.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/dashboard</div>
@@ -75,7 +89,20 @@
         <div class="cmd-card">
             <div class="cmd-name">/randomcomp</div>
             <div class="cmd-desc">Randomly assign 5 members to Valorant roles. Enable <code>roll_agents</code> to also
-                roll a random agent for each role.</div>
+                roll a random agent for each role. Results are tracked for the weekly recap.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/registerval &lt;name#tag&gt;</div>
+            <div class="cmd-desc">Link your Valorant account for RR tracking. Games are detected automatically within 1
+                minute of finishing.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/unregisterval</div>
+            <div class="cmd-desc">Unlink your Valorant account from RR tracking.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/rrleaderboard</div>
+            <div class="cmd-desc">See the current rank and RR for all registered players, sorted by ELO.</div>
         </div>
     </div>
 
@@ -85,8 +112,8 @@
         <div class="cmd-card">
             <div class="cmd-name">/guestinvite</div>
             <div class="cmd-desc">Generate a one-use guest invite that expires in 10 minutes. The invite link is sent to
-                your DMs. When the guest joins the server and enters any voice channel, they are moved to your VC
-                automatically. They are kicked when they leave.</div>
+                your DMs. When the guest joins the server and enters any voice channel they are moved to your VC
+                automatically. They are kicked when they leave, or after 1 hour if they never join a VC.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/drag @member</div>
@@ -124,6 +151,59 @@
         <div class="cmd-card">
             <div class="cmd-name">/setlingeringrole @role</div>
             <div class="cmd-desc">Set the role that members must have to be dragged with /drag.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setanswerchannel #channel</div>
+            <div class="cmd-desc">Set the channel where anonymous answers are posted.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setguessingrole @role</div>
+            <div class="cmd-desc">Set the role required to guess in the anonymous Q&A game.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setguesstimeout &lt;hours&gt;</div>
+            <div class="cmd-desc">Set how many hours guessing stays open after an answer is posted.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setanonymouspoints &lt;amount&gt;</div>
+            <div class="cmd-desc">Set the points awarded to the answerer for surviving 3 wrong guesses.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setguesspoints &lt;amount&gt;</div>
+            <div class="cmd-desc">Set the points awarded for a correct guess.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/addquestion &lt;text&gt;</div>
+            <div class="cmd-desc">Add a question to the anonymous Q&A pool.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/removequestion &lt;text&gt;</div>
+            <div class="cmd-desc">Remove a question from the pool by its exact text.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/listquestions</div>
+            <div class="cmd-desc">List all questions currently in the anonymous Q&A pool.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setrecapchannel #channel</div>
+            <div class="cmd-desc">Set the channel where the weekly recap is posted every Monday at midnight UTC.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/sendrecap</div>
+            <div class="cmd-desc">Manually trigger this week's recap.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setrrchannel #channel</div>
+            <div class="cmd-desc">Set the channel for Valorant RR tracking updates and the daily summary.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/adminregisterval @member &lt;name#tag&gt;</div>
+            <div class="cmd-desc">Link a Valorant account to a Discord member for RR tracking.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/rrtrackerstatus</div>
+            <div class="cmd-desc">Check if the RR tracker poll is running and see the status of all registered accounts.
+            </div>
         </div>
     </div>
 

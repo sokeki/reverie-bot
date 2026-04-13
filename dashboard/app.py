@@ -26,6 +26,17 @@ DISCORD_API = "https://discord.com/api/v10"
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 
+async def fetch_guild_name() -> str:
+    """Fetch the guild name from Discord using the bot token."""
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{DISCORD_API}/guilds/{GUILD_ID}",
+            headers={"Authorization": f"Bot {BOT_TOKEN}"},
+        )
+        data = r.json()
+        return data.get("name", "Hypnagogia")
+
+
 async def fetch_guild_roles() -> list[dict]:
     """Fetch all roles for the guild using the bot token."""
     async with httpx.AsyncClient() as client:
@@ -51,6 +62,19 @@ app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
+
+GUILD_NAME = "Hypnagogia"  # overwritten at startup
+
+
+@app.on_event("startup")
+async def startup():
+    global GUILD_NAME
+    try:
+        GUILD_NAME = await fetch_guild_name()
+    except Exception:
+        pass
+
+
 templates.env.globals["enumerate"] = enumerate
 
 # ── DB ────────────────────────────────────────────────────────────────────────
@@ -197,7 +221,7 @@ async def logout(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, user: dict = Depends(require_user)):
-    # Server stats — single aggregation for efficiency
+    # Server stats - single aggregation for efficiency
     total_members = await users_col.count_documents({"guild_id": GUILD_ID})
     total_items = await items_col.count_documents({"guild_id": GUILD_ID})
     settings = await get_settings()
@@ -224,6 +248,7 @@ async def index(request: Request, user: dict = Depends(require_user)):
         "index.html",
         {
             "request": request,
+            "guild_name": GUILD_NAME,
             "user": user,
             "total_members": total_members,
             "total_points": total_points,
@@ -276,6 +301,7 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
         "leaderboard.html",
         {
             "request": request,
+            "guild_name": GUILD_NAME,
             "user": user,
             "members": docs,
             "sort": sort_param,
@@ -298,6 +324,7 @@ async def shop(request: Request, user: dict = Depends(require_user)):
         "shop.html",
         {
             "request": request,
+            "guild_name": GUILD_NAME,
             "user": user,
             "items": items,
             "guild_roles": guild_roles,
@@ -395,6 +422,7 @@ async def commands_page(request: Request, user: dict = Depends(require_user)):
         "commands.html",
         {
             "request": request,
+            "guild_name": GUILD_NAME,
             "user": user,
         },
     )
@@ -407,6 +435,7 @@ async def settings_page(request: Request, user: dict = Depends(require_admin)):
         "settings.html",
         {
             "request": request,
+            "guild_name": GUILD_NAME,
             "user": user,
             "settings": settings,
             "saved": request.query_params.get("saved"),

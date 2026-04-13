@@ -87,7 +87,7 @@ async def on_ready():
 
     # Sync slash commands globally
     synced = await bot.tree.sync()
-    print(f"🌙  {BOT_NAME} online as {bot.user} — {len(synced)} slash commands synced.")
+    print(f"🌙  {BOT_NAME} online as {bot.user} - {len(synced)} slash commands synced.")
 
     await bot.change_presence(
         status=discord.Status.online,

@@ -104,7 +104,7 @@ class Valorant(commands.Cog):
             description=f"**Role:** {role_name}",
             color=ROLE_COLOURS[role_name],
         )
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.response.send_message(embed=embed)
 
     # ── /randomrole ───────────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ class Valorant(commands.Cog):
             description="*your role for this round*",
             color=ROLE_COLOURS[role],
         )
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.response.send_message(embed=embed)
 
     # ── /randomcomp ───────────────────────────────────────────────────────────
@@ -169,9 +169,9 @@ class Valorant(commands.Cog):
             member = assignments[role].mention
             if roll_agents:
                 agent = rolled_agents[role]
-                lines.append(f"{emoji} **{role}** — {member}  ›  *{agent}*")
+                lines.append(f"{emoji} **{role}** - {member}  ›  *{agent}*")
             else:
-                lines.append(f"{emoji} **{role}** — {member}")
+                lines.append(f"{emoji} **{role}** - {member}")
 
         pings = " ".join(p.mention for p in players)
 
@@ -180,7 +180,7 @@ class Valorant(commands.Cog):
             description="\n".join(lines),
             color=COLOUR_LB,
         )
-        embed.set_footer(text="Reverie  •  Hypnagogia")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.response.send_message(content=pings, embed=embed)
 
         # Record role assignments for weekly recap stats

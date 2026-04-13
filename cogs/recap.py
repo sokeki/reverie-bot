@@ -207,7 +207,7 @@ class Recap(commands.Cog):
             reverse=True,
         )[:3]
 
-        # New rank achievements this week — compare rank from snapshot vs now
+        # New rank achievements this week - compare rank from snapshot vs now
         last_week = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
             "%Y-%m-%d"
         )
@@ -240,7 +240,7 @@ class Recap(commands.Cog):
         # Build embed
         embed = discord.Embed(
             title="🌙 Weekly Recap",
-            description=f"*here's how Hypnagogia dreamed this week...*",
+            description=f"*here's how {guild.name} dreamed this week...*",
             color=COLOUR_LB,
         )
 
@@ -326,18 +326,18 @@ class Recap(commands.Cog):
         if not any([top_points, top_voice, top_msgs, rank_ups, comp_lines]):
             embed.add_field(
                 name="A quiet week",
-                value="*no activity recorded this week — come back and earn some points!*",
+                value="*no activity recorded this week - come back and earn some points!*",
                 inline=False,
             )
 
-        embed.set_footer(text=f"Week of {last_week}  -  Reverie  -  Hypnagogia")
+        embed.set_footer(text=f"Week of {last_week}  -  Reverie  -  {guild.name}")
 
         await channel.send(embed=embed)
 
         # Take a fresh snapshot for next week
         await self._take_snapshot(guild.id)
 
-        # Clear this week's comp rolls — they reset weekly
+        # Clear this week's comp rolls - they reset weekly
         await self.bot.comp_rolls_col.delete_many(
             {
                 "guild_id": guild.id,
