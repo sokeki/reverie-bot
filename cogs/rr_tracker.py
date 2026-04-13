@@ -445,7 +445,10 @@ class RRTracker(commands.Cog):
 
         # First time seeing this account - just store ID, no post
         if last_id is None:
+            print(f"[RR Tracker] First match ID stored for {name}#{tag}: {match_id}")
             return
+
+        print(f"[RR Tracker] New game detected for {name}#{tag}: {match_id}")
 
         # Find this player in the match - handle both v2 and v3 player list formats
         puuid = account.get("puuid", "")
@@ -474,9 +477,11 @@ class RRTracker(commands.Cog):
             )
             return
 
+        print(f"[RR Tracker] Found player in match for {name}#{tag}, fetching MMR...")
         # Fetch current MMR for fresh RR + last_change
         mmr = await self._get_mmr(name, tag)
         if not mmr:
+            print(f"[RR Tracker] MMR fetch failed for {name}#{tag}")
             return
 
         current = mmr["current"]
