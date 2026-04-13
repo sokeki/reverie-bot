@@ -122,7 +122,9 @@ class Points(commands.Cog):
             embed.add_field(name=_BLANK, value=_BLANK, inline=True)
 
         embed.set_thumbnail(url=target.display_avatar.url)
-        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
+        embed.set_footer(
+            text=f"{rank['symbol']} {rank['name']}  {rank['progress_pct']}%  •  Reverie  •  {interaction.guild.name}"
+        )
         await interaction.response.send_message(embed=embed)
 
 

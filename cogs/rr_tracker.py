@@ -119,6 +119,7 @@ class RRTracker(commands.Cog):
         self.bot = bot
         self.session: aiohttp.ClientSession | None = None
         self.api_key = os.getenv("HENRIK_API_KEY", "")
+        self._recently_posted: set[str] = set()  # guard against duplicate posts
         self.poll_task.start()
         self.daily_summary_task.start()
 
@@ -472,15 +473,29 @@ class RRTracker(commands.Cog):
         match_id = latest["metadata"].get("match_id") or latest["metadata"].get(
             "matchid"
         )
+        game_start = latest["metadata"].get("game_start", 0)
         last_id = account.get("last_match_id")
+        last_start = account.get("last_game_start", 0)
 
         if match_id == last_id:
             return
 
-        # Update stored match ID first
+        # Guard against duplicate posts within the same session
+        if match_id in self._recently_posted:
+            return
+
+        # Only process if this game is more recent than the last stored one
+        if game_start and last_start and game_start <= last_start:
+            return
+
+        self._recently_posted.add(match_id)
+        if len(self._recently_posted) > 50:
+            self._recently_posted.pop()
+
+        # Update stored match ID and timestamp
         await self.bot.val_accounts_col.update_one(
             {"_id": account["_id"]},
-            {"$set": {"last_match_id": match_id}},
+            {"$set": {"last_match_id": match_id, "last_game_start": game_start}},
         )
 
         # First time seeing this account - just store ID, no post
