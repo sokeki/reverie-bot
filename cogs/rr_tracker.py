@@ -59,15 +59,13 @@ def _today_utc() -> str:
 
 def _winning_team(match: dict) -> str:
     teams = match.get("teams", {})
-    # v3 format: list of dicts with team_id and won
     if isinstance(teams, list):
         for team in teams:
-            if team.get("won"):
-                return team["team_id"]
-    # v2 format: dict with "red" and "blue" keys
+            if isinstance(team, dict) and team.get("won"):
+                return team.get("team_id", "")
     elif isinstance(teams, dict):
         for team_name, team_data in teams.items():
-            if team_data.get("has_won"):
+            if isinstance(team_data, dict) and team_data.get("has_won"):
                 return team_name
     return ""
 
@@ -498,9 +496,10 @@ class RRTracker(commands.Cog):
         agent = player.get("agent", {}).get("name") or player.get(
             "character", "Unknown"
         )
-        map_name = latest["metadata"].get("map", {}).get("name") or latest[
-            "metadata"
-        ].get("map", "Unknown")
+        raw_map = latest["metadata"].get("map", "Unknown")
+        map_name = (
+            raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
+        )
 
         # Match score - handle both v2 and v3 format
         player_team = (player.get("team_id") or player.get("team", "")).lower()
@@ -509,12 +508,15 @@ class RRTracker(commands.Cog):
         teams = latest.get("teams", {})
         if isinstance(teams, list):
             for team in teams:
-                if team["team_id"].lower() == player_team:
-                    rounds_won = team.get("rounds_won", 0)
-                else:
-                    rounds_lost = team.get("rounds_won", 0)
+                if isinstance(team, dict):
+                    if team.get("team_id", "").lower() == player_team:
+                        rounds_won = team.get("rounds_won", 0)
+                    else:
+                        rounds_lost = team.get("rounds_won", 0)
         elif isinstance(teams, dict):
             for team_name, team_data in teams.items():
+                if not isinstance(team_data, dict):
+                    continue
                 if team_name.lower() == player_team:
                     rounds_won = team_data.get("rounds_won", 0)
                 else:
