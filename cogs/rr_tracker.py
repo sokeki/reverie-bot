@@ -575,7 +575,6 @@ class RRTracker(commands.Cog):
             else None
         )
         agent_icon_url = await _get_agent_icon(session, agent)
-        map_image_url = await _get_map_image(session, map_name)
 
         embed = discord.Embed(
             title=f"{name}#{tag}  -  {result_str}",
@@ -595,8 +594,6 @@ class RRTracker(commands.Cog):
         embed.add_field(name="Agent", value=f"**{agent}**", inline=True)
         if agent_icon_url:
             embed.set_thumbnail(url=agent_icon_url)
-        if map_image_url:
-            embed.set_image(url=map_image_url)
         embed.set_footer(text=f"Reverie  -  {guild.name}")
 
         await channel.send(embed=embed)
