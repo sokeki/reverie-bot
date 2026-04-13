@@ -104,7 +104,7 @@ class RRTracker(commands.Cog):
 
     async def _get_matches(self, name: str, tag: str, count: int = 1) -> list:
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{PLATFORM}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -282,7 +282,7 @@ class RRTracker(commands.Cog):
         from urllib.parse import quote
 
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{PLATFORM}/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
         try:
             async with session.get(url) as resp:
                 status = resp.status
