@@ -500,8 +500,8 @@ class RRTracker(commands.Cog):
         if match_id in self._recently_posted:
             return
 
-        # Only process if this game is more recent than the last stored one
-        if game_start and last_start and game_start <= last_start:
+        # Only reject if this game is strictly older than the last stored one
+        if game_start and last_start and game_start < last_start:
             return
 
         self._recently_posted.add(match_id)
