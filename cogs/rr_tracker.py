@@ -263,6 +263,37 @@ class RRTracker(commands.Cog):
                 "*you don't have a Valorant account linked.*", ephemeral=True
             )
 
+    # ── /rrtrackertest ───────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="rrtrackertest", description="[Admin] Test the API for a specific account"
+    )
+    @app_commands.describe(username="Valorant username e.g. Name#TAG")
+    @app_commands.default_permissions(administrator=True)
+    async def rrtrackertest(self, interaction: discord.Interaction, username: str):
+        await interaction.response.defer(ephemeral=True)
+        if "#" not in username:
+            await interaction.followup.send(
+                "⚠️ Include the tag e.g. `Name#EUW`", ephemeral=True
+            )
+            return
+
+        name, tag = username.split("#", 1)
+        from urllib.parse import quote
+
+        session = await self._get_session()
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
+        try:
+            async with session.get(url) as resp:
+                status = resp.status
+                text = await resp.text()
+                await interaction.followup.send(
+                    f"**URL:** `{url}`\n**Status:** {status}\n**Response:**\n```{text[:400]}```",
+                    ephemeral=True,
+                )
+        except Exception as e:
+            await interaction.followup.send(f"**Exception:** {e}", ephemeral=True)
+
     # ── /rrtrackerstatus ─────────────────────────────────────────────────────
 
     @app_commands.command(
