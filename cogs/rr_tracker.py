@@ -533,6 +533,7 @@ class RRTracker(commands.Cog):
         # Fetch full match only for KDA, score, player card, won/loss
         latest = await self._get_match_details(name, tag)
         kills = deaths = assists = 0
+        hs_pct = 0
         agent = "Unknown"
         score_str = "-"
         won = rr_change >= 0
@@ -565,6 +566,11 @@ class RRTracker(commands.Cog):
                 kills = player["stats"]["kills"]
                 deaths = player["stats"]["deaths"]
                 assists = player["stats"]["assists"]
+                headshots = player["stats"].get("headshots", 0)
+                bodyshots = player["stats"].get("bodyshots", 0)
+                legshots = player["stats"].get("legshots", 0)
+                total_shots = headshots + bodyshots + legshots
+                hs_pct = round(headshots / total_shots * 100) if total_shots > 0 else 0
                 agent = player.get("agent", {}).get("name") or player.get(
                     "character", "Unknown"
                 )
@@ -621,7 +627,7 @@ class RRTracker(commands.Cog):
         )
         embed.add_field(name="Map", value=f"**{map_name}**", inline=True)
         embed.add_field(name="Score", value=f"**{score_str}**", inline=True)
-        embed.add_field(name="Agent", value=f"**{agent}**", inline=True)
+        embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
         if agent_icon_url:
             embed.set_thumbnail(url=agent_icon_url)
         embed.set_footer(text=f"Reverie  -  {guild.name}")
