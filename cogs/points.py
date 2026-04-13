@@ -71,17 +71,6 @@ class Points(commands.Cog):
             inline=True,
         )
 
-        # ── Divider ───────────────────────────────────────────────────────────
-        embed.add_field(name=_BLANK, value="▸  **Rank & Activity**", inline=False)
-
-        # ── Row 2: rank (full width) ──────────────────────────────────────────
-        progress_bar = _progress_bar(rank["progress_pct"])
-        embed.add_field(
-            name=f"🏅  {rank['symbol']}  {rank['name']}",
-            value=(f"{progress_bar}  `{rank['progress_pct']}%`\n"),
-            inline=True,
-        )
-
         # ── Row 3: streak + spacer to keep layout clean ───────────────────────
         if streak > 0:
             flame = "🔥"
