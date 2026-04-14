@@ -882,7 +882,7 @@ class RRTracker(commands.Cog):
                     print(
                         f"[RR Tracker] Error polling {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
 
             # Phase 2: process new games - heavier calls, but only for accounts that have new games
             for account, match_id in new_games:
