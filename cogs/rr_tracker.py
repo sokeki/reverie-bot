@@ -636,13 +636,20 @@ class RRTracker(commands.Cog):
                 return
             match = matches[0]
 
-        match = match
+        embed = self._build_scoreboard_embed(match, interaction.guild)
+        await interaction.followup.send(embed=embed)
+
+    def _build_scoreboard_embed(
+        self, match: dict, guild: discord.Guild
+    ) -> discord.Embed:
+        """Build a scoreboard embed from a match data dict."""
         metadata = match.get("metadata", {})
         raw_map = metadata.get("map", "Unknown")
         map_name = (
             raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
         )
         rounds = metadata.get("rounds_played", "?")
+        match_id = metadata.get("match_id") or metadata.get("matchid", "")
 
         raw_players = match.get("players", [])
         if isinstance(raw_players, list):
@@ -652,7 +659,6 @@ class RRTracker(commands.Cog):
         else:
             all_players = []
 
-        # Split into teams
         teams: dict[str, list] = {}
         for p in all_players:
             if not isinstance(p, dict):
@@ -660,11 +666,9 @@ class RRTracker(commands.Cog):
             team = (p.get("team_id") or p.get("team", "?")).upper()
             teams.setdefault(team, []).append(p)
 
-        # Sort each team by ACS descending
         for team in teams.values():
             team.sort(key=lambda p: p.get("stats", {}).get("score", 0), reverse=True)
 
-        # Get round scores
         team_scores: dict[str, int] = {}
         raw_teams = match.get("teams", {})
         if isinstance(raw_teams, list):
@@ -678,7 +682,6 @@ class RRTracker(commands.Cog):
                     team_scores[tid.upper()] = tdata.get("rounds_won", 0)
 
         def _short_rank(rank: str) -> str:
-            """Shorten rank name e.g. Platinum 2 -> Plat 2, Diamond 3 -> Dia 3"""
             short = {
                 "Iron": "Iron",
                 "Bronze": "Brnz",
@@ -721,19 +724,64 @@ class RRTracker(commands.Cog):
             return "```\n" + "\n".join(rows) + "\n```"
 
         embed = discord.Embed(
-            title=f"{map_name}",
-            url=f"https://tracker.gg/valorant/match/{metadata.get('match_id') or metadata.get('matchid', '')}",
+            title=map_name,
+            url=f"https://tracker.gg/valorant/match/{match_id}",
             color=COLOUR_MAIN,
         )
-
         for team_id, players in sorted(teams.items()):
             score = team_scores.get(team_id, "?")
             won = score == max(team_scores.values()) if team_scores else False
-            label = f"{'🟢' if won else '🔴'} Team {team_id}  -  {score} rounds"
+            icon = "🟢" if won else "🔴"
+            label = f"{icon} Team {team_id}  -  {score} rounds"
             embed.add_field(name=label, value=build_table(players), inline=False)
+        embed.set_footer(text=f"Reverie  -  {guild.name}")
+        return embed
 
-        embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
-        await interaction.followup.send(embed=embed)
+    # ── r!scoreboard prefix command ───────────────────────────────────────────
+
+    @commands.command(name="scoreboard")
+    async def scoreboard_prefix(self, ctx: commands.Context):
+        """Reply to an RR update embed to show its scoreboard."""
+        match_id = None
+
+        # Try to extract match ID from a replied-to message
+        if ctx.message.reference:
+            try:
+                ref_msg = await ctx.channel.fetch_message(
+                    ctx.message.reference.message_id
+                )
+                # Look for match ID in embed footer
+                for embed in ref_msg.embeds:
+                    if embed.footer and embed.footer.text:
+                        # Footer format: "match_id  -  Reverie  -  guild"
+                        parts = embed.footer.text.split("  -  ")
+                        if parts and len(parts[0]) > 30:  # UUID length check
+                            match_id = parts[0].strip()
+                            break
+            except Exception:
+                pass
+
+        if not match_id:
+            await ctx.reply(
+                "⚠️ Reply to an RR update embed to pull up the scoreboard, or use `/scoreboard match_id:...`."
+            )
+            return
+
+        session = await self._get_session()
+        url = f"{API_BASE}/valorant/v1/match/{match_id}"
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    await ctx.reply(f"⚠️ Couldn't find match `{match_id}`.")
+                    return
+                data = await resp.json()
+                match = data.get("data", data)
+        except Exception as e:
+            await ctx.reply(f"⚠️ API error: {e}")
+            return
+
+        embed = self._build_scoreboard_embed(match, ctx.guild)
+        await ctx.reply(embed=embed)
 
         # ── Poll task ─────────────────────────────────────────────────────────────
 
