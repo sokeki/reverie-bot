@@ -102,7 +102,29 @@ class RiotAPI:
 
 
 def _region_to_routing(region: str) -> str:
-    return "europe" if region in ("euw1", "eun1") else "americas"
+    mapping = {
+        "euw1": "europe",
+        "eun1": "europe",
+        "na1": "americas",
+        "la1": "americas",
+        "br1": "americas",
+        "sg2": "asia",
+        "kr": "asia",
+    }
+    return mapping.get(region, "europe")
+
+
+def _val_to_tft_region(val_region: str) -> str:
+    """Convert Valorant Henrik region code to TFT Riot platform code."""
+    mapping = {
+        "eu": "euw1",
+        "na": "na1",
+        "ap": "sg2",
+        "kr": "kr",
+        "br": "br1",
+        "latam": "la1",
+    }
+    return mapping.get(val_region, "euw1")
 
 
 class TFTTracker(commands.Cog):
@@ -137,132 +159,67 @@ class TFTTracker(commands.Cog):
             f"✅ TFT updates will be posted in {channel.mention}.", ephemeral=True
         )
 
-    # ── /tftadd ───────────────────────────────────────────────────────────────
-
-    @app_commands.command(
-        name="tftadd", description="Add a Riot account to TFT LP tracking"
-    )
-    @app_commands.describe(
-        username="Riot ID including tag, e.g. Name#EUW",
-        region="Server region",
-    )
-    @app_commands.choices(
-        region=[
-            app_commands.Choice(name="EUW", value="euw1"),
-            app_commands.Choice(name="EUNE", value="eun1"),
-            app_commands.Choice(name="NA", value="na1"),
-        ]
-    )
-    async def tftadd(
-        self, interaction: discord.Interaction, username: str, region: str
-    ):
-        if "#" not in username:
-            await interaction.response.send_message(
-                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
-            )
-            return
-
-        name, tag = username.split("#", 1)
-        await interaction.response.defer()
-
-        routing = _region_to_routing(region)
-        account = await self.riot.get_account(routing, name, tag)
-        if not account:
-            await interaction.followup.send(
-                f"⚠️ Couldn't find **{username}**. Check the name and tag."
-            )
-            return
-
-        puuid = account["puuid"]
-
-        existing = await self.bot.tft_accounts_col.find_one(
-            {"puuid": puuid, "guild_id": interaction.guild_id}
-        )
-        if existing:
-            await interaction.followup.send(f"**{username}** is already being tracked.")
-            return
-
-        entries = await self.riot.get_league_entries(region, puuid)
-        lp_total = 0
-        rank_str = "Unranked"
-        for e in entries:
-            if e.get("queueType") == "RANKED_TFT":
-                lp_total = _lp_total(e["tier"], e["rank"], e["leaguePoints"])
-                rank_str = _format_rank(e["tier"], e["rank"], e["leaguePoints"])
-
-        await self.bot.tft_accounts_col.insert_one(
-            {
-                "guild_id": interaction.guild_id,
-                "puuid": puuid,
-                "name": account.get("gameName", name),
-                "tag": account.get("tagLine", tag),
-                "region": region,
-                "lp": lp_total,
-                "last_match_ids": [],
-            }
-        )
-
-        await interaction.followup.send(
-            f"✅ Added **{name}#{tag}** - currently **{rank_str}**."
-        )
-
-    # ── /tftremove ────────────────────────────────────────────────────────────
-
-    @app_commands.command(
-        name="tftremove", description="Remove a Riot account from TFT LP tracking"
-    )
-    @app_commands.describe(username="Riot ID including tag, e.g. Name#EUW")
-    async def tftremove(self, interaction: discord.Interaction, username: str):
-        if "#" not in username:
-            await interaction.response.send_message(
-                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
-            )
-            return
-
-        name, tag = username.split("#", 1)
-        result = await self.bot.tft_accounts_col.delete_one(
-            {"guild_id": interaction.guild_id, "name": name, "tag": tag}
-        )
-        if result.deleted_count:
-            await interaction.response.send_message(
-                f"🌙 Removed **{name}#{tag}** from TFT tracking.", ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                f"*couldn't find **{name}#{tag}** in the tracked list.*", ephemeral=True
-            )
-
     # ── /tftlist ──────────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="tftlist", description="Show the TFT LP leaderboard for tracked accounts"
+        name="tftlist",
+        description="Show the TFT LP leaderboard for all tracked accounts",
     )
     async def tftlist(self, interaction: discord.Interaction):
-        accounts = await self.bot.tft_accounts_col.find(
+        accounts = await self.bot.riot_accounts_col.find(
             {"guild_id": interaction.guild_id}
         ).to_list(length=100)
 
         if not accounts:
             await interaction.response.send_message(
-                "*no TFT accounts are being tracked yet.*", ephemeral=True
+                "*no accounts are being tracked yet. Use `/registerriot` to add one.*",
+                ephemeral=True,
             )
             return
 
-        accounts.sort(key=lambda a: a.get("lp", 0), reverse=True)
+        await interaction.response.defer()
 
+        rows = []
+        for acc in accounts:
+            puuid = acc.get("puuid", "")
+            tft = acc.get("tft", {})
+            region = tft.get("region") or _val_to_tft_region(
+                acc.get("val_region", "eu")
+            )
+            entries = await self.riot.get_league_entries(region, puuid)
+            lp_total = 0
+            rank_str = "Unranked"
+            for e in entries:
+                if e.get("queueType") == "RANKED_TFT":
+                    lp_total = _lp_total(e["tier"], e["rank"], e["leaguePoints"])
+                    rank_str = _format_rank(e["tier"], e["rank"], e["leaguePoints"])
+                    # Update stored LP
+                    await self.bot.riot_accounts_col.update_one(
+                        {"_id": acc["_id"]},
+                        {"$set": {"tft.lp": lp_total, "tft.region": region}},
+                    )
+            rows.append(
+                {
+                    "name": acc.get("val_name", "?"),
+                    "tag": acc.get("val_tag", "?"),
+                    "rank": rank_str,
+                    "lp": lp_total,
+                }
+            )
+            await asyncio.sleep(1)
+
+        rows.sort(key=lambda r: r["lp"], reverse=True)
         medals = {0: "🥇", 1: "🥈", 2: "🥉"}
         embed = discord.Embed(title="🎮 TFT LP Leaderboard", color=0x00B4D8)
-        for i, acc in enumerate(accounts):
+        for i, row in enumerate(rows):
             medal = medals.get(i, f"`#{i+1}`")
-            lp = acc.get("lp", 0)
-            rank = _lp_to_rank_str(lp)
             embed.add_field(
-                name=f"{medal} {acc['name']}#{acc['tag']}",
-                value=rank,
+                name=f"{medal} {row['name']}#{row['tag']}",
+                value=row["rank"],
                 inline=False,
             )
         embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     # ── /tftstats ─────────────────────────────────────────────────────────────
 
@@ -278,10 +235,14 @@ class TFTTracker(commands.Cog):
             app_commands.Choice(name="EUW", value="euw1"),
             app_commands.Choice(name="EUNE", value="eun1"),
             app_commands.Choice(name="NA", value="na1"),
+            app_commands.Choice(name="AP", value="sg2"),
+            app_commands.Choice(name="KR", value="kr"),
+            app_commands.Choice(name="BR", value="br1"),
+            app_commands.Choice(name="LATAM", value="la1"),
         ]
     )
     async def tftstats(
-        self, interaction: discord.Interaction, username: str, region: str
+        self, interaction: discord.Interaction, username: str, region: str = "euw1"
     ):
         if "#" not in username:
             await interaction.response.send_message(
@@ -324,7 +285,7 @@ class TFTTracker(commands.Cog):
         embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
-    # ── Poll task ─────────────────────────────────────────────────────────────
+        # ── Poll task ─────────────────────────────────────────────────────────────
 
     @tasks.loop(minutes=1)
     async def poll_task(self):
@@ -336,7 +297,7 @@ class TFTTracker(commands.Cog):
             if not channel:
                 continue
 
-            accounts = await self.bot.tft_accounts_col.find(
+            accounts = await self.bot.riot_accounts_col.find(
                 {"guild_id": guild.id}
             ).to_list(length=100)
 
@@ -348,11 +309,14 @@ class TFTTracker(commands.Cog):
                 await asyncio.sleep(2)
 
     async def _check_account(self, account: dict, channel: discord.TextChannel):
-        puuid = account["puuid"]
-        region = account["region"]
+        tft = account.get("tft", {})
+        puuid = account.get("puuid", "")
+        region = tft.get("region") or _val_to_tft_region(
+            account.get("val_region", "eu")
+        )
         routing = _region_to_routing(region)
-        name = account["name"]
-        tag = account["tag"]
+        name = tft.get("name", "?")
+        tag = tft.get("tag", "?")
 
         # Check for LP change
         entries = await self.riot.get_league_entries(region, puuid)
@@ -366,16 +330,16 @@ class TFTTracker(commands.Cog):
                 raw_lp = e.get("leaguePoints", 0)
                 new_lp = _lp_total(tier, div, raw_lp)
 
-        old_lp = account.get("lp", 0)
+        old_lp = account.get("tft", {}).get("lp", 0)
         lp_diff = new_lp - old_lp
 
         if lp_diff == 0:
             return
 
         # Update stored LP
-        await self.bot.tft_accounts_col.update_one(
+        await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
-            {"$set": {"lp": new_lp}},
+            {"$set": {"tft.lp": new_lp}},
         )
 
         rank_str = _format_rank(tier, div, raw_lp) if tier else "Unranked"
@@ -394,15 +358,15 @@ class TFTTracker(commands.Cog):
         msg = await channel.send(embed=embed)
 
         # Store message ID so we can edit it with placement once match data arrives
-        await self.bot.tft_accounts_col.update_one(
+        await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
-            {"$set": {"last_message_id": str(msg.id)}},
+            {"$set": {"tft.last_message_id": str(msg.id)}},
         )
 
         # Try to get placement from match history
         await asyncio.sleep(3)
         match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
-        known_ids = set(account.get("last_match_ids", []))
+        known_ids = set(account.get("tft", {}).get("last_match_ids", []))
 
         for match_id in match_ids:
             if match_id in known_ids:
@@ -440,9 +404,9 @@ class TFTTracker(commands.Cog):
 
             # Update known match IDs (keep last 20)
             new_ids = list(known_ids | {match_id})[-20:]
-            await self.bot.tft_accounts_col.update_one(
+            await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"last_match_ids": new_ids, "last_message_id": ""}},
+                {"$set": {"tft.last_match_ids": new_ids, "tft.last_message_id": ""}},
             )
             break
 

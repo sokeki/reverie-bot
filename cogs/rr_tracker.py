@@ -21,9 +21,19 @@ from discord.ext import commands, tasks
 
 from config import COLOUR_MAIN, COLOUR_LB
 
-REGION = "eu"
-PLATFORM = "pc"
 API_BASE = "https://api.henrikdev.xyz"
+PLATFORM = "pc"
+
+# Valorant region mapping - display name -> Henrik API region code
+VAL_REGION_MAP = {
+    "EUW": "eu",
+    "EUNE": "eu",
+    "NA": "na",
+    "AP": "ap",
+    "KR": "kr",
+    "BR": "br",
+    "LATAM": "latam",
+}
 
 TIER_COLOURS = {
     "Iron": 0x8D7F6B,
@@ -140,10 +150,10 @@ class RRTracker(commands.Cog):
 
     # ── API helpers ───────────────────────────────────────────────────────────
 
-    async def _get_mmr(self, name: str, tag: str) -> dict | None:
+    async def _get_mmr(self, name: str, tag: str, region: str = "eu") -> dict | None:
         session = await self._get_session()
         url = (
-            f"{API_BASE}/valorant/v3/mmr/{REGION}/{PLATFORM}/{quote(name)}/{quote(tag)}"
+            f"{API_BASE}/valorant/v3/mmr/{region}/{PLATFORM}/{quote(name)}/{quote(tag)}"
         )
         try:
             async with session.get(url) as resp:
@@ -157,9 +167,11 @@ class RRTracker(commands.Cog):
         except Exception:
             return None
 
-    async def _get_matches(self, name: str, tag: str, count: int = 1) -> list:
+    async def _get_matches(
+        self, name: str, tag: str, count: int = 1, region: str = "eu"
+    ) -> list:
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
+        url = f"{API_BASE}/valorant/v3/matches/{region}/{quote(name)}/{quote(tag)}?mode=competitive&size={count}"
         try:
             async with session.get(url) as resp:
                 if resp.status == 429:
@@ -177,10 +189,10 @@ class RRTracker(commands.Cog):
             print(f"[RR Tracker] Matches request failed for {name}#{tag}: {e}")
             return []
 
-    async def _get_mmr_history(self, name: str, tag: str) -> list:
+    async def _get_mmr_history(self, name: str, tag: str, region: str = "eu") -> list:
         """Lightweight poll endpoint - returns recent MMR changes with match IDs."""
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v1/mmr-history/{REGION}/{quote(name)}/{quote(tag)}"
+        url = f"{API_BASE}/valorant/v1/mmr-history/{region}/{quote(name)}/{quote(tag)}"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -190,31 +202,43 @@ class RRTracker(commands.Cog):
         except Exception:
             return []
 
-    async def _get_match_details(self, name: str, tag: str) -> dict | None:
+    async def _get_match_details(
+        self, name: str, tag: str, region: str = "eu"
+    ) -> dict | None:
         """Fetch full match details for KDA, score, player card - only called when new game detected."""
-        matches = await self._get_matches(name, tag, count=1)
+        matches = await self._get_matches(name, tag, count=1, region=region)
         return matches[0] if matches else None
 
-    # ── /registerval ──────────────────────────────────────────────────────────
+    # ── /registerriot ─────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="registerval", description="Link your Valorant account for RR tracking"
+        name="registerriot",
+        description="Add a Riot account to server tracking (Valorant RR + TFT)",
     )
-    @app_commands.describe(username="Your Valorant username and tag, e.g. Name#EUW")
-    async def registerval(self, interaction: discord.Interaction, username: str):
+    @app_commands.describe(
+        username="Riot ID including tag, e.g. Name#EUW",
+        region="Server region",
+    )
+    @app_commands.choices(
+        region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP]
+    )
+    async def registerriot(
+        self, interaction: discord.Interaction, username: str, region: str = "EUW"
+    ):
         if "#" not in username:
             await interaction.response.send_message(
-                "⚠️ Please include your tag, e.g. `Name#EUW`.", ephemeral=True
+                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
             )
             return
 
         name, tag = username.split("#", 1)
+        val_region = VAL_REGION_MAP[region]
         await interaction.response.defer(ephemeral=True)
 
-        mmr = await self._get_mmr(name, tag)
+        mmr = await self._get_mmr(name, tag, val_region)
         if not mmr:
             await interaction.followup.send(
-                f"⚠️ Couldn't find **{username}** on EU servers. Check the spelling and try again.",
+                f"⚠️ Couldn't find **{username}** on **{region}**. Check the spelling and try again.",
                 ephemeral=True,
             )
             return
@@ -223,82 +247,58 @@ class RRTracker(commands.Cog):
         rr = mmr["current"]["rr"]
         puuid = mmr["account"]["puuid"]
 
-        await self.bot.val_accounts_col.update_one(
-            {"discord_id": interaction.user.id, "guild_id": interaction.guild_id},
+        existing = await self.bot.riot_accounts_col.find_one(
+            {"puuid": puuid, "guild_id": interaction.guild_id}
+        )
+        if existing:
+            await interaction.followup.send(
+                f"**{name}#{tag}** is already being tracked.", ephemeral=True
+            )
+            return
+
+        await self.bot.riot_accounts_col.insert_one(
             {
-                "$set": {
-                    "discord_id": interaction.user.id,
-                    "guild_id": interaction.guild_id,
-                    "username": interaction.user.display_name,
-                    "val_name": name,
-                    "val_tag": tag,
-                    "puuid": puuid,
-                    "last_match_id": None,
-                }
-            },
-            upsert=True,
+                "guild_id": interaction.guild_id,
+                "val_name": name,
+                "val_tag": tag,
+                "val_region": val_region,
+                "puuid": puuid,
+                "last_match_id": None,
+                "last_game_start": 0,
+            }
         )
 
         await interaction.followup.send(
-            f"✅ Linked **{name}#{tag}** - currently **{tier}** at **{rr} RR**. "
+            f"✅ Added **{name}#{tag}** ({region}) - currently **{tier}** at **{rr} RR**. "
             f"Games will be tracked automatically!",
             ephemeral=True,
         )
 
-    # ── /adminregisterval ─────────────────────────────────────────────────────
+    # ── /unregisterriot ────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="adminregisterval",
-        description="[Admin] Link a Valorant account to a Discord member",
+        name="unregisterriot", description="Remove a Riot account from server tracking"
     )
-    @app_commands.describe(
-        member="The Discord member to register",
-        username="Their Valorant username and tag, e.g. Name#EUW",
-    )
-    @app_commands.default_permissions(administrator=True)
-    async def adminregisterval(
-        self, interaction: discord.Interaction, member: discord.Member, username: str
-    ):
+    @app_commands.describe(username="Riot ID including tag, e.g. Name#EUW")
+    async def unregisterriot(self, interaction: discord.Interaction, username: str):
         if "#" not in username:
             await interaction.response.send_message(
-                "⚠️ Please include the tag, e.g. `Name#EUW`.", ephemeral=True
+                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
             )
             return
 
         name, tag = username.split("#", 1)
-        await interaction.response.defer(ephemeral=True)
-
-        mmr = await self._get_mmr(name, tag)
-        if not mmr:
-            await interaction.followup.send(
-                f"⚠️ Couldn't find **{username}** on EU servers.", ephemeral=True
+        result = await self.bot.riot_accounts_col.delete_one(
+            {"guild_id": interaction.guild_id, "val_name": name, "val_tag": tag}
+        )
+        if result.deleted_count:
+            await interaction.response.send_message(
+                f"🌙 Removed **{name}#{tag}** from tracking.", ephemeral=True
             )
-            return
-
-        tier = mmr["current"]["tier"]["name"]
-        rr = mmr["current"]["rr"]
-        puuid = mmr["account"]["puuid"]
-
-        await self.bot.val_accounts_col.update_one(
-            {"discord_id": member.id, "guild_id": interaction.guild_id},
-            {
-                "$set": {
-                    "discord_id": member.id,
-                    "guild_id": interaction.guild_id,
-                    "username": member.display_name,
-                    "val_name": name,
-                    "val_tag": tag,
-                    "puuid": puuid,
-                    "last_match_id": None,
-                }
-            },
-            upsert=True,
-        )
-
-        await interaction.followup.send(
-            f"✅ Linked **{name}#{tag}** to **{member.display_name}** - currently **{tier}** at **{rr} RR**.",
-            ephemeral=True,
-        )
+        else:
+            await interaction.response.send_message(
+                f"*couldn't find **{name}#{tag}** in the tracked list.*", ephemeral=True
+            )
 
     # ── /setrrchannel ─────────────────────────────────────────────────────────
 
@@ -327,7 +327,7 @@ class RRTracker(commands.Cog):
         description="Unlink your Valorant account from RR tracking",
     )
     async def unregisterval(self, interaction: discord.Interaction):
-        result = await self.bot.val_accounts_col.delete_one(
+        result = await self.bot.riot_accounts_col.delete_one(
             {"discord_id": interaction.user.id, "guild_id": interaction.guild_id}
         )
         if result.deleted_count:
@@ -346,7 +346,7 @@ class RRTracker(commands.Cog):
         description="See the RR leaderboard for registered players",
     )
     async def rrleaderboard(self, interaction: discord.Interaction):
-        accounts = await self.bot.val_accounts_col.find(
+        accounts = await self.bot.riot_accounts_col.find(
             {"guild_id": interaction.guild_id}
         ).to_list(length=100)
 
@@ -361,7 +361,9 @@ class RRTracker(commands.Cog):
 
         rows = []
         for account in accounts:
-            mmr = await self._get_mmr(account["val_name"], account["val_tag"])
+            mmr = await self._get_mmr(
+                account["val_name"], account["val_tag"], account.get("val_region", "eu")
+            )
             if not mmr:
                 continue
             current = mmr["current"]
@@ -419,7 +421,7 @@ class RRTracker(commands.Cog):
         from urllib.parse import quote
 
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
+        url = f"{API_BASE}/valorant/v3/matches/eu/{quote(name)}/{quote(tag)}?mode=competitive&size=1"
         try:
             async with session.get(url) as resp:
                 status = resp.status
@@ -438,7 +440,7 @@ class RRTracker(commands.Cog):
     )
     @app_commands.default_permissions(administrator=True)
     async def rrtrackerstatus(self, interaction: discord.Interaction):
-        accounts = await self.bot.val_accounts_col.find(
+        accounts = await self.bot.riot_accounts_col.find(
             {"guild_id": interaction.guild_id}
         ).to_list(length=100)
         settings = await self.bot.settings_col.find_one(
@@ -456,7 +458,7 @@ class RRTracker(commands.Cog):
         if accounts:
             for a in accounts:
                 lines.append(
-                    f"- {a['val_name']}#{a['val_tag']} - last match ID: `{a.get('last_match_id') or 'null'}`"
+                    f"- {a['val_name']}#{a['val_tag']} ({a.get('val_region', 'eu').upper()}) - last match ID: `{a.get('last_match_id') or 'null'}`"
                 )
 
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
@@ -479,7 +481,7 @@ class RRTracker(commands.Cog):
         await interaction.response.defer()
 
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size=20"
+        url = f"{API_BASE}/valorant/v3/matches/eu/{quote(name)}/{quote(tag)}?mode=competitive&size=20"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -794,7 +796,7 @@ class RRTracker(commands.Cog):
             channel = guild.get_channel(settings["rr_channel_id"])
             if not channel:
                 continue
-            accounts = await self.bot.val_accounts_col.find(
+            accounts = await self.bot.riot_accounts_col.find(
                 {"guild_id": guild.id}
             ).to_list(length=100)
 
@@ -830,7 +832,8 @@ class RRTracker(commands.Cog):
         name = account["val_name"]
         tag = account["val_tag"]
 
-        history = await self._get_mmr_history(name, tag)
+        region = account.get("val_region", "eu")
+        history = await self._get_mmr_history(name, tag, region)
         if not history:
             return None
 
@@ -843,7 +846,7 @@ class RRTracker(commands.Cog):
         if not match_id or match_id == last_id:
             return None
 
-        post_key = f"{account['discord_id']}:{match_id}"
+        post_key = f"{account['puuid']}:{match_id}"
         if post_key in self._recently_posted:
             return None
 
@@ -855,7 +858,7 @@ class RRTracker(commands.Cog):
             self._recently_posted.pop()
 
         # Update stored match ID
-        await self.bot.val_accounts_col.update_one(
+        await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
             {"$set": {"last_match_id": match_id, "last_game_start": game_start}},
         )
@@ -883,7 +886,7 @@ class RRTracker(commands.Cog):
         map_name = "Unknown"
 
         print(f"[RR Tracker] Fetching MMR for {name}#{tag}...")
-        mmr = await self._get_mmr(name, tag)
+        mmr = await self._get_mmr(name, tag, account.get("val_region", "eu"))
         if mmr:
             tier_name = mmr["current"]["tier"]["name"]
             rr = mmr["current"]["rr"]
@@ -897,7 +900,9 @@ class RRTracker(commands.Cog):
         # Fetch full match only for KDA, score, player card, won/loss
         print(f"[RR Tracker] Fetching match details for {name}#{tag}...")
         await asyncio.sleep(1)
-        latest = await self._get_match_details(name, tag)
+        latest = await self._get_match_details(
+            name, tag, account.get("val_region", "eu")
+        )
         print(
             f"[RR Tracker] Match details {'OK' if latest else 'FAILED'} for {name}#{tag}"
         )
@@ -1011,7 +1016,7 @@ class RRTracker(commands.Cog):
         await self.bot.val_games_col.insert_one(
             {
                 "guild_id": guild.id,
-                "discord_id": account["discord_id"],
+                "puuid": account["puuid"],
                 "val_name": name,
                 "val_tag": tag,
                 "date": _today_utc(),
@@ -1060,9 +1065,9 @@ class RRTracker(commands.Cog):
             return
 
         # Group by player
-        by_player: dict[int, list] = {}
+        by_player: dict[str, list] = {}
         for g in games:
-            by_player.setdefault(g["discord_id"], []).append(g)
+            by_player.setdefault(g["puuid"], []).append(g)
 
         lines = []
         for discord_id, player_games in sorted(
