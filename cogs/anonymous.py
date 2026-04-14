@@ -92,19 +92,25 @@ class GuessView(discord.ui.View):
         super().__init__(timeout=None)
         self.cog = cog
         self.round_id = round_id
+        # Set custom_id on the button dynamically so it survives restarts
+        for item in self.children:
+            if hasattr(item, "custom_id"):
+                item.custom_id = f"anon_guess:{round_id}"
 
     @discord.ui.button(
         label="🌙 Make a Guess",
         style=discord.ButtonStyle.secondary,
-        custom_id="anon_guess_button",
+        custom_id="anon_guess:placeholder",
     )
     async def guess_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         from bson import ObjectId
 
+        # Extract round_id from custom_id
+        round_id = button.custom_id.split(":", 1)[1]
         round_doc = await self.cog.bot.anon_rounds_col.find_one(
-            {"_id": ObjectId(self.round_id)}
+            {"_id": ObjectId(round_id)}
         )
         if not round_doc or round_doc["closed"]:
             await interaction.response.send_message(
@@ -158,7 +164,7 @@ class GuessView(discord.ui.View):
                 if not m.bot and m.id != interaction.user.id
             ]
 
-        view = GuessMemberView(self.cog, self.round_id, members)
+        view = GuessMemberView(self.cog, round_id, members)
         await interaction.response.send_message(
             "*who do you think answered?*",
             view=view,
@@ -176,6 +182,19 @@ class Anonymous(commands.Cog):
         self.bot = bot
         # round_id -> asyncio task handle
         self._timeout_tasks: dict[str, asyncio.Task] = {}
+
+    async def cog_load(self):
+        """Re-register persistent views for all open rounds on startup."""
+        open_rounds = await self.bot.anon_rounds_col.find({"closed": False}).to_list(
+            length=200
+        )
+        for round_doc in open_rounds:
+            round_id = str(round_doc["_id"])
+            self.bot.add_view(GuessView(self, round_id))
+        if open_rounds:
+            print(
+                f"[Anonymous] Re-registered {len(open_rounds)} persistent guess views"
+            )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
