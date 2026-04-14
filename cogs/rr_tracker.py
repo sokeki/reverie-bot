@@ -871,8 +871,8 @@ class RRTracker(commands.Cog):
             ).to_list(length=100)
 
             # Phase 1: lightweight poll - check MMR history for all accounts
-            # Only 1 API call per account, 2s apart
-            new_games = []
+            # Collect all new match IDs found this cycle
+            new_games: list[tuple[dict, str]] = []
             for account in accounts:
                 try:
                     new_game = await self._detect_new_game(account)
@@ -884,18 +884,99 @@ class RRTracker(commands.Cog):
                     )
                 await asyncio.sleep(1)
 
-            # Phase 2: process new games - heavier calls, but only for accounts that have new games
-            for account, match_id in new_games:
-                try:
-                    await self._post_new_game(account, match_id, channel, guild)
-                except Exception as e:
-                    import traceback
+            if not new_games:
+                continue
 
-                    print(
-                        f"[RR Tracker] Error posting {account.get('val_name')}#{account.get('val_tag')}: {e}"
+            # Phase 2: group by match_id and fetch each unique match once
+            # Then find all registered accounts in that match and post for each
+            matches_fetched: dict[str, dict] = {}
+            by_match: dict[str, list[dict]] = {}
+            for account, match_id in new_games:
+                by_match.setdefault(match_id, []).append(account)
+
+            for match_id, detected_accounts in by_match.items():
+                # Fetch match once for this match_id
+                first = detected_accounts[0]
+                val_region = first.get("val_region", "eu")
+                if match_id not in matches_fetched:
+                    match_data = await self._get_match_details(
+                        first["val_name"], first["val_tag"], val_region
                     )
-                    traceback.print_exc()
-                await asyncio.sleep(3)
+                    matches_fetched[match_id] = match_data
+                    await asyncio.sleep(1)
+                match_data = matches_fetched[match_id]
+
+                # Find all registered accounts that were in this match
+                all_puuids_in_match = set()
+                if match_data:
+                    raw_players = match_data.get("players", [])
+                    all_players = (
+                        raw_players
+                        if isinstance(raw_players, list)
+                        else raw_players.get("all_players", [])
+                    )
+                    all_puuids_in_match = {
+                        p.get("puuid") for p in all_players if isinstance(p, dict)
+                    }
+
+                # Check all guild accounts — not just detected ones
+                for account in accounts:
+                    puuid = account.get("puuid", "")
+                    # Skip if already in detected_accounts (handled below) or not in match
+                    if puuid not in all_puuids_in_match:
+                        continue
+                    post_key = f"{puuid}:{match_id}"
+                    if post_key in self._recently_posted:
+                        continue
+                    if account.get("last_match_id") == match_id:
+                        continue
+                    # Mark as detected
+                    self._recently_posted.add(post_key)
+                    game_start = account.get("last_game_start", 0)
+                    await self.bot.riot_accounts_col.update_one(
+                        {"_id": account["_id"]},
+                        {
+                            "$set": {
+                                "last_match_id": match_id,
+                                "last_game_start": game_start,
+                            }
+                        },
+                    )
+                    if account.get("last_match_id") is None:
+                        continue  # first time baseline
+                    if account not in [a for a, _ in new_games]:
+                        print(
+                            f"[RR Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
+                        )
+
+                # Post for all accounts in this match (detected + found in match)
+                accounts_to_post = []
+                for account in accounts:
+                    puuid = account.get("puuid", "")
+                    post_key = f"{puuid}:{match_id}"
+                    if (
+                        puuid in all_puuids_in_match
+                        and post_key in self._recently_posted
+                    ):
+                        if (
+                            account.get("last_match_id") == match_id
+                            and account.get("last_match_id") is not None
+                        ):
+                            accounts_to_post.append(account)
+
+                for account in accounts_to_post:
+                    try:
+                        await self._post_new_game(
+                            account, match_id, channel, guild, match_data
+                        )
+                    except Exception as e:
+                        import traceback
+
+                        print(
+                            f"[RR Tracker] Error posting {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                        )
+                        traceback.print_exc()
+                    await asyncio.sleep(2)
 
     async def _detect_new_game(self, account: dict) -> str | None:
         """Lightweight check - returns match_id if a new game is found, else None."""
@@ -946,8 +1027,9 @@ class RRTracker(commands.Cog):
         match_id: str,
         channel: discord.TextChannel,
         guild: discord.Guild,
+        latest: dict = None,
     ):
-        """Heavy lifting - fetch MMR and match details, build and send embed."""
+        """Heavy lifting - fetch MMR and build and send embed. Match data passed in to avoid re-fetching."""
         name = account["val_name"]
         tag = account["val_tag"]
 
@@ -967,15 +1049,16 @@ class RRTracker(commands.Cog):
             rr = 0
             print(f"[RR Tracker] MMR failed for {name}#{tag}")
 
-        # Fetch full match only for KDA, score, player card, won/loss
-        print(f"[RR Tracker] Fetching match details for {name}#{tag}...")
-        await asyncio.sleep(1)
-        latest = await self._get_match_details(
-            name, tag, account.get("val_region", "eu")
-        )
-        print(
-            f"[RR Tracker] Match details {'OK' if latest else 'FAILED'} for {name}#{tag}"
-        )
+        # Use pre-fetched match data if available
+        if latest is None:
+            print(f"[RR Tracker] Fetching match details for {name}#{tag}...")
+            await asyncio.sleep(1)
+            latest = await self._get_match_details(
+                name, tag, account.get("val_region", "eu")
+            )
+            print(
+                f"[RR Tracker] Match details {'OK' if latest else 'FAILED'} for {name}#{tag}"
+            )
         kills = deaths = assists = 0
         hs_pct = 0
         agent = "Unknown"
