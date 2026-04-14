@@ -585,27 +585,58 @@ class RRTracker(commands.Cog):
 
     @app_commands.command(
         name="scoreboard",
-        description="Show the scoreboard for a player's last competitive game",
+        description="Show the scoreboard for a match. Provide a match ID or a username to use their latest game.",
     )
-    @app_commands.describe(username="Valorant username and tag, e.g. Name#EUW")
-    async def scoreboard(self, interaction: discord.Interaction, username: str):
-        if "#" not in username:
+    @app_commands.describe(
+        match_id="Match ID from the RR update footer",
+        username="Valorant username and tag to use their latest game, e.g. Name#EUW",
+    )
+    async def scoreboard(
+        self,
+        interaction: discord.Interaction,
+        match_id: str = None,
+        username: str = None,
+    ):
+        if not match_id and not username:
             await interaction.response.send_message(
-                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
+                "⚠️ Provide either a match ID or a username.", ephemeral=True
             )
             return
 
-        name, tag = username.split("#", 1)
         await interaction.response.defer()
+        session = await self._get_session()
 
-        matches = await self._get_matches(name, tag, count=1)
-        if not matches:
-            await interaction.followup.send(
-                f"⚠️ No recent matches found for **{username}**.", ephemeral=True
-            )
-            return
+        if match_id:
+            # Fetch match directly by ID
+            url = f"{API_BASE}/valorant/v1/match/{match_id}"
+            try:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        await interaction.followup.send(
+                            f"⚠️ Couldn't find match `{match_id}`.", ephemeral=True
+                        )
+                        return
+                    data = await resp.json()
+                    match = data.get("data", data)
+            except Exception as e:
+                await interaction.followup.send(f"⚠️ API error: {e}", ephemeral=True)
+                return
+        else:
+            if "#" not in username:
+                await interaction.followup.send(
+                    "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
+                )
+                return
+            name, tag = username.split("#", 1)
+            matches = await self._get_matches(name, tag, count=1)
+            if not matches:
+                await interaction.followup.send(
+                    f"⚠️ No recent matches found for **{username}**.", ephemeral=True
+                )
+                return
+            match = matches[0]
 
-        match = matches[0]
+        match = match
         metadata = match.get("metadata", {})
         raw_map = metadata.get("map", "Unknown")
         map_name = (
@@ -646,15 +677,33 @@ class RRTracker(commands.Cog):
                 if isinstance(tdata, dict):
                     team_scores[tid.upper()] = tdata.get("rounds_won", 0)
 
+        def _short_rank(rank: str) -> str:
+            """Shorten rank name e.g. Platinum 2 -> Plat 2, Diamond 3 -> Dia 3"""
+            short = {
+                "Iron": "Iron",
+                "Bronze": "Brnz",
+                "Silver": "Silv",
+                "Gold": "Gold",
+                "Platinum": "Plat",
+                "Diamond": "Dia",
+                "Ascendant": "Asc",
+                "Immortal": "Imm",
+                "Radiant": "Rad",
+            }
+            for full, abbr in short.items():
+                if rank.startswith(full):
+                    return rank.replace(full, abbr)
+            return rank[:8]
+
         def build_table(players: list) -> str:
-            header = f"{'Player':<14} {'Agent':<10} {'Rank':<12} {'K':>3} {'D':>3} {'A':>3} {'ACS':>4} {'HS%':>4}"
+            header = f"{'Player':<12} {'Agent':<9} {'Rank':<7} {'K':>3} {'D':>3} {'A':>3} {'ACS':>4} {'HS%':>4}"
             divider = "-" * len(header)
             rows = [header, divider]
             for p in players:
                 stats = p.get("stats", {})
-                pname = (p.get("name") or p.get("gameName", "?"))[:12]
-                agent = (p.get("agent", {}).get("name") or p.get("character", "?"))[:10]
-                rank = (p.get("currenttier_patched") or "Unrated")[:12]
+                pname = (p.get("name") or p.get("gameName", "?"))[:11]
+                agent = (p.get("agent", {}).get("name") or p.get("character", "?"))[:9]
+                rank = _short_rank(p.get("currenttier_patched") or "?")
                 k = stats.get("kills", 0)
                 d = stats.get("deaths", 0)
                 a = stats.get("assists", 0)
@@ -667,7 +716,7 @@ class RRTracker(commands.Cog):
                 total = hs + bs + ls
                 hs_pct = f"{round(hs/total*100)}%" if total > 0 else "0%"
                 rows.append(
-                    f"{pname:<14} {agent:<10} {rank:<12} {k:>3} {d:>3} {a:>3} {acs:>4} {hs_pct:>4}"
+                    f"{pname:<12} {agent:<9} {rank:<7} {k:>3} {d:>3} {a:>3} {acs:>4} {hs_pct:>4}"
                 )
             return "```\n" + "\n".join(rows) + "\n```"
 
