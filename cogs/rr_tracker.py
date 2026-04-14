@@ -581,6 +581,111 @@ class RRTracker(commands.Cog):
         )
         await interaction.followup.send(embed=embed)
 
+        # ── /scoreboard ───────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="scoreboard",
+        description="Show the scoreboard for a player's last competitive game",
+    )
+    @app_commands.describe(username="Valorant username and tag, e.g. Name#EUW")
+    async def scoreboard(self, interaction: discord.Interaction, username: str):
+        if "#" not in username:
+            await interaction.response.send_message(
+                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
+            )
+            return
+
+        name, tag = username.split("#", 1)
+        await interaction.response.defer()
+
+        matches = await self._get_matches(name, tag, count=1)
+        if not matches:
+            await interaction.followup.send(
+                f"⚠️ No recent matches found for **{username}**.", ephemeral=True
+            )
+            return
+
+        match = matches[0]
+        metadata = match.get("metadata", {})
+        raw_map = metadata.get("map", "Unknown")
+        map_name = (
+            raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
+        )
+        rounds = metadata.get("rounds_played", "?")
+
+        raw_players = match.get("players", [])
+        if isinstance(raw_players, list):
+            all_players = raw_players
+        elif isinstance(raw_players, dict):
+            all_players = raw_players.get("all_players", [])
+        else:
+            all_players = []
+
+        # Split into teams
+        teams: dict[str, list] = {}
+        for p in all_players:
+            if not isinstance(p, dict):
+                continue
+            team = (p.get("team_id") or p.get("team", "?")).upper()
+            teams.setdefault(team, []).append(p)
+
+        # Sort each team by ACS descending
+        for team in teams.values():
+            team.sort(key=lambda p: p.get("stats", {}).get("score", 0), reverse=True)
+
+        # Get round scores
+        team_scores: dict[str, int] = {}
+        raw_teams = match.get("teams", {})
+        if isinstance(raw_teams, list):
+            for t in raw_teams:
+                if isinstance(t, dict):
+                    tid = (t.get("team_id") or "?").upper()
+                    team_scores[tid] = t.get("rounds_won", 0)
+        elif isinstance(raw_teams, dict):
+            for tid, tdata in raw_teams.items():
+                if isinstance(tdata, dict):
+                    team_scores[tid.upper()] = tdata.get("rounds_won", 0)
+
+        def build_table(players: list) -> str:
+            header = f"{'Player':<14} {'Agent':<10} {'Rank':<12} {'K':>3} {'D':>3} {'A':>3} {'ACS':>4} {'HS%':>4}"
+            divider = "-" * len(header)
+            rows = [header, divider]
+            for p in players:
+                stats = p.get("stats", {})
+                pname = (p.get("name") or p.get("gameName", "?"))[:12]
+                agent = (p.get("agent", {}).get("name") or p.get("character", "?"))[:10]
+                rank = (p.get("currenttier_patched") or "Unrated")[:12]
+                k = stats.get("kills", 0)
+                d = stats.get("deaths", 0)
+                a = stats.get("assists", 0)
+                score = stats.get("score", 0)
+                rounds_ = max(rounds if isinstance(rounds, int) else 1, 1)
+                acs = round(score / rounds_)
+                hs = stats.get("headshots", 0)
+                bs = stats.get("bodyshots", 0)
+                ls = stats.get("legshots", 0)
+                total = hs + bs + ls
+                hs_pct = f"{round(hs/total*100)}%" if total > 0 else "0%"
+                rows.append(
+                    f"{pname:<14} {agent:<10} {rank:<12} {k:>3} {d:>3} {a:>3} {acs:>4} {hs_pct:>4}"
+                )
+            return "```\n" + "\n".join(rows) + "\n```"
+
+        embed = discord.Embed(
+            title=f"{map_name}",
+            url=f"https://tracker.gg/valorant/match/{metadata.get('match_id') or metadata.get('matchid', '')}",
+            color=COLOUR_MAIN,
+        )
+
+        for team_id, players in sorted(teams.items()):
+            score = team_scores.get(team_id, "?")
+            won = score == max(team_scores.values()) if team_scores else False
+            label = f"{'🟢' if won else '🔴'} Team {team_id}  -  {score} rounds"
+            embed.add_field(name=label, value=build_table(players), inline=False)
+
+        embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
+        await interaction.followup.send(embed=embed)
+
         # ── Poll task ─────────────────────────────────────────────────────────────
 
     @tasks.loop(minutes=1)
@@ -801,7 +906,7 @@ class RRTracker(commands.Cog):
         embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
         if agent_icon_url:
             embed.set_thumbnail(url=agent_icon_url)
-        embed.set_footer(text=f"Reverie  -  {guild.name}")
+        embed.set_footer(text=f"{match_id}  -  Reverie  -  {guild.name}")
 
         await channel.send(embed=embed)
 
