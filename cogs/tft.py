@@ -341,6 +341,10 @@ class TFTTracker(commands.Cog):
             )
             return
 
+        # If API returned nothing (unranked/no data) skip to avoid false negatives
+        if new_lp == 0 and not tier:
+            return
+
         lp_diff = new_lp - old_lp
         if lp_diff == 0:
             return
