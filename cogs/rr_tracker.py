@@ -906,7 +906,7 @@ class RRTracker(commands.Cog):
                     await asyncio.sleep(1)
                 match_data = matches_fetched[match_id]
 
-                # Find all registered accounts that were in this match
+                # Get all puuids in this match
                 all_puuids_in_match = set()
                 if match_data:
                     raw_players = match_data.get("players", [])
@@ -918,51 +918,41 @@ class RRTracker(commands.Cog):
                     all_puuids_in_match = {
                         p.get("puuid") for p in all_players if isinstance(p, dict)
                     }
+                print(
+                    f"[RR Tracker] Match scan: {len(all_puuids_in_match)} players, {len(accounts)} registered accounts"
+                )
 
-                # Check all guild accounts — not just detected ones
-                for account in accounts:
-                    puuid = account.get("puuid", "")
-                    # Skip if already in detected_accounts (handled below) or not in match
-                    if puuid not in all_puuids_in_match:
-                        continue
-                    post_key = f"{puuid}:{match_id}"
-                    if post_key in self._recently_posted:
-                        continue
-                    if account.get("last_match_id") == match_id:
-                        continue
-                    # Mark as detected
-                    self._recently_posted.add(post_key)
-                    game_start = account.get("last_game_start", 0)
-                    await self.bot.riot_accounts_col.update_one(
-                        {"_id": account["_id"]},
-                        {
-                            "$set": {
-                                "last_match_id": match_id,
-                                "last_game_start": game_start,
-                            }
-                        },
-                    )
-                    if account.get("last_match_id") is None:
-                        continue  # first time baseline
-                    if account not in [a for a, _ in new_games]:
-                        print(
-                            f"[RR Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
-                        )
-
-                # Post for all accounts in this match (detected + found in match)
+                # Single pass: find registered accounts in match, update DB, collect to post
                 accounts_to_post = []
                 for account in accounts:
                     puuid = account.get("puuid", "")
                     post_key = f"{puuid}:{match_id}"
-                    if (
-                        puuid in all_puuids_in_match
-                        and post_key in self._recently_posted
-                    ):
-                        if (
-                            account.get("last_match_id") == match_id
-                            and account.get("last_match_id") is not None
-                        ):
-                            accounts_to_post.append(account)
+                    last_id = account.get("last_match_id")
+
+                    if puuid not in all_puuids_in_match:
+                        continue
+                    if post_key in self._recently_posted:
+                        continue
+                    if last_id == match_id:
+                        continue
+
+                    self._recently_posted.add(post_key)
+                    if len(self._recently_posted) > 200:
+                        self._recently_posted.pop()
+
+                    await self.bot.riot_accounts_col.update_one(
+                        {"_id": account["_id"]},
+                        {"$set": {"last_match_id": match_id}},
+                    )
+
+                    if last_id is None:
+                        continue  # first time baseline
+
+                    if account not in [a for a, _ in new_games]:
+                        print(
+                            f"[RR Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
+                        )
+                    accounts_to_post.append(account)
 
                 for account in accounts_to_post:
                     try:
@@ -997,18 +987,10 @@ class RRTracker(commands.Cog):
         if not match_id or match_id == last_id:
             return None
 
-        post_key = f"{account['puuid']}:{match_id}"
-        if post_key in self._recently_posted:
-            return None
-
         if game_start and last_start and game_start < last_start:
             return None
 
-        self._recently_posted.add(post_key)
-        if len(self._recently_posted) > 100:
-            self._recently_posted.pop()
-
-        # Update stored match ID
+        # Update stored match ID and game_start
         await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
             {"$set": {"last_match_id": match_id, "last_game_start": game_start}},
