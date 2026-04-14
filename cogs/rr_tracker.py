@@ -739,7 +739,7 @@ class RRTracker(commands.Cog):
 
     # ── r!scoreboard prefix command ───────────────────────────────────────────
 
-    @commands.command(name="scoreboard")
+    @commands.command(name="sb")
     async def scoreboard_prefix(self, ctx: commands.Context):
         """Reply to an RR update embed to show its scoreboard."""
         match_id = None
