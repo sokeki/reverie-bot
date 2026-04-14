@@ -310,7 +310,8 @@ class TFTTracker(commands.Cog):
 
     async def _check_account(self, account: dict, channel: discord.TextChannel):
         tft = account.get("tft", {})
-        puuid = account.get("puuid", "")
+        # Use real Riot PUUID for official API calls (Henrik PUUID won't work)
+        puuid = account.get("riot_puuid") or account.get("puuid", "")
         region = tft.get("region") or _val_to_tft_region(
             account.get("val_region", "eu")
         )

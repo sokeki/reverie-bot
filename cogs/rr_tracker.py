@@ -301,12 +301,33 @@ class RRTracker(commands.Cog):
         except Exception:
             pass
 
+        # Fetch real Riot PUUID for TFT API (Henrik PUUID is different)
+        riot_puuid = None
+        try:
+            routing = {
+                "eu": "europe",
+                "na": "americas",
+                "ap": "asia",
+                "kr": "asia",
+                "br": "americas",
+                "latam": "americas",
+            }.get(val_region, "europe")
+            async with (await self._get_session()).get(
+                f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{quote(name)}/{quote(tag)}",
+                headers={"X-Riot-Token": os.getenv("RIOT_API_KEY", "")},
+            ) as resp:
+                if resp.status == 200:
+                    riot_puuid = (await resp.json()).get("puuid")
+        except Exception:
+            pass
+
         doc = {
             "guild_id": interaction.guild_id,
             "val_name": name,
             "val_tag": tag,
             "val_region": val_region,
             "puuid": puuid,
+            "riot_puuid": riot_puuid,
             "last_match_id": None,
             "last_game_start": 0,
             "tft": {
