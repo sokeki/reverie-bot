@@ -461,7 +461,127 @@ class RRTracker(commands.Cog):
 
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
-    # ── Poll task ─────────────────────────────────────────────────────────────
+    # ── /footshot ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="footshot",
+        description="Check a player's shot accuracy across their last 20 competitive games",
+    )
+    @app_commands.describe(username="Valorant username and tag, e.g. Name#EUW")
+    async def footshot(self, interaction: discord.Interaction, username: str):
+        if "#" not in username:
+            await interaction.response.send_message(
+                "⚠️ Please include the tag, e.g. `Name#EUW`.", ephemeral=True
+            )
+            return
+
+        name, tag = username.split("#", 1)
+        await interaction.response.defer()
+
+        session = await self._get_session()
+        url = f"{API_BASE}/valorant/v3/matches/{REGION}/{quote(name)}/{quote(tag)}?mode=competitive&size=20"
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send(
+                        f"⚠️ Couldn't find **{username}** on EU servers.", ephemeral=True
+                    )
+                    return
+                data = await resp.json()
+                matches = data.get("data", [])
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ API error: {e}", ephemeral=True)
+            return
+
+        if not matches:
+            await interaction.followup.send(
+                f"*no recent competitive games found for **{username}**.*",
+                ephemeral=True,
+            )
+            return
+
+        # Find the player's puuid from the first match
+        puuid = None
+        for match in matches:
+            raw_players = match.get("players", [])
+            all_players = (
+                raw_players
+                if isinstance(raw_players, list)
+                else raw_players.get("all_players", [])
+            )
+            for p in all_players:
+                if isinstance(p, dict):
+                    pname = p.get("name") or p.get("gameName", "")
+                    ptag = p.get("tag") or p.get("tagLine", "")
+                    if pname.lower() == name.lower() and ptag.lower() == tag.lower():
+                        puuid = p.get("puuid")
+                        break
+            if puuid:
+                break
+
+        if not puuid:
+            await interaction.followup.send(
+                f"⚠️ Couldn't identify **{username}** in their match history.",
+                ephemeral=True,
+            )
+            return
+
+        # Accumulate shot stats across all matches
+        total_hs = total_bs = total_ls = 0
+        games_counted = 0
+
+        for match in matches:
+            raw_players = match.get("players", [])
+            all_players = (
+                raw_players
+                if isinstance(raw_players, list)
+                else raw_players.get("all_players", [])
+            )
+            player = next(
+                (
+                    p
+                    for p in all_players
+                    if isinstance(p, dict) and p.get("puuid") == puuid
+                ),
+                None,
+            )
+            if not player:
+                continue
+            stats = player.get("stats", {})
+            hs = stats.get("headshots", 0)
+            bs = stats.get("bodyshots", 0)
+            ls = stats.get("legshots", 0)
+            total = hs + bs + ls
+            if total > 0:
+                total_hs += hs
+                total_bs += bs
+                total_ls += ls
+                games_counted += 1
+
+        if games_counted == 0:
+            await interaction.followup.send(
+                f"*no shot data found for **{username}**.*", ephemeral=True
+            )
+            return
+
+        grand_total = total_hs + total_bs + total_ls
+        hs_pct = round(total_hs / grand_total * 100)
+        bs_pct = round(total_bs / grand_total * 100)
+        ls_pct = round(total_ls / grand_total * 100)
+
+        embed = discord.Embed(
+            title=f"{name}#{tag}  -  Shot Accuracy",
+            color=COLOUR_MAIN,
+        )
+        embed.add_field(name="Headshot %", value=f"**{hs_pct}%**", inline=True)
+        embed.add_field(name="Body %", value=f"**{bs_pct}%**", inline=True)
+        embed.add_field(name="Leg %", value=f"**{ls_pct}%**", inline=True)
+        embed.set_footer(
+            text=f"Last {games_counted} games  -  Reverie  -  {interaction.guild.name}"
+        )
+        await interaction.followup.send(embed=embed)
+
+        # ── Poll task ─────────────────────────────────────────────────────────────
 
     @tasks.loop(minutes=1)
     async def poll_task(self):
