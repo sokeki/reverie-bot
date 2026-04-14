@@ -608,7 +608,7 @@ class RRTracker(commands.Cog):
 
         if match_id:
             # Fetch match directly by ID
-            url = f"{API_BASE}/valorant/v1/match/{match_id}"
+            url = f"{API_BASE}/valorant/v2/match/{match_id}"
             try:
                 async with session.get(url) as resp:
                     if resp.status != 200:
@@ -768,7 +768,7 @@ class RRTracker(commands.Cog):
             return
 
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v1/match/{match_id}"
+        url = f"{API_BASE}/valorant/v2/match/{match_id}"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
