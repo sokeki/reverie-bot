@@ -316,8 +316,8 @@ class TFTTracker(commands.Cog):
             account.get("val_region", "eu")
         )
         routing = _region_to_routing(region)
-        name = tft.get("name", "?")
-        tag = tft.get("tag", "?")
+        name = tft.get("name") or account.get("val_name", "?")
+        tag = tft.get("tag") or account.get("val_tag", "?")
 
         # Check for LP change
         entries = await self.riot.get_league_entries(region, puuid)
@@ -331,11 +331,18 @@ class TFTTracker(commands.Cog):
                 raw_lp = e.get("leaguePoints", 0)
                 new_lp = _lp_total(tier, div, raw_lp)
 
-        old_lp = account.get("tft", {}).get("lp", 0)
-        lp_diff = new_lp - old_lp
+        old_lp = account.get("tft", {}).get("lp")
 
-        if lp_diff == 0:
+        # First time - just store baseline without posting
+        if old_lp is None:
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.lp": new_lp}},
+            )
             return
+
+        lp_diff = new_lp - old_lp
+        if lp_diff == 0:
             return
 
         # Update stored LP
