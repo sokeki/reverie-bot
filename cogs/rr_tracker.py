@@ -24,6 +24,16 @@ from config import COLOUR_MAIN, COLOUR_LB
 API_BASE = "https://api.henrikdev.xyz"
 PLATFORM = "pc"
 
+# Valorant region -> TFT platform code
+VAL_TO_TFT_REGION = {
+    "eu": "euw1",
+    "na": "na1",
+    "ap": "sg2",
+    "kr": "kr",
+    "br": "br1",
+    "latam": "la1",
+}
+
 # Valorant region mapping - display name -> Henrik API region code
 VAL_REGION_MAP = {
     "EUW": "eu",
@@ -256,17 +266,56 @@ class RRTracker(commands.Cog):
             )
             return
 
-        await self.bot.riot_accounts_col.insert_one(
-            {
-                "guild_id": interaction.guild_id,
-                "val_name": name,
-                "val_tag": tag,
-                "val_region": val_region,
-                "puuid": puuid,
-                "last_match_id": None,
-                "last_game_start": 0,
-            }
-        )
+        # Fetch TFT LP baseline at registration
+        tft_region = VAL_TO_TFT_REGION.get(val_region, "euw1")
+        tft_lp = None
+        try:
+            import aiohttp as _aiohttp
+
+            async with (await self._get_session()).get(
+                f"https://{tft_region}.api.riotgames.com/tft/league/v1/by-puuid/{puuid}",
+                headers={"X-Riot-Token": os.getenv("RIOT_API_KEY", "")},
+            ) as resp:
+                if resp.status == 200:
+                    entries = await resp.json()
+                    for e in entries:
+                        if e.get("queueType") == "RANKED_TFT":
+                            tier_order = {
+                                "IRON": 0,
+                                "BRONZE": 400,
+                                "SILVER": 800,
+                                "GOLD": 1200,
+                                "PLATINUM": 1600,
+                                "EMERALD": 2000,
+                                "DIAMOND": 2400,
+                                "MASTER": 2800,
+                                "GRANDMASTER": 3200,
+                                "CHALLENGER": 3600,
+                            }
+                            div_order = {"IV": 0, "III": 100, "II": 200, "I": 300}
+                            tft_lp = (
+                                tier_order.get(e["tier"].upper(), 0)
+                                + div_order.get(e["rank"].upper(), 0)
+                                + e["leaguePoints"]
+                            )
+        except Exception:
+            pass
+
+        doc = {
+            "guild_id": interaction.guild_id,
+            "val_name": name,
+            "val_tag": tag,
+            "val_region": val_region,
+            "puuid": puuid,
+            "last_match_id": None,
+            "last_game_start": 0,
+            "tft": {
+                "lp": tft_lp,
+                "region": tft_region,
+                "last_match_ids": [],
+            },
+        }
+        await self.bot.riot_accounts_col.insert_one(doc)
 
         await interaction.followup.send(
             f"✅ Added **{name}#{tag}** ({region}) - currently **{tier}** at **{rr} RR**. "

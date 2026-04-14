@@ -330,19 +330,11 @@ class TFTTracker(commands.Cog):
                 raw_lp = e.get("leaguePoints", 0)
                 new_lp = _lp_total(tier, div, raw_lp)
 
-        old_lp = account.get("tft", {}).get("lp", None)
-        lp_diff = new_lp - old_lp if old_lp is not None else 0
-
-        # First time seeing this account - store baseline LP without posting
-        if old_lp is None:
-            await self.bot.riot_accounts_col.update_one(
-                {"_id": account["_id"]},
-                {"$set": {"tft.lp": new_lp, "tft.region": region}},
-            )
-            print(f"[TFT] Baseline LP stored for {name}#{tag}: {new_lp}")
-            return
+        old_lp = account.get("tft", {}).get("lp", 0)
+        lp_diff = new_lp - old_lp
 
         if lp_diff == 0:
+            return
             return
 
         # Update stored LP
