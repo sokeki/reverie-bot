@@ -679,6 +679,32 @@ class RRTracker(commands.Cog):
 
         elif detail == "clutch":
             full_matches = await self._get_full_matches(matches)
+            # Debug: log structure of first match
+            if full_matches:
+                fm = full_matches[0]
+                rounds_sample = fm.get("rounds", [])
+                raw_sample = fm.get("players", [])
+                all_p_sample = (
+                    raw_sample
+                    if isinstance(raw_sample, list)
+                    else raw_sample.get("all_players", [])
+                )
+                print(f"[Val Tracker] Full match keys: {list(fm.keys())}")
+                print(
+                    f"[Val Tracker] Players type: {type(raw_sample)}, count: {len(all_p_sample)}"
+                )
+                if all_p_sample:
+                    print(
+                        f"[Val Tracker] First player keys: {list(all_p_sample[0].keys()) if isinstance(all_p_sample[0], dict) else 'not dict'}"
+                    )
+                if rounds_sample:
+                    rnd = rounds_sample[0]
+                    print(f"[Val Tracker] First round keys: {list(rnd.keys())}")
+                    ps_list = rnd.get("player_stats", [])
+                    if ps_list:
+                        print(
+                            f"[Val Tracker] player_stats[0] keys: {list(ps_list[0].keys()) if isinstance(ps_list[0], dict) else 'not dict'}"
+                        )
             clutch_opps = clutch_wins = first_bloods = 0
             for match in full_matches:
                 rounds = match.get("rounds", [])
@@ -693,6 +719,9 @@ class RRTracker(commands.Cog):
                     None,
                 )
                 if not player:
+                    print(
+                        f"[Val Tracker] Player not found in match, puuid={puuid[:8] if puuid else None}"
+                    )
                     continue
                 player_team = (player.get("team_id") or player.get("team", "")).lower()
                 for rnd in rounds:
@@ -774,22 +803,22 @@ class RRTracker(commands.Cog):
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(
-                name="C",
+                name="C (Signature)",
                 value=f"**{round(total_c/g,1)}/g**\n{total_c} total",
                 inline=True,
             )
             embed.add_field(
-                name="Q",
+                name="Q (Basic)",
                 value=f"**{round(total_q/g,1)}/g**\n{total_q} total",
                 inline=True,
             )
             embed.add_field(
-                name="E",
+                name="E (Signature)",
                 value=f"**{round(total_e/g,1)}/g**\n{total_e} total",
                 inline=True,
             )
             embed.add_field(
-                name="X",
+                name="X (Ultimate)",
                 value=f"**{round(total_x/g,1)}/g**\n{total_x} total",
                 inline=True,
             )
