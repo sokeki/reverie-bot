@@ -51,6 +51,7 @@ COGS = [
     "cogs.anonymous",
     "cogs.recap",
     "cogs.rr_tracker",
+    "cogs.mudae_cleaner",
     "cogs.tft",
 ]
 
