@@ -756,9 +756,6 @@ class RRTracker(commands.Cog):
                 .limit(20)
                 .to_list(length=20)
             )
-            print(
-                f"[Val Tracker] Cache query for puuid={puuid[:8] if puuid else None}: {len(cached_docs)} docs found"
-            )
             # Fallback: if the query returns nothing (v3 format stores players differently)
             # just use the fresh matches
             if cached_docs:
@@ -881,9 +878,6 @@ class RRTracker(commands.Cog):
                 round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
             )
             fb_pg = round(first_bloods / games_counted, 2) if games_counted > 0 else 0
-            print(
-                f"[Val Tracker] Clutch calc: {len(full_matches)} matches, {clutch_opps} opps, {clutch_wins} wins, {first_bloods} FBs"
-            )
             embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
