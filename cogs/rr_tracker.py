@@ -881,6 +881,9 @@ class RRTracker(commands.Cog):
                 round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
             )
             fb_pg = round(first_bloods / games_counted, 2) if games_counted > 0 else 0
+            print(
+                f"[Val Tracker] Clutch calc: {len(full_matches)} matches, {clutch_opps} opps, {clutch_wins} wins, {first_bloods} FBs"
+            )
             embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
