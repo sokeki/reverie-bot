@@ -1478,6 +1478,7 @@ class RRTracker(commands.Cog):
 
                 # Get all puuids in this match
                 all_puuids_in_match = set()
+                match_game_start = 0
                 if match_data:
                     raw_players = match_data.get("players", [])
                     all_players = (
@@ -1488,6 +1489,9 @@ class RRTracker(commands.Cog):
                     all_puuids_in_match = {
                         p.get("puuid") for p in all_players if isinstance(p, dict)
                     }
+                    match_game_start = match_data.get("metadata", {}).get(
+                        "game_start", 0
+                    )
                 print(
                     f"[Val Tracker] Match scan: {len(all_puuids_in_match)} players, {len(accounts)} registered accounts"
                 )
@@ -1512,10 +1516,18 @@ class RRTracker(commands.Cog):
 
                     await self.bot.riot_accounts_col.update_one(
                         {"_id": account["_id"]},
-                        {"$set": {"last_match_id": match_id}},
+                        {
+                            "$set": {
+                                "last_match_id": match_id,
+                                "last_game_start": match_game_start,
+                            }
+                        },
                     )
                     account["last_match_id"] = (
                         match_id  # update in-memory to prevent re-detection
+                    )
+                    account["last_game_start"] = (
+                        match_game_start  # update so older games are filtered out
                     )
 
                     if last_id is None:
@@ -1616,16 +1628,31 @@ class RRTracker(commands.Cog):
         tag = account["val_tag"]
         map_name = "Unknown"
 
-        # Use live MMR for current rank display, but fall back to history values
-        print(f"[Val Tracker] Fetching MMR for {name}#{tag}...")
-        mmr = await self._get_mmr(name, tag, account.get("val_region", "eu"))
-        if mmr and mmr != "rate_limited":
-            tier_name = mmr["current"]["tier"]["name"]
-            rr = mmr["current"]["rr"]
-            print(f"[Val Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
+        # Fetch MMR history to get the correct rr_change for this specific match
+        # Also gives current rank/rr as a fallback
+        val_region = account.get("val_region", "eu")
+        print(f"[Val Tracker] Fetching MMR history for {name}#{tag}...")
+        history = await self._get_mmr_history(name, tag, val_region)
+        if history:
+            # Find the entry for this specific match
+            entry = next(
+                (e for e in history if e.get("match_id") == match_id), history[0]
+            )
+            rr_change = entry.get("mmr_change_to_last_game", rr_change)
+            rr = entry.get("ranking_in_tier", rr)
+            tier_name = (
+                entry.get("currenttier_patched", tier_from_history)
+                or tier_from_history
+                or "Unrated"
+            )
+            print(
+                f"[Val Tracker] MMR history OK for {name}#{tag}: {tier_name} {rr}RR ({rr_change:+d})"
+            )
         else:
             tier_name = tier_from_history or "Unrated"
-            print(f"[Val Tracker] MMR failed for {name}#{tag}, using history values")
+            print(
+                f"[Val Tracker] MMR history failed for {name}#{tag}, using passed values"
+            )
 
         # Use pre-fetched match data if available
         if latest is None:
