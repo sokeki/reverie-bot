@@ -76,12 +76,12 @@ async def on_ready():
     bot.riot_accounts_col = db["riot_accounts"]
     bot.val_games_col = db["val_games"]
     bot.val_match_cache_col = db["val_match_cache"]
-    bot.val_match_cache_col = db["val_match_cache"]
     await bot.voice_sessions_col.create_index(
         [("user_id", 1), ("guild_id", 1)], unique=True
     )
     await bot.users_col.create_index([("guild_id", 1), ("points", -1)])
     await bot.items_col.create_index([("guild_id", 1), ("name", 1)])
+    await bot.val_match_cache_col.create_index([("puuid", 1), ("cached_at", -1)])
 
     # Load all cogs
     for cog in COGS:

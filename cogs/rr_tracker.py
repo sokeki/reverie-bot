@@ -273,12 +273,26 @@ class RRTracker(commands.Cog):
                         print(
                             f"[Val Tracker] Fetched & cached {match_id[:8]}... ({len(rounds)} rounds)"
                         )
-                        await self.bot.val_match_cache_col.insert_one(
+                        # Extract puuid from match participants
+                        raw_p = full_match.get("players", {})
+                        all_p_c = (
+                            raw_p
+                            if isinstance(raw_p, list)
+                            else raw_p.get("all_players", [])
+                        )
+                        match_puuids = [
+                            p.get("puuid") for p in all_p_c if isinstance(p, dict)
+                        ]
+                        await self.bot.val_match_cache_col.update_one(
+                            {"match_id": match_id},
                             {
-                                "match_id": match_id,
-                                "data": full_match,
-                                "cached_at": datetime.now(timezone.utc),
-                            }
+                                "$set": {
+                                    "data": full_match,
+                                    "has_rounds": True,
+                                    "cached_at": datetime.now(timezone.utc),
+                                }
+                            },
+                            upsert=True,
                         )
                         full.append(full_match)
                     else:
@@ -289,6 +303,18 @@ class RRTracker(commands.Cog):
                 print(f"[Val Tracker] Match fetch error: {e}")
             await asyncio.sleep(1)
         return full
+
+    async def _trim_match_cache(self, puuid: str) -> None:
+        """Keep only the last 20 cached matches per player."""
+        docs = (
+            await self.bot.val_match_cache_col.find({"puuid": puuid})
+            .sort("cached_at", -1)
+            .skip(20)
+            .to_list(length=1000)
+        )
+        if docs:
+            ids = [d["_id"] for d in docs]
+            await self.bot.val_match_cache_col.delete_many({"_id": {"$in": ids}})
 
     # ── /registerriot ─────────────────────────────────────────────────────────
 
@@ -654,20 +680,20 @@ class RRTracker(commands.Cog):
             s_losses = s_games - s_wins
         s_wr = round(s_wins / s_games * 100, 1) if s_games > 0 else 0
 
-        # Fetch last 10 competitive matches
-        matches = await self._get_matches(name, tag, count=10, region=val_region)
-        if matches == "rate_limited":
+        # Fetch last 10 competitive matches and cache any new ones
+        fresh = await self._get_matches(name, tag, count=10, region=val_region)
+        if fresh == "rate_limited":
             await interaction.followup.send(
                 "⚠️ The API is currently rate limited - please try again in a minute.",
                 ephemeral=True,
             )
             return
-        if not isinstance(matches, list):
-            matches = []
+        if not isinstance(fresh, list):
+            fresh = []
 
-        # Find puuid
+        # Find puuid from fresh matches
         puuid = None
-        for match in matches:
+        for match in fresh:
             raw = match.get("players", [])
             all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
             for p in all_p:
@@ -679,6 +705,50 @@ class RRTracker(commands.Cog):
                         break
             if puuid:
                 break
+
+        # Cache any new matches from fresh fetch and trim to 20 per player
+        inserted = False
+        for match in fresh:
+            match_id = match.get("metadata", {}).get("matchid") or match.get(
+                "metadata", {}
+            ).get("match_id")
+            if match_id and puuid:
+                exists = await self.bot.val_match_cache_col.find_one(
+                    {"match_id": match_id}
+                )
+                if not exists:
+                    await self.bot.val_match_cache_col.insert_one(
+                        {
+                            "match_id": match_id,
+                            "puuid": puuid,
+                            "data": match,
+                            "cached_at": datetime.now(timezone.utc),
+                            "has_rounds": False,
+                        }
+                    )
+                    inserted = True
+        if inserted and puuid:
+            await self._trim_match_cache(puuid)
+
+        # Pull up to last 20 cached matches for this player for stats calculation
+        # Uses puuid to find matches where the player appeared
+        matches = []
+        if puuid:
+            cached_docs = (
+                await self.bot.val_match_cache_col.find({"puuid": puuid})
+                .sort("cached_at", -1)
+                .limit(20)
+                .to_list(length=20)
+            )
+            # Fallback: if the query returns nothing (v3 format stores players differently)
+            # just use the fresh matches
+            if cached_docs:
+                matches = [doc["data"] for doc in cached_docs]
+            else:
+                matches = fresh
+
+        if not matches:
+            matches = fresh
 
         # Base stats across all matches
         total_hs = total_bs = total_ls = total_kills = total_deaths = total_assists = 0
@@ -1654,10 +1724,13 @@ class RRTracker(commands.Cog):
                     await self.bot.val_match_cache_col.insert_one(
                         {
                             "match_id": match_id,
+                            "puuid": account.get("puuid", ""),
                             "data": latest,
                             "cached_at": datetime.now(timezone.utc),
+                            "has_rounds": True,
                         }
                     )
+                    await self._trim_match_cache(account.get("puuid", ""))
             except Exception:
                 pass
 
