@@ -307,7 +307,9 @@ class RRTracker(commands.Cog):
     async def _trim_match_cache(self, puuid: str) -> None:
         """Keep only the last 20 cached matches per player."""
         docs = (
-            await self.bot.val_match_cache_col.find({"puuid": puuid})
+            await self.bot.val_match_cache_col.find(
+                {"$or": [{"puuid": puuid}, {"puuids": puuid}]}
+            )
             .sort("cached_at", -1)
             .skip(20)
             .to_list(length=1000)
@@ -717,10 +719,22 @@ class RRTracker(commands.Cog):
                     {"match_id": match_id}
                 )
                 if not exists:
+                    raw_p_f = match.get("players", [])
+                    all_p_f = (
+                        raw_p_f
+                        if isinstance(raw_p_f, list)
+                        else raw_p_f.get("all_players", [])
+                    )
+                    match_puuids = [
+                        p.get("puuid")
+                        for p in all_p_f
+                        if isinstance(p, dict) and p.get("puuid")
+                    ]
                     await self.bot.val_match_cache_col.insert_one(
                         {
                             "match_id": match_id,
                             "puuid": puuid,
+                            "puuids": match_puuids,
                             "data": match,
                             "cached_at": datetime.now(timezone.utc),
                             "has_rounds": False,
@@ -735,7 +749,9 @@ class RRTracker(commands.Cog):
         matches = []
         if puuid:
             cached_docs = (
-                await self.bot.val_match_cache_col.find({"puuid": puuid})
+                await self.bot.val_match_cache_col.find(
+                    {"$or": [{"puuid": puuid}, {"puuids": puuid}]}
+                )
                 .sort("cached_at", -1)
                 .limit(20)
                 .to_list(length=20)
@@ -1812,10 +1828,23 @@ class RRTracker(commands.Cog):
                     {"match_id": match_id}
                 )
                 if not exists:
+                    # Store all player puuids so any player can find this match
+                    raw_p = latest.get("players", [])
+                    all_p_c = (
+                        raw_p
+                        if isinstance(raw_p, list)
+                        else raw_p.get("all_players", [])
+                    )
+                    all_puuids = [
+                        p.get("puuid")
+                        for p in all_p_c
+                        if isinstance(p, dict) and p.get("puuid")
+                    ]
                     await self.bot.val_match_cache_col.insert_one(
                         {
                             "match_id": match_id,
                             "puuid": account.get("puuid", ""),
+                            "puuids": all_puuids,
                             "data": latest,
                             "cached_at": datetime.now(timezone.utc),
                             "has_rounds": True,
