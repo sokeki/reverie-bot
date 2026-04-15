@@ -228,15 +228,27 @@ class RRTracker(commands.Cog):
                 "metadata", {}
             ).get("match_id")
             if not match_id:
+                print(
+                    f"[Val Tracker] No match_id found in metadata: {list(match.get('metadata', {}).keys())}"
+                )
                 continue
             url = f"{API_BASE}/valorant/v2/match/{match_id}"
             try:
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        full.append(data.get("data", data))
-            except Exception:
-                pass
+                        full_match = data.get("data", data)
+                        rounds = full_match.get("rounds", [])
+                        print(
+                            f"[Val Tracker] Fetched {match_id[:8]}... - {len(rounds)} rounds"
+                        )
+                        full.append(full_match)
+                    else:
+                        print(
+                            f"[Val Tracker] Match fetch {resp.status} for {match_id[:8]}..."
+                        )
+            except Exception as e:
+                print(f"[Val Tracker] Match fetch error: {e}")
             await asyncio.sleep(0.5)
         return full
 
