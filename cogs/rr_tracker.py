@@ -219,6 +219,27 @@ class RRTracker(commands.Cog):
         matches = await self._get_matches(name, tag, count=1, region=region)
         return matches[0] if matches else None
 
+    async def _get_full_matches(self, matches: list) -> list:
+        """Fetch full match data for each match by ID (includes rounds, behavior, ability_casts)."""
+        session = await self._get_session()
+        full = []
+        for match in matches:
+            match_id = match.get("metadata", {}).get("matchid") or match.get(
+                "metadata", {}
+            ).get("match_id")
+            if not match_id:
+                continue
+            url = f"{API_BASE}/valorant/v2/match/{match_id}"
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        full.append(data.get("data", data))
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        return full
+
     # ── /registerriot ─────────────────────────────────────────────────────────
 
     @app_commands.command(
@@ -645,8 +666,9 @@ class RRTracker(commands.Cog):
             )
 
         elif detail == "clutch":
+            full_matches = await self._get_full_matches(matches)
             clutch_opps = clutch_wins = first_bloods = 0
-            for match in matches:
+            for match in full_matches:
                 rounds = match.get("rounds", [])
                 raw = match.get("players", [])
                 all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
@@ -715,8 +737,9 @@ class RRTracker(commands.Cog):
             )
 
         elif detail == "utility":
+            full_matches = await self._get_full_matches(matches)
             total_c = total_q = total_e = total_x = 0
-            for match in matches:
+            for match in full_matches:
                 raw = match.get("players", [])
                 all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
                 player = next(
@@ -765,8 +788,9 @@ class RRTracker(commands.Cog):
             )
 
         elif detail == "behaviour":
+            full_matches = await self._get_full_matches(matches)
             total_afk = total_spawn = ff_out = ff_in = 0
-            for match in matches:
+            for match in full_matches:
                 raw = match.get("players", [])
                 all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
                 player = next(
