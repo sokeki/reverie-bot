@@ -710,9 +710,9 @@ class RRTracker(commands.Cog):
         kda = round((total_kills + total_assists / 2) / max(total_deaths, 1), 2)
         colour = _tier_colour(tier)
 
-        if not matches and detail:
+        if not isinstance(matches, list) or (not matches and detail):
             await interaction.followup.send(
-                "⚠️ No match data available - the API may be rate limited or the player has no recent competitive games.",
+                "⚠️ The API is currently rate limited - please try again in a minute.",
                 ephemeral=True,
             )
             return
@@ -863,7 +863,7 @@ class RRTracker(commands.Cog):
 
         elif detail == "behaviour":
             full_matches = await self._get_full_matches(matches)
-            total_afk = total_spawn = ff_out = ff_in = 0
+            total_afk = total_spawn = ff_out = ff_in = total_rounds_beh = 0
             for match_idx, match in enumerate(full_matches):
                 raw = match.get("players", [])
                 all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
@@ -880,6 +880,7 @@ class RRTracker(commands.Cog):
                         f"[Val Tracker] Behaviour: player not found in match {match_idx}"
                     )
                     continue
+                total_rounds_beh += match.get("metadata", {}).get("rounds_played", 0)
                 beh = player.get("behavior") or {}
                 if match_idx == 0:
                     print(f"[Val Tracker] Behaviour keys: {list(beh.keys())}")
@@ -897,17 +898,25 @@ class RRTracker(commands.Cog):
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(
                 name="AFK Rounds/g",
-                value=f"**{round(total_afk/g,1)}**\n{total_afk} total",
+                value=f"**{round(total_afk/g,1)}**\n{int(total_afk)}/{total_rounds_beh} rounds",
                 inline=True,
             )
             embed.add_field(
                 name="Spawn Rounds/g",
-                value=f"**{round(total_spawn/g,1)}**\n{total_spawn} total",
+                value=f"**{round(total_spawn/g,1)}**\n{int(total_spawn)}/{total_rounds_beh} rounds",
                 inline=True,
             )
             embed.add_field(name="\u200b", value="\u200b", inline=True)
-            embed.add_field(name="FF Outgoing", value=f"**{ff_out}**", inline=True)
-            embed.add_field(name="FF Incoming", value=f"**{ff_in}**", inline=True)
+            embed.add_field(
+                name="FF Outgoing/g",
+                value=f"**{round(ff_out/g,1)}**\n{int(ff_out)} total",
+                inline=True,
+            )
+            embed.add_field(
+                name="FF Incoming/g",
+                value=f"**{round(ff_in/g,1)}**\n{int(ff_in)} total",
+                inline=True,
+            )
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.set_footer(
                 text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
