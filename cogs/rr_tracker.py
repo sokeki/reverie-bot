@@ -762,22 +762,22 @@ class RRTracker(commands.Cog):
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(
-                name="C (Signature)",
+                name="C",
                 value=f"**{round(total_c/g,1)}/g**\n{total_c} total",
                 inline=True,
             )
             embed.add_field(
-                name="Q (Basic)",
+                name="Q",
                 value=f"**{round(total_q/g,1)}/g**\n{total_q} total",
                 inline=True,
             )
             embed.add_field(
-                name="E (Signature)",
+                name="E",
                 value=f"**{round(total_e/g,1)}/g**\n{total_e} total",
                 inline=True,
             )
             embed.add_field(
-                name="X (Ultimate)",
+                name="X",
                 value=f"**{round(total_x/g,1)}/g**\n{total_x} total",
                 inline=True,
             )
