@@ -1173,7 +1173,7 @@ class RRTracker(commands.Cog):
     @tasks.loop(minutes=1)
     async def daily_summary_task(self):
         now = datetime.now(timezone.utc)
-        if now.hour != 5 or now.minute > 9:
+        if now.hour != 0 or now.minute > 4:
             return
         today = now.strftime("%Y-%m-%d")
         print(
