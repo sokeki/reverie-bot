@@ -880,16 +880,20 @@ class RRTracker(commands.Cog):
                         f"[Val Tracker] Behaviour: player not found in match {match_idx}"
                     )
                     continue
-                total_rounds_beh += match.get("metadata", {}).get("rounds_played", 0)
+                rounds_played = match.get("metadata", {}).get("rounds_played", 0)
+                total_rounds_beh += rounds_played
+                # Count AFK and spawn rounds from per-round player_stats
+                for rnd in match.get("rounds", []):
+                    for ps in rnd.get("player_stats", []):
+                        if ps.get("player_puuid") == puuid:
+                            if ps.get("was_afk"):
+                                total_afk += 1
+                            if ps.get("stayed_in_spawn"):
+                                total_spawn += 1
+                            break
+                # FF from behavior field
                 beh = player.get("behavior") or {}
-                if match_idx == 0:
-                    print(f"[Val Tracker] Behaviour keys: {list(beh.keys())}")
-                    print(f"[Val Tracker] Behaviour data: {beh}")
-                total_afk += beh.get("afk_rounds", 0)
-                total_spawn += beh.get("rounds_in_spawn", 0)
                 ff = beh.get("friendly_fire") or {}
-                if match_idx == 0:
-                    print(f"[Val Tracker] FF data: {ff}")
                 ff_out += ff.get("outgoing", 0)
                 ff_in += ff.get("incoming", 0)
             g = max(games_counted, 1)
