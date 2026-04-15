@@ -181,8 +181,8 @@ class TFTTracker(commands.Cog):
 
         rows = []
         for acc in accounts:
-            puuid = acc.get("puuid", "")
             tft = acc.get("tft", {})
+            puuid = acc.get("riot_puuid") or acc.get("puuid", "")
             region = tft.get("region") or _val_to_tft_region(
                 acc.get("val_region", "eu")
             )
@@ -305,7 +305,9 @@ class TFTTracker(commands.Cog):
                 try:
                     await self._check_account(account, channel)
                 except Exception as e:
-                    print(f"[TFT] Error checking {account.get('name')}: {e}")
+                    print(
+                        f"[TFT] Error checking {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                    )
                 await asyncio.sleep(2)
 
     async def _check_account(self, account: dict, channel: discord.TextChannel):
@@ -446,23 +448,6 @@ class TFTTracker(commands.Cog):
     @poll_task.before_loop
     async def before_poll(self):
         await self.bot.wait_until_ready()
-
-
-def _lp_to_rank_str(lp_total: int) -> str:
-    """Convert a stored LP total back to a readable rank string."""
-    if lp_total == 0:
-        return "Unranked"
-    for tier, base in sorted(TIER_ORDER.items(), key=lambda x: x[1], reverse=True):
-        if lp_total >= base:
-            remainder = lp_total - base
-            if tier in ("MASTER", "GRANDMASTER", "CHALLENGER"):
-                return f"{tier.capitalize()} {remainder}LP"
-            for div, dbase in sorted(
-                DIVISION_ORDER.items(), key=lambda x: x[1], reverse=True
-            ):
-                if remainder >= dbase:
-                    return f"{tier.capitalize()} {div} {remainder - dbase}LP"
-    return "Unranked"
 
 
 async def setup(bot: commands.Bot):

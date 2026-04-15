@@ -141,7 +141,7 @@ class RRTracker(commands.Cog):
         self.api_key = os.getenv("HENRIK_API_KEY", "")
         self._recently_posted: set[str] = (
             set()
-        )  # guard against duplicate posts — stores 'discord_id:match_id'
+        )  # guard against duplicate posts — stores 'puuid:match_id'
         self.poll_task.start()
         self.daily_summary_task.start()
 
@@ -389,25 +389,6 @@ class RRTracker(commands.Cog):
         await interaction.response.send_message(
             f"✅ RR updates will be posted in {channel.mention}.", ephemeral=True
         )
-
-    # ── /unregisterval ────────────────────────────────────────────────────────
-
-    @app_commands.command(
-        name="unregisterval",
-        description="Unlink your Valorant account from RR tracking",
-    )
-    async def unregisterval(self, interaction: discord.Interaction):
-        result = await self.bot.riot_accounts_col.delete_one(
-            {"discord_id": interaction.user.id, "guild_id": interaction.guild_id}
-        )
-        if result.deleted_count:
-            await interaction.response.send_message(
-                "🌙 Your Valorant account has been unlinked.", ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                "*you don't have a Valorant account linked.*", ephemeral=True
-            )
 
     # ── /rrleaderboard ───────────────────────────────────────────────────────
 
@@ -1218,7 +1199,7 @@ class RRTracker(commands.Cog):
             by_player.setdefault(key, []).append(g)
 
         lines = []
-        for discord_id, player_games in sorted(
+        for player_key, player_games in sorted(
             by_player.items(),
             key=lambda kv: sum(g["rr_change"] for g in kv[1]),
             reverse=True,

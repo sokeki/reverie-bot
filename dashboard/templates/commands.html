@@ -92,17 +92,35 @@
                 roll a random agent for each role. Results are tracked for the weekly recap.</div>
         </div>
         <div class="cmd-card">
-            <div class="cmd-name">/registerval &lt;name#tag&gt;</div>
-            <div class="cmd-desc">Link your Valorant account for RR tracking. Games are detected automatically within 1
-                minute of finishing.</div>
+            <div class="cmd-name">/registerriot &lt;name#tag&gt; &lt;region&gt;</div>
+            <div class="cmd-desc">Add a Riot account to server tracking. Automatically tracks both Valorant RR and TFT
+                LP. Games are detected within 1 minute of finishing.</div>
         </div>
         <div class="cmd-card">
-            <div class="cmd-name">/unregisterval</div>
-            <div class="cmd-desc">Unlink your Valorant account from RR tracking.</div>
+            <div class="cmd-name">/unregisterriot &lt;name#tag&gt;</div>
+            <div class="cmd-desc">Remove a Riot account from server tracking.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/rrleaderboard</div>
             <div class="cmd-desc">See the current rank and RR for all registered players, sorted by ELO.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/tftlist</div>
+            <div class="cmd-desc">See the TFT LP leaderboard for all tracked accounts. Fetches live LP on demand.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/tftstats &lt;name#tag&gt; &lt;region&gt;</div>
+            <div class="cmd-desc">Show detailed TFT ranked stats for any player - wins, losses, winrate and rank.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/scoreboard</div>
+            <div class="cmd-desc">Show the scoreboard for a match. Provide a match ID or a username to use their latest
+                game. Also works by replying to an RR update with <code>r!sb</code>.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/footshot &lt;name#tag&gt;</div>
+            <div class="cmd-desc">Check a player's headshot, bodyshot and legshot percentages across their last 20
+                competitive games.</div>
         </div>
     </div>
 
@@ -197,13 +215,17 @@
             <div class="cmd-desc">Set the channel for Valorant RR tracking updates and the daily summary.</div>
         </div>
         <div class="cmd-card">
-            <div class="cmd-name">/adminregisterval @member &lt;name#tag&gt;</div>
-            <div class="cmd-desc">Link a Valorant account to a Discord member for RR tracking.</div>
-        </div>
-        <div class="cmd-card">
             <div class="cmd-name">/rrtrackerstatus</div>
             <div class="cmd-desc">Check if the RR tracker poll is running and see the status of all registered accounts.
             </div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/rrtrackertest &lt;name#tag&gt;</div>
+            <div class="cmd-desc">Test the Henrik API for a specific account and see the raw response.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/settftchannel #channel</div>
+            <div class="cmd-desc">Set the channel for TFT LP tracking updates.</div>
         </div>
     </div>
 
