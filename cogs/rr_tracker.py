@@ -519,17 +519,29 @@ class RRTracker(commands.Cog):
     # ── /valstats ─────────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="valstats", description="Show Valorant ranked stats for any player"
+        name="valstats", description="Show Valorant stats for any player"
     )
     @app_commands.describe(
         username="Riot ID including tag, e.g. Name#EUW",
         region="Server region",
+        detail="Detailed stats view",
     )
     @app_commands.choices(
-        region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP]
+        region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP],
+        detail=[
+            app_commands.Choice(name="Clutch & First Bloods", value="clutch"),
+            app_commands.Choice(name="Utility Usage", value="utility"),
+            app_commands.Choice(name="Behaviour", value="behaviour"),
+            app_commands.Choice(name="Agent Stats", value="agents"),
+            app_commands.Choice(name="Map Winrates", value="maps"),
+        ],
     )
     async def valstats(
-        self, interaction: discord.Interaction, username: str, region: str = "EUW"
+        self,
+        interaction: discord.Interaction,
+        username: str,
+        region: str = "EUW",
+        detail: str = None,
     ):
         if "#" not in username:
             await interaction.response.send_message(
@@ -541,6 +553,7 @@ class RRTracker(commands.Cog):
         val_region = VAL_REGION_MAP[region]
         await interaction.response.defer()
 
+        # Always fetch MMR for rank/peak/season
         mmr = await self._get_mmr(name, tag, val_region)
         if not mmr:
             await interaction.followup.send(
@@ -551,32 +564,352 @@ class RRTracker(commands.Cog):
         current = mmr.get("current", {})
         tier = current.get("tier", {}).get("name", "Unrated")
         rr = current.get("rr", 0)
-        elo = current.get("elo", 0)
-        wins = mmr.get("wins", 0) or current.get("wins", 0)
-        losses = mmr.get("losses", 0) or current.get("losses", 0)
-        wr = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0
         peak = mmr.get("peak", {})
-        peak_str = (
-            f"{peak.get('tier', {}).get('name', '?')} {peak.get('season', '')}"
-            if peak
-            else "?"
-        )
+        peak_tier = peak.get("tier", {}).get("name", "?") if peak else "?"
+        peak_season = peak.get("season", {}).get("short", "") if peak else ""
+        peak_str = f"{peak_tier} ({peak_season})" if peak_season else peak_tier
+        seasonal = mmr.get("seasonal", [])
+        s_wins = s_losses = s_games = 0
+        if seasonal:
+            s = seasonal[0]
+            s_wins = s.get("wins", 0)
+            s_games = s.get("games", 0)
+            s_losses = s_games - s_wins
+        s_wr = round(s_wins / s_games * 100, 1) if s_games > 0 else 0
 
-        embed = discord.Embed(
-            title=f"{name}#{tag}  -  Valorant Stats",
-            color=_tier_colour(tier),
-        )
-        embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
-        embed.add_field(name="W/L", value=f"**{wins}W {losses}L** ({wr}%)", inline=True)
-        embed.add_field(name="Peak", value=f"**{peak_str}**", inline=True)
-        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
+        # Fetch last 20 competitive matches
+        matches = await self._get_matches(name, tag, count=20, region=val_region)
+
+        # Find puuid
+        puuid = None
+        for match in matches:
+            raw = match.get("players", [])
+            all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+            for p in all_p:
+                if isinstance(p, dict):
+                    pname = p.get("name") or p.get("gameName", "")
+                    ptag = p.get("tag") or p.get("tagLine", "")
+                    if pname.lower() == name.lower() and ptag.lower() == tag.lower():
+                        puuid = p.get("puuid")
+                        break
+            if puuid:
+                break
+
+        # Base stats across all matches
+        total_hs = total_bs = total_ls = total_kills = total_deaths = total_assists = 0
+        total_score = total_rounds = games_counted = 0
+        for match in matches:
+            rounds_played = match.get("metadata", {}).get("rounds_played", 0)
+            raw = match.get("players", [])
+            all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+            player = next(
+                (p for p in all_p if isinstance(p, dict) and p.get("puuid") == puuid),
+                None,
+            )
+            if not player:
+                continue
+            s = player.get("stats", {})
+            total_kills += s.get("kills", 0)
+            total_deaths += s.get("deaths", 0)
+            total_assists += s.get("assists", 0)
+            total_hs += s.get("headshots", 0)
+            total_bs += s.get("bodyshots", 0)
+            total_ls += s.get("legshots", 0)
+            total_score += s.get("score", 0)
+            total_rounds += rounds_played
+            games_counted += 1
+
+        avg_acs = round(total_score / total_rounds) if total_rounds > 0 else 0
+        total_shots = total_hs + total_bs + total_ls
+        hs_pct = round(total_hs / total_shots * 100) if total_shots > 0 else 0
+        kda = round((total_kills + total_assists / 2) / max(total_deaths, 1), 2)
+        colour = _tier_colour(tier)
+        embed = discord.Embed(title=f"{name}#{tag}  -  Valorant Stats", color=colour)
+
+        if not detail:
+            embed.add_field(name="Rank", value=f"**{tier}**\n{rr} RR", inline=True)
+            embed.add_field(name="Peak", value=f"**{peak_str}**", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(
+                name="Season",
+                value=f"**{s_wins}W {s_losses}L** ({s_wr}%)\n{s_games} games",
+                inline=True,
+            )
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="ACS", value=f"**{avg_acs}**", inline=True)
+            embed.add_field(name="KDA", value=f"**{kda}**", inline=True)
+            embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
+            embed.set_footer(
+                text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
+            )
+
+        elif detail == "clutch":
+            clutch_opps = clutch_wins = first_bloods = 0
+            for match in matches:
+                rounds = match.get("rounds", [])
+                raw = match.get("players", [])
+                all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                player_team = (player.get("team_id") or player.get("team", "")).lower()
+                for rnd in rounds:
+                    rnd_kills = rnd.get("kills", [])
+                    rnd_winner = rnd.get("winning_team", "").lower()
+                    if (
+                        rnd_kills
+                        and rnd_kills[0].get("killer", {}).get("puuid") == puuid
+                    ):
+                        first_bloods += 1
+                    player_stats_list = rnd.get("player_stats", [])
+                    if not player_stats_list:
+                        continue
+                    player_survived = False
+                    alive_teammates = []
+                    for ps in player_stats_list:
+                        ps_puuid = ps.get("player_puuid") or ps.get("puuid", "")
+                        ps_team = ""
+                        for p in all_p:
+                            if isinstance(p, dict) and p.get("puuid") == ps_puuid:
+                                ps_team = (
+                                    p.get("team_id") or p.get("team", "")
+                                ).lower()
+                                break
+                        survived = ps.get("survived", False)
+                        if ps_puuid == puuid:
+                            player_survived = survived
+                        elif ps_team == player_team and survived:
+                            alive_teammates.append(ps_puuid)
+                    if player_survived and len(alive_teammates) == 0:
+                        clutch_opps += 1
+                        if rnd_winner == player_team:
+                            clutch_wins += 1
+            clutch_pct = (
+                round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
+            )
+            fb_pg = round(first_bloods / games_counted, 2) if games_counted > 0 else 0
+            embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(
+                name="Clutch %",
+                value=f"**{clutch_pct}%**\n{clutch_wins}/{clutch_opps}",
+                inline=True,
+            )
+            embed.add_field(
+                name="First Bloods/g",
+                value=f"**{fb_pg}**\n{first_bloods} total",
+                inline=True,
+            )
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.set_footer(
+                text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
+            )
+
+        elif detail == "utility":
+            total_c = total_q = total_e = total_x = 0
+            for match in matches:
+                raw = match.get("players", [])
+                all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                casts = player.get("ability_casts", {})
+                total_c += casts.get("c_cast", 0)
+                total_q += casts.get("q_cast", 0)
+                total_e += casts.get("e_cast", 0)
+                total_x += casts.get("x_cast", 0)
+            g = max(games_counted, 1)
+            embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(
+                name="C (Signature)",
+                value=f"**{round(total_c/g,1)}/g**\n{total_c} total",
+                inline=True,
+            )
+            embed.add_field(
+                name="Q (Basic)",
+                value=f"**{round(total_q/g,1)}/g**\n{total_q} total",
+                inline=True,
+            )
+            embed.add_field(
+                name="E (Signature)",
+                value=f"**{round(total_e/g,1)}/g**\n{total_e} total",
+                inline=True,
+            )
+            embed.add_field(
+                name="X (Ultimate)",
+                value=f"**{round(total_x/g,1)}/g**\n{total_x} total",
+                inline=True,
+            )
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.set_footer(
+                text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
+            )
+
+        elif detail == "behaviour":
+            total_afk = total_spawn = ff_out = ff_in = 0
+            for match in matches:
+                raw = match.get("players", [])
+                all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                beh = player.get("behavior", {})
+                total_afk += beh.get("afk_rounds", 0)
+                total_spawn += beh.get("rounds_in_spawn", 0)
+                ff = beh.get("friendly_fire", {})
+                ff_out += ff.get("outgoing", 0)
+                ff_in += ff.get("incoming", 0)
+            g = max(games_counted, 1)
+            embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(
+                name="AFK Rounds/g",
+                value=f"**{round(total_afk/g,1)}**\n{total_afk} total",
+                inline=True,
+            )
+            embed.add_field(
+                name="Spawn Rounds/g",
+                value=f"**{round(total_spawn/g,1)}**\n{total_spawn} total",
+                inline=True,
+            )
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.add_field(name="FF Outgoing", value=f"**{ff_out}**", inline=True)
+            embed.add_field(name="FF Incoming", value=f"**{ff_in}**", inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+            embed.set_footer(
+                text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
+            )
+
+        elif detail == "agents":
+            agent_stats: dict[str, dict] = {}
+            for match in matches:
+                raw = match.get("players", [])
+                all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                agent = player.get("agent", {}).get("name") or player.get(
+                    "character", "Unknown"
+                )
+                s = player.get("stats", {})
+                rounds = match.get("metadata", {}).get("rounds_played", 1)
+                won = (
+                    player.get("team_id") or player.get("team", "")
+                ).lower() == _winning_team(match).lower()
+                acs = round(s.get("score", 0) / max(rounds, 1))
+                if agent not in agent_stats:
+                    agent_stats[agent] = {
+                        "games": 0,
+                        "wins": 0,
+                        "kills": 0,
+                        "deaths": 0,
+                        "acs": 0,
+                    }
+                ag = agent_stats[agent]
+                ag["games"] += 1
+                ag["wins"] += 1 if won else 0
+                ag["kills"] += s.get("kills", 0)
+                ag["deaths"] += s.get("deaths", 0)
+                ag["acs"] += acs
+            sorted_agents = sorted(
+                agent_stats.items(), key=lambda x: x[1]["games"], reverse=True
+            )
+            lines = []
+            for agent, st in sorted_agents[:8]:
+                g_ = st["games"]
+                wr_ = round(st["wins"] / g_ * 100)
+                kd_ = round(st["kills"] / max(st["deaths"], 1), 2)
+                acs_ = round(st["acs"] / g_)
+                lines.append(f"**{agent}** ({g_}g)  {wr_}% WR  {kd_} KD  {acs_} ACS")
+            embed.description = "\n".join(lines) if lines else "*no data*"
+            embed.set_footer(
+                text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
+            )
+
+        elif detail == "maps":
+            map_stats: dict[str, dict] = {}
+            for match in matches:
+                raw_map = match.get("metadata", {}).get("map", "Unknown")
+                map_name = (
+                    raw_map
+                    if isinstance(raw_map, str)
+                    else raw_map.get("name", "Unknown")
+                )
+                raw = match.get("players", [])
+                all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                won = (
+                    player.get("team_id") or player.get("team", "")
+                ).lower() == _winning_team(match).lower()
+                if map_name not in map_stats:
+                    map_stats[map_name] = {"games": 0, "wins": 0}
+                map_stats[map_name]["games"] += 1
+                map_stats[map_name]["wins"] += 1 if won else 0
+            sorted_maps = sorted(
+                map_stats.items(), key=lambda x: x[1]["games"], reverse=True
+            )
+            lines = []
+            for map_name, st in sorted_maps:
+                g_ = st["games"]
+                wr_ = round(st["wins"] / g_ * 100)
+                w_ = st["wins"]
+                l_ = g_ - w_
+                lines.append(f"**{map_name}** ({g_}g)  {wr_}% WR  {w_}W {l_}L")
+            embed.description = "\n".join(lines) if lines else "*no data*"
+            embed.set_footer(
+                text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
+            )
+
         await interaction.followup.send(embed=embed)
 
     # ── /footshot ─────────────────────────────────────────────────────────────
 
     @app_commands.command(
         name="footshot",
-        description="Check a player's shot accuracy across their last 20 competitive games",
+        description="Check a player's shot accuracy across their last 10 competitive games",
     )
     @app_commands.describe(username="Valorant username and tag, e.g. Name#EUW")
     async def footshot(self, interaction: discord.Interaction, username: str):
@@ -590,7 +923,7 @@ class RRTracker(commands.Cog):
         await interaction.response.defer()
 
         session = await self._get_session()
-        url = f"{API_BASE}/valorant/v3/matches/eu/{quote(name)}/{quote(tag)}?mode=competitive&size=20"
+        url = f"{API_BASE}/valorant/v3/matches/eu/{quote(name)}/{quote(tag)}?mode=competitive&size=10"
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
@@ -688,7 +1021,7 @@ class RRTracker(commands.Cog):
         embed.add_field(name="Body %", value=f"**{bs_pct}%**", inline=True)
         embed.add_field(name="Leg %", value=f"**{ls_pct}%**", inline=True)
         embed.set_footer(
-            text=f"Last {games_counted} games  •  Reverie  •  {interaction.guild.name}"
+            text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
         )
         await interaction.followup.send(embed=embed)
 

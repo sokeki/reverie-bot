@@ -105,9 +105,12 @@
             <div class="cmd-desc">See the current rank and RR for all registered players, sorted by ELO.</div>
         </div>
         <div class="cmd-card">
-            <div class="cmd-name">/valstats &lt;name#tag&gt; &lt;region&gt;</div>
-            <div class="cmd-desc">Show Valorant ranked stats for any player - rank, RR, win/loss record and peak rank.
-            </div>
+            <div class="cmd-name">/valstats &lt;name#tag&gt; &lt;region&gt; [detail]</div>
+            <div class="cmd-desc">Show Valorant stats for any player. Base view shows rank, peak, season W/L, ACS, KDA
+                and HS% across their last 10 games. Use the optional <code>detail</code> argument to see:
+                <code>clutch</code> (clutch % and first bloods), <code>utility</code> (ability casts per game),
+                <code>behaviour</code> (AFK/spawn/friendly fire), <code>agents</code> (per-agent KD, ACS, winrate), or
+                <code>maps</code> (winrate per map).</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/tftleaderboard</div>
@@ -124,7 +127,7 @@
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/footshot &lt;name#tag&gt;</div>
-            <div class="cmd-desc">Check a player's headshot, bodyshot and legshot percentages across their last 20
+            <div class="cmd-desc">Check a player's headshot, bodyshot and legshot percentages across their last 10
                 competitive games.</div>
         </div>
     </div>
