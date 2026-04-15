@@ -160,6 +160,19 @@ class RRTracker(commands.Cog):
 
     # ── API helpers ───────────────────────────────────────────────────────────
 
+    async def _get_mmr_v2(self, name: str, tag: str, region: str = "eu") -> dict | None:
+        """Fetch v2 MMR data which includes by_season with number_of_games per act."""
+        session = await self._get_session()
+        url = f"{API_BASE}/valorant/v2/mmr/{region}/{quote(name)}/{quote(tag)}"
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data.get("data")
+        except Exception:
+            return None
+
     async def _get_mmr(
         self, name: str, tag: str, region: str = "eu"
     ) -> dict | None | str:
@@ -673,13 +686,35 @@ class RRTracker(commands.Cog):
         peak_tier = peak.get("tier", {}).get("name", "?") if peak else "?"
         peak_season = peak.get("season", {}).get("short", "") if peak else ""
         peak_str = f"{peak_tier} ({peak_season})" if peak_season else peak_tier
-        seasonal = mmr.get("seasonal", [])
+
+        # Use v2 MMR for season stats — by_season has number_of_games per act
         s_wins = s_losses = s_games = 0
-        if seasonal:
-            s = seasonal[0]
-            s_wins = s.get("wins", 0)
-            s_games = s.get("games", 0)
-            s_losses = s_games - s_wins
+        mmr_v2 = await self._get_mmr_v2(name, tag, val_region)
+        if mmr_v2:
+            by_season = mmr_v2.get("by_season", {})
+            if by_season:
+                # Get the most recent non-errored act
+                current_act = next(
+                    (
+                        data
+                        for act, data in sorted(by_season.items(), reverse=True)
+                        if not data.get("error", False)
+                        and data.get("number_of_games", 0) > 0
+                    ),
+                    None,
+                )
+                if current_act:
+                    s_wins = current_act.get("wins", 0)
+                    s_games = current_act.get("number_of_games", 0)
+                    s_losses = s_games - s_wins
+        else:
+            # Fallback to v3 seasonal
+            seasonal = mmr.get("seasonal", [])
+            if seasonal:
+                s = seasonal[0]
+                s_wins = s.get("wins", 0)
+                s_games = s.get("games", 0)
+                s_losses = s_games - s_wins
         s_wr = round(s_wins / s_games * 100, 1) if s_games > 0 else 0
 
         # Fetch last 10 competitive matches and cache any new ones
