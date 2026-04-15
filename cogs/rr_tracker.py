@@ -160,7 +160,9 @@ class RRTracker(commands.Cog):
 
     # ── API helpers ───────────────────────────────────────────────────────────
 
-    async def _get_mmr(self, name: str, tag: str, region: str = "eu") -> dict | None:
+    async def _get_mmr(
+        self, name: str, tag: str, region: str = "eu"
+    ) -> dict | None | str:
         session = await self._get_session()
         url = (
             f"{API_BASE}/valorant/v3/mmr/{region}/{PLATFORM}/{quote(name)}/{quote(tag)}"
@@ -169,7 +171,7 @@ class RRTracker(commands.Cog):
             async with session.get(url) as resp:
                 if resp.status == 429:
                     print(f"[Val Tracker] Rate limited on MMR for {name}#{tag}")
-                    return None
+                    return "rate_limited"
                 if resp.status != 200:
                     return None
                 data = await resp.json()
@@ -186,7 +188,7 @@ class RRTracker(commands.Cog):
             async with session.get(url) as resp:
                 if resp.status == 429:
                     print(f"[Val Tracker] Rate limited on matches for {name}#{tag}")
-                    return []
+                    return "rate_limited"
                 if resp.status != 200:
                     text = await resp.text()
                     print(
@@ -484,7 +486,7 @@ class RRTracker(commands.Cog):
             mmr = await self._get_mmr(
                 account["val_name"], account["val_tag"], account.get("val_region", "eu")
             )
-            if not mmr:
+            if not mmr or mmr == "rate_limited":
                 continue
             current = mmr["current"]
             rows.append(
@@ -624,6 +626,12 @@ class RRTracker(commands.Cog):
 
         # Always fetch MMR for rank/peak/season
         mmr = await self._get_mmr(name, tag, val_region)
+        if mmr == "rate_limited":
+            await interaction.followup.send(
+                "⚠️ The API is currently rate limited - please try again in a minute.",
+                ephemeral=True,
+            )
+            return
         if not mmr:
             await interaction.followup.send(
                 f"⚠️ Couldn't find **{username}** on **{region}**."
@@ -646,8 +654,16 @@ class RRTracker(commands.Cog):
             s_losses = s_games - s_wins
         s_wr = round(s_wins / s_games * 100, 1) if s_games > 0 else 0
 
-        # Fetch last 20 competitive matches
-        matches = await self._get_matches(name, tag, count=20, region=val_region)
+        # Fetch last 10 competitive matches
+        matches = await self._get_matches(name, tag, count=10, region=val_region)
+        if matches == "rate_limited":
+            await interaction.followup.send(
+                "⚠️ The API is currently rate limited - please try again in a minute.",
+                ephemeral=True,
+            )
+            return
+        if not isinstance(matches, list):
+            matches = []
 
         # Find puuid
         puuid = None
@@ -693,6 +709,14 @@ class RRTracker(commands.Cog):
         hs_pct = round(total_hs / total_shots * 100) if total_shots > 0 else 0
         kda = round((total_kills + total_assists / 2) / max(total_deaths, 1), 2)
         colour = _tier_colour(tier)
+
+        if not matches and detail:
+            await interaction.followup.send(
+                "⚠️ No match data available - the API may be rate limited or the player has no recent competitive games.",
+                ephemeral=True,
+            )
+            return
+
         embed = discord.Embed(title=f"{name}#{tag}  -  Valorant Stats", color=colour)
 
         if not detail:
@@ -1606,6 +1630,23 @@ class RRTracker(commands.Cog):
         embed.set_footer(text=f"{match_id}  •  Reverie  •  {guild.name}")
 
         await channel.send(embed=embed)
+
+        # Cache full match data for /valstats detail views
+        if latest and match_id:
+            try:
+                exists = await self.bot.val_match_cache_col.find_one(
+                    {"match_id": match_id}
+                )
+                if not exists:
+                    await self.bot.val_match_cache_col.insert_one(
+                        {
+                            "match_id": match_id,
+                            "data": latest,
+                            "cached_at": datetime.now(timezone.utc),
+                        }
+                    )
+            except Exception:
+                pass
 
         # Store for daily summary
         await self.bot.val_games_col.insert_one(
