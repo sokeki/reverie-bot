@@ -784,8 +784,7 @@ class RRTracker(commands.Cog):
         for team_id, players in sorted(teams.items()):
             score = team_scores.get(team_id, "?")
             won = score == max(team_scores.values()) if team_scores else False
-            icon = "🟢" if won else "🔴"
-            label = f"{icon} Team {team_id}  -  {score} rounds"
+            label = f"Team {team_id}  -  {score} rounds"
             embed.add_field(name=label, value=build_table(players), inline=False)
         embed.set_footer(text=f"Reverie  -  {guild.name}")
         return embed
@@ -1093,6 +1092,9 @@ class RRTracker(commands.Cog):
                             rounds_lost = tdata.get("rounds_won", 0)
                 score_str = f"{rounds_won}-{rounds_lost}"
 
+        is_placement = (
+            tier_name in ("Unrated", "Unranked", "") or rr == 0 and rr_change == 0
+        )
         result_str = "WIN" if won else "LOSS"
         embed_colour = COLOUR_MAIN if won else 0x8B4A4A
 
@@ -1114,8 +1116,10 @@ class RRTracker(commands.Cog):
             embed.set_author(name=f"{name}#{tag}", icon_url=card_url)
         else:
             embed.set_author(name=f"{name}#{tag}")
-        embed.add_field(name="Rank", value=f"**{tier_name}**\n{rr} RR", inline=True)
-        embed.add_field(name="Change", value=f"**{_rr_arrow(rr_change)}**", inline=True)
+        rank_display = "**Placement**" if is_placement else f"**{tier_name}**\n{rr} RR"
+        change_display = "*-*" if is_placement else f"**{_rr_arrow(rr_change)}**"
+        embed.add_field(name="Rank", value=rank_display, inline=True)
+        embed.add_field(name="Change", value=change_display, inline=True)
         embed.add_field(
             name="KDA", value=f"**{kills}/{deaths}/{assists}**", inline=True
         )
