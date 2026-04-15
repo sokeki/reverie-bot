@@ -219,8 +219,34 @@ class RRTracker(commands.Cog):
         matches = await self._get_matches(name, tag, count=1, region=region)
         return matches[0] if matches else None
 
+    async def _cache_full_match(self, match_id: str) -> None:
+        """Fetch and cache a full match by ID if not already cached."""
+        existing = await self.bot.val_match_cache_col.find_one({"match_id": match_id})
+        if existing:
+            return
+        session = await self._get_session()
+        url = f"{API_BASE}/valorant/v2/match/{match_id}"
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    full_match = data.get("data", data)
+                    rounds = full_match.get("rounds", [])
+                    await self.bot.val_match_cache_col.insert_one(
+                        {
+                            "match_id": match_id,
+                            "data": full_match,
+                            "cached_at": datetime.now(timezone.utc),
+                        }
+                    )
+                    print(
+                        f"[Val Tracker] Cached {match_id[:8]}... ({len(rounds)} rounds)"
+                    )
+        except Exception as e:
+            print(f"[Val Tracker] Cache error for {match_id[:8]}...: {e}")
+
     async def _get_full_matches(self, matches: list) -> list:
-        """Fetch full match data for each match by ID (includes rounds, behavior, ability_casts)."""
+        """Return full match data from cache, fetching from API only if not cached."""
         session = await self._get_session()
         full = []
         for match in matches:
@@ -228,10 +254,13 @@ class RRTracker(commands.Cog):
                 "metadata", {}
             ).get("match_id")
             if not match_id:
-                print(
-                    f"[Val Tracker] No match_id found in metadata: {list(match.get('metadata', {}).keys())}"
-                )
                 continue
+            # Check cache first
+            cached = await self.bot.val_match_cache_col.find_one({"match_id": match_id})
+            if cached:
+                full.append(cached["data"])
+                continue
+            # Not cached — fetch from API
             url = f"{API_BASE}/valorant/v2/match/{match_id}"
             try:
                 async with session.get(url) as resp:
@@ -240,7 +269,14 @@ class RRTracker(commands.Cog):
                         full_match = data.get("data", data)
                         rounds = full_match.get("rounds", [])
                         print(
-                            f"[Val Tracker] Fetched {match_id[:8]}... - {len(rounds)} rounds"
+                            f"[Val Tracker] Fetched & cached {match_id[:8]}... ({len(rounds)} rounds)"
+                        )
+                        await self.bot.val_match_cache_col.insert_one(
+                            {
+                                "match_id": match_id,
+                                "data": full_match,
+                                "cached_at": datetime.now(timezone.utc),
+                            }
                         )
                         full.append(full_match)
                     else:
@@ -249,7 +285,7 @@ class RRTracker(commands.Cog):
                         )
             except Exception as e:
                 print(f"[Val Tracker] Match fetch error: {e}")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
         return full
 
     # ── /registerriot ─────────────────────────────────────────────────────────
@@ -679,82 +715,55 @@ class RRTracker(commands.Cog):
 
         elif detail == "clutch":
             full_matches = await self._get_full_matches(matches)
-            # Debug: log structure of first match
-            if full_matches:
-                fm = full_matches[0]
-                rounds_sample = fm.get("rounds", [])
-                raw_sample = fm.get("players", [])
-                all_p_sample = (
-                    raw_sample
-                    if isinstance(raw_sample, list)
-                    else raw_sample.get("all_players", [])
-                )
-                print(f"[Val Tracker] Full match keys: {list(fm.keys())}")
-                print(
-                    f"[Val Tracker] Players type: {type(raw_sample)}, count: {len(all_p_sample)}"
-                )
-                if all_p_sample:
-                    print(
-                        f"[Val Tracker] First player keys: {list(all_p_sample[0].keys()) if isinstance(all_p_sample[0], dict) else 'not dict'}"
-                    )
-                if rounds_sample:
-                    rnd = rounds_sample[0]
-                    print(f"[Val Tracker] First round keys: {list(rnd.keys())}")
-                    ps_list = rnd.get("player_stats", [])
-                    if ps_list:
-                        print(
-                            f"[Val Tracker] player_stats[0] keys: {list(ps_list[0].keys()) if isinstance(ps_list[0], dict) else 'not dict'}"
-                        )
             clutch_opps = clutch_wins = first_bloods = 0
             for match in full_matches:
                 rounds = match.get("rounds", [])
                 raw = match.get("players", [])
                 all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
-                player = next(
-                    (
-                        p
-                        for p in all_p
-                        if isinstance(p, dict) and p.get("puuid") == puuid
-                    ),
-                    None,
-                )
-                if not player:
-                    print(
-                        f"[Val Tracker] Player not found in match, puuid={puuid[:8] if puuid else None}"
-                    )
+                # Build puuid -> team map
+                team_map = {
+                    p["puuid"]: p.get("team", "").lower()
+                    for p in all_p
+                    if isinstance(p, dict)
+                }
+                player_team = team_map.get(puuid, "")
+                if not player_team:
                     continue
-                player_team = (player.get("team_id") or player.get("team", "")).lower()
-                for rnd in rounds:
-                    rnd_kills = rnd.get("kills", [])
+
+                # Group top-level kills by round number
+                all_kills = match.get("kills", [])
+                kills_by_round: dict[int, list] = {}
+                for k in all_kills:
+                    kills_by_round.setdefault(k.get("round", 0), []).append(k)
+
+                for rnd_idx, rnd in enumerate(rounds):
                     rnd_winner = rnd.get("winning_team", "").lower()
-                    if (
-                        rnd_kills
-                        and rnd_kills[0].get("killer", {}).get("puuid") == puuid
-                    ):
+                    rnd_kills = sorted(
+                        kills_by_round.get(rnd_idx, []),
+                        key=lambda k: k.get("time_in_round_in_ms", 0),
+                    )
+
+                    # First blood
+                    if rnd_kills and rnd_kills[0].get("killer_puuid") == puuid:
                         first_bloods += 1
-                    player_stats_list = rnd.get("player_stats", [])
-                    if not player_stats_list:
-                        continue
-                    player_survived = False
-                    alive_teammates = []
-                    for ps in player_stats_list:
-                        ps_puuid = ps.get("player_puuid") or ps.get("puuid", "")
-                        ps_team = ""
-                        for p in all_p:
-                            if isinstance(p, dict) and p.get("puuid") == ps_puuid:
-                                ps_team = (
-                                    p.get("team_id") or p.get("team", "")
-                                ).lower()
-                                break
-                        survived = ps.get("survived", False)
-                        if ps_puuid == puuid:
-                            player_survived = survived
-                        elif ps_team == player_team and survived:
-                            alive_teammates.append(ps_puuid)
-                    if player_survived and len(alive_teammates) == 0:
+
+                    # Clutch — who is still alive at end of round?
+                    dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
+                    alive_teammates = [
+                        p.get("puuid")
+                        for p in all_p
+                        if isinstance(p, dict)
+                        and team_map.get(p.get("puuid", "")) == player_team
+                        and p.get("puuid") != puuid
+                        and p.get("puuid") not in dead_puuids
+                    ]
+                    player_alive = puuid not in dead_puuids
+
+                    if player_alive and len(alive_teammates) == 0:
                         clutch_opps += 1
                         if rnd_winner == player_team:
                             clutch_wins += 1
+
             clutch_pct = (
                 round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
             )
@@ -793,7 +802,7 @@ class RRTracker(commands.Cog):
                 )
                 if not player:
                     continue
-                casts = player.get("ability_casts", {})
+                casts = player.get("ability_casts") or {}
                 total_c += casts.get("c_cast", 0)
                 total_q += casts.get("q_cast", 0)
                 total_e += casts.get("e_cast", 0)
@@ -803,22 +812,22 @@ class RRTracker(commands.Cog):
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(
-                name="C (Signature)",
+                name="C Cast",
                 value=f"**{round(total_c/g,1)}/g**\n{total_c} total",
                 inline=True,
             )
             embed.add_field(
-                name="Q (Basic)",
+                name="Q Cast",
                 value=f"**{round(total_q/g,1)}/g**\n{total_q} total",
                 inline=True,
             )
             embed.add_field(
-                name="E (Signature)",
+                name="E Cast",
                 value=f"**{round(total_e/g,1)}/g**\n{total_e} total",
                 inline=True,
             )
             embed.add_field(
-                name="X (Ultimate)",
+                name="X Cast",
                 value=f"**{round(total_x/g,1)}/g**\n{total_x} total",
                 inline=True,
             )
@@ -831,7 +840,7 @@ class RRTracker(commands.Cog):
         elif detail == "behaviour":
             full_matches = await self._get_full_matches(matches)
             total_afk = total_spawn = ff_out = ff_in = 0
-            for match in full_matches:
+            for match_idx, match in enumerate(full_matches):
                 raw = match.get("players", [])
                 all_p = raw if isinstance(raw, list) else raw.get("all_players", [])
                 player = next(
@@ -843,11 +852,19 @@ class RRTracker(commands.Cog):
                     None,
                 )
                 if not player:
+                    print(
+                        f"[Val Tracker] Behaviour: player not found in match {match_idx}"
+                    )
                     continue
-                beh = player.get("behavior", {})
+                beh = player.get("behavior") or {}
+                if match_idx == 0:
+                    print(f"[Val Tracker] Behaviour keys: {list(beh.keys())}")
+                    print(f"[Val Tracker] Behaviour data: {beh}")
                 total_afk += beh.get("afk_rounds", 0)
                 total_spawn += beh.get("rounds_in_spawn", 0)
-                ff = beh.get("friendly_fire", {})
+                ff = beh.get("friendly_fire") or {}
+                if match_idx == 0:
+                    print(f"[Val Tracker] FF data: {ff}")
                 ff_out += ff.get("outgoing", 0)
                 ff_in += ff.get("incoming", 0)
             g = max(games_counted, 1)
@@ -1340,6 +1357,8 @@ class RRTracker(commands.Cog):
                     )
                     matches_fetched[match_id] = match_data
                     await asyncio.sleep(1)
+                    # Also fetch and cache full match data (includes rounds/behavior/ability_casts)
+                    await self._cache_full_match(match_id)
                 match_data = matches_fetched[match_id]
 
                 # Get all puuids in this match
