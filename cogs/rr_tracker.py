@@ -1632,14 +1632,31 @@ class RRTracker(commands.Cog):
         map_name = "Unknown"
 
         val_region = account.get("val_region", "eu")
+        puuid_acc = account.get("puuid", "")
 
-        # Only fetch MMR history for rr_change if it wasn't passed from detection
-        # (match-scan accounts don't have rr_change from history)
+        # Try to read rr_change from match data player object (most reliable)
+        if rr_change == 0 and latest:
+            raw_p = latest.get("players", [])
+            all_p_m = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
+            player_entry = next(
+                (
+                    p
+                    for p in all_p_m
+                    if isinstance(p, dict) and p.get("puuid") == puuid_acc
+                ),
+                None,
+            )
+            if player_entry:
+                rr_change = player_entry.get("mmr_change_to_last_game", 0) or 0
+                print(
+                    f"[Val Tracker] RR change from match data for {name}#{tag}: {rr_change:+d}"
+                )
+
+        # Fallback: fetch MMR history if still 0
         if rr_change == 0:
             print(f"[Val Tracker] Fetching MMR history for {name}#{tag}...")
             history = await self._get_mmr_history(name, tag, val_region)
             if history:
-                # Find entry matching this match_id — if not found skip (avoid wrong game)
                 entry = next(
                     (e for e in history if e.get("match_id") == match_id), None
                 )
