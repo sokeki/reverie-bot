@@ -1173,13 +1173,25 @@ class RRTracker(commands.Cog):
     @tasks.loop(minutes=1)
     async def daily_summary_task(self):
         now = datetime.now(timezone.utc)
-        if now.hour != 0 or now.minute != 0:
+        if now.hour != 5 or now.minute > 4:
             return
+        today = now.strftime("%Y-%m-%d")
+        print(
+            f"[Daily Summary] Midnight window hit at {now.strftime('%H:%M')} UTC — date: {today}"
+        )
+        if getattr(self, "_last_summary_date", None) == today:
+            print(f"[Daily Summary] Already posted for {today}, skipping")
+            return
+        self._last_summary_date = today
         for guild in self.bot.guilds:
             try:
+                print(f"[Daily Summary] Posting for guild: {guild.name}")
                 await self._post_daily_summary(guild)
-            except Exception:
-                pass
+            except Exception as e:
+                import traceback
+
+                print(f"[Daily Summary] Error for guild {guild.name}: {e}")
+                traceback.print_exc()
 
     async def _post_daily_summary(self, guild: discord.Guild):
         settings = await self.bot.settings_col.find_one({"guild_id": guild.id})
