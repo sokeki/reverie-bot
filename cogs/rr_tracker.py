@@ -1496,6 +1496,11 @@ class RRTracker(commands.Cog):
                     f"[Val Tracker] Match scan: {len(all_puuids_in_match)} players, {len(accounts)} registered accounts"
                 )
 
+                # Puuids directly detected in phase 1 for this match
+                detected_puuids = {
+                    a.get("puuid", "") for a, mid, *_ in new_games if mid == match_id
+                }
+
                 # Single pass: find registered accounts in match, update DB, collect to post
                 accounts_to_post = []
                 for account in accounts:
@@ -1507,7 +1512,9 @@ class RRTracker(commands.Cog):
                         continue
                     if post_key in self._recently_posted:
                         continue
-                    if last_id == match_id:
+                    # Skip if already has this match — unless it was directly detected
+                    # (directly detected accounts have last_match_id already updated in memory)
+                    if last_id == match_id and puuid not in detected_puuids:
                         continue
 
                     self._recently_posted.add(post_key)
@@ -1523,17 +1530,13 @@ class RRTracker(commands.Cog):
                             }
                         },
                     )
-                    account["last_match_id"] = (
-                        match_id  # update in-memory to prevent re-detection
-                    )
-                    account["last_game_start"] = (
-                        match_game_start  # update so older games are filtered out
-                    )
+                    account["last_match_id"] = match_id
+                    account["last_game_start"] = match_game_start
 
-                    if last_id is None:
-                        continue  # first time baseline
+                    if last_id is None and puuid not in detected_puuids:
+                        continue  # first time baseline, not directly detected
 
-                    if account not in [a for a, *_ in new_games]:
+                    if puuid not in detected_puuids:
                         print(
                             f"[Val Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
                         )
@@ -1628,31 +1631,31 @@ class RRTracker(commands.Cog):
         tag = account["val_tag"]
         map_name = "Unknown"
 
-        # Fetch MMR history to get the correct rr_change for this specific match
-        # Also gives current rank/rr as a fallback
+        # Fetch MMR history for rr_change of this specific match
+        # Fetch live MMR for accurate current rank display
         val_region = account.get("val_region", "eu")
         print(f"[Val Tracker] Fetching MMR history for {name}#{tag}...")
         history = await self._get_mmr_history(name, tag, val_region)
         if history:
-            # Find the entry for this specific match
             entry = next(
                 (e for e in history if e.get("match_id") == match_id), history[0]
             )
             rr_change = entry.get("mmr_change_to_last_game", rr_change)
-            rr = entry.get("ranking_in_tier", rr)
-            tier_name = (
-                entry.get("currenttier_patched", tier_from_history)
-                or tier_from_history
-                or "Unrated"
-            )
             print(
-                f"[Val Tracker] MMR history OK for {name}#{tag}: {tier_name} {rr}RR ({rr_change:+d})"
+                f"[Val Tracker] MMR history OK for {name}#{tag}: rr_change={rr_change:+d}"
             )
         else:
+            print(f"[Val Tracker] MMR history failed for {name}#{tag}")
+
+        # Live MMR for current tier/rr display
+        mmr = await self._get_mmr(name, tag, val_region)
+        if mmr and mmr != "rate_limited":
+            tier_name = mmr["current"]["tier"]["name"]
+            rr = mmr["current"]["rr"]
+            print(f"[Val Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
+        else:
             tier_name = tier_from_history or "Unrated"
-            print(
-                f"[Val Tracker] MMR history failed for {name}#{tag}, using passed values"
-            )
+            print(f"[Val Tracker] MMR failed for {name}#{tag}, using history fallback")
 
         # Use pre-fetched match data if available
         if latest is None:
