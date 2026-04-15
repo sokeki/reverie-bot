@@ -1173,7 +1173,7 @@ class RRTracker(commands.Cog):
     @tasks.loop(minutes=1)
     async def daily_summary_task(self):
         now = datetime.now(timezone.utc)
-        if now.hour != 5 or now.minute > 4:
+        if now.hour != 5 or now.minute > 9:
             return
         today = now.strftime("%Y-%m-%d")
         print(
@@ -1214,7 +1214,8 @@ class RRTracker(commands.Cog):
         # Group by player
         by_player: dict[str, list] = {}
         for g in games:
-            by_player.setdefault(g["puuid"], []).append(g)
+            key = g.get("puuid") or g.get("discord_id") or g.get("val_name", "?")
+            by_player.setdefault(key, []).append(g)
 
         lines = []
         for discord_id, player_games in sorted(
