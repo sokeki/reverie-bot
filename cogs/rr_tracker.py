@@ -1631,23 +1631,30 @@ class RRTracker(commands.Cog):
         tag = account["val_tag"]
         map_name = "Unknown"
 
-        # Fetch MMR history for rr_change of this specific match
-        # Fetch live MMR for accurate current rank display
         val_region = account.get("val_region", "eu")
-        print(f"[Val Tracker] Fetching MMR history for {name}#{tag}...")
-        history = await self._get_mmr_history(name, tag, val_region)
-        if history:
-            entry = next(
-                (e for e in history if e.get("match_id") == match_id), history[0]
-            )
-            rr_change = entry.get("mmr_change_to_last_game", rr_change)
-            print(
-                f"[Val Tracker] MMR history OK for {name}#{tag}: rr_change={rr_change:+d}"
-            )
-        else:
-            print(f"[Val Tracker] MMR history failed for {name}#{tag}")
+
+        # Only fetch MMR history for rr_change if it wasn't passed from detection
+        # (match-scan accounts don't have rr_change from history)
+        if rr_change == 0:
+            print(f"[Val Tracker] Fetching MMR history for {name}#{tag}...")
+            history = await self._get_mmr_history(name, tag, val_region)
+            if history:
+                # Find entry matching this match_id — if not found skip (avoid wrong game)
+                entry = next(
+                    (e for e in history if e.get("match_id") == match_id), None
+                )
+                if entry:
+                    rr_change = entry.get("mmr_change_to_last_game", 0)
+                    print(
+                        f"[Val Tracker] MMR history OK for {name}#{tag}: rr_change={rr_change:+d}"
+                    )
+                else:
+                    print(
+                        f"[Val Tracker] MMR history: match not found for {name}#{tag}, rr_change unknown"
+                    )
 
         # Live MMR for current tier/rr display
+        print(f"[Val Tracker] Fetching MMR for {name}#{tag}...")
         mmr = await self._get_mmr(name, tag, val_region)
         if mmr and mmr != "rate_limited":
             tier_name = mmr["current"]["tier"]["name"]
