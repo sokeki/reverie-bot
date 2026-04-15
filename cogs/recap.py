@@ -330,7 +330,7 @@ class Recap(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text=f"Week of {last_week}  -  Reverie  -  {guild.name}")
+        embed.set_footer(text=f"Week of {last_week}  •  Reverie  •  {guild.name}")
 
         await channel.send(embed=embed)
 

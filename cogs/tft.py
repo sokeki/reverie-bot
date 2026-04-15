@@ -17,6 +17,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from config import COLOUR_MAIN, COLOUR_LB
+
 RIOT_API_KEY = os.getenv("RIOT_API_KEY", "")
 
 TIER_ORDER = {
@@ -162,10 +164,10 @@ class TFTTracker(commands.Cog):
     # ── /tftlist ──────────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="tftlist",
+        name="tftleaderboard",
         description="Show the TFT LP leaderboard for all tracked accounts",
     )
-    async def tftlist(self, interaction: discord.Interaction):
+    async def tftleaderboard(self, interaction: discord.Interaction):
         accounts = await self.bot.riot_accounts_col.find(
             {"guild_id": interaction.guild_id}
         ).to_list(length=100)
@@ -210,7 +212,7 @@ class TFTTracker(commands.Cog):
 
         rows.sort(key=lambda r: r["lp"], reverse=True)
         medals = {0: "🥇", 1: "🥈", 2: "🥉"}
-        embed = discord.Embed(title="🎮 TFT LP Leaderboard", color=0x00B4D8)
+        embed = discord.Embed(title="🎮 TFT LP Leaderboard", color=COLOUR_LB)
         for i, row in enumerate(rows):
             medal = medals.get(i, f"`#{i+1}`")
             embed.add_field(
@@ -218,7 +220,7 @@ class TFTTracker(commands.Cog):
                 value=row["rank"],
                 inline=False,
             )
-        embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
     # ── /tftstats ─────────────────────────────────────────────────────────────
@@ -266,7 +268,7 @@ class TFTTracker(commands.Cog):
             )
             return
 
-        embed = discord.Embed(title=f"{name}#{tag}  -  TFT Stats", color=0x00B4D8)
+        embed = discord.Embed(title=f"{name}#{tag}  -  TFT Stats", color=COLOUR_MAIN)
         for e in entries:
             queue = (
                 e.get("queueType", "").replace("_", " ").title().replace("Tft", "TFT")
@@ -282,7 +284,7 @@ class TFTTracker(commands.Cog):
                 value=f"**{tier} {div} {lp}LP** - {wins}W {losses}L ({wr}%)",
                 inline=False,
             )
-        embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
         # ── Poll task ─────────────────────────────────────────────────────────────
@@ -368,7 +370,7 @@ class TFTTracker(commands.Cog):
         embed.add_field(name="Rank", value=f"**{rank_str}**", inline=True)
         embed.add_field(name="Change", value=f"**{_lp_arrow(lp_diff)}**", inline=True)
         embed.add_field(name="Placement", value="*updating...*", inline=True)
-        embed.set_footer(text=f"Reverie  -  {channel.guild.name}")
+        embed.set_footer(text=f"Reverie  •  {channel.guild.name}")
 
         msg = await channel.send(embed=embed)
 

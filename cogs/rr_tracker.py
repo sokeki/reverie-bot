@@ -168,7 +168,7 @@ class RRTracker(commands.Cog):
         try:
             async with session.get(url) as resp:
                 if resp.status == 429:
-                    print(f"[RR Tracker] Rate limited on MMR for {name}#{tag}")
+                    print(f"[Val Tracker] Rate limited on MMR for {name}#{tag}")
                     return None
                 if resp.status != 200:
                     return None
@@ -185,18 +185,18 @@ class RRTracker(commands.Cog):
         try:
             async with session.get(url) as resp:
                 if resp.status == 429:
-                    print(f"[RR Tracker] Rate limited on matches for {name}#{tag}")
+                    print(f"[Val Tracker] Rate limited on matches for {name}#{tag}")
                     return []
                 if resp.status != 200:
                     text = await resp.text()
                     print(
-                        f"[RR Tracker] Matches API {resp.status} for {name}#{tag}: {text[:200]}"
+                        f"[Val Tracker] Matches API {resp.status} for {name}#{tag}: {text[:200]}"
                     )
                     return []
                 data = await resp.json()
                 return data.get("data", [])
         except Exception as e:
-            print(f"[RR Tracker] Matches request failed for {name}#{tag}: {e}")
+            print(f"[Val Tracker] Matches request failed for {name}#{tag}: {e}")
             return []
 
     async def _get_mmr_history(self, name: str, tag: str, region: str = "eu") -> list:
@@ -373,12 +373,12 @@ class RRTracker(commands.Cog):
     # ── /setrrchannel ─────────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="setrrchannel",
-        description="[Admin] Set the channel for RR tracking updates",
+        name="setvalchannel",
+        description="[Admin] Set the channel for Valorant RR tracking updates",
     )
     @app_commands.describe(channel="Channel to post RR updates in")
     @app_commands.default_permissions(administrator=True)
-    async def setrrchannel(
+    async def setvalchannel(
         self, interaction: discord.Interaction, channel: discord.TextChannel
     ):
         await self.bot.settings_col.update_one(
@@ -393,10 +393,10 @@ class RRTracker(commands.Cog):
     # ── /rrleaderboard ───────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="rrleaderboard",
-        description="See the RR leaderboard for registered players",
+        name="valleaderboard",
+        description="See the Valorant RR leaderboard for registered players",
     )
-    async def rrleaderboard(self, interaction: discord.Interaction):
+    async def valleaderboard(self, interaction: discord.Interaction):
         accounts = await self.bot.riot_accounts_col.find(
             {"guild_id": interaction.guild_id}
         ).to_list(length=100)
@@ -450,17 +450,18 @@ class RRTracker(commands.Cog):
             description="\n".join(lines),
             color=COLOUR_LB,
         )
-        embed.set_footer(text=f"Reverie  -  {interaction.guild.name}")
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
     # ── /rrtrackertest ───────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="rrtrackertest", description="[Admin] Test the API for a specific account"
+        name="valtrackertest",
+        description="[Admin] Test the Valorant API for a specific account",
     )
     @app_commands.describe(username="Valorant username e.g. Name#TAG")
     @app_commands.default_permissions(administrator=True)
-    async def rrtrackertest(self, interaction: discord.Interaction, username: str):
+    async def valtrackertest(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer(ephemeral=True)
         if "#" not in username:
             await interaction.followup.send(
@@ -487,10 +488,11 @@ class RRTracker(commands.Cog):
     # ── /rrtrackerstatus ─────────────────────────────────────────────────────
 
     @app_commands.command(
-        name="rrtrackerstatus", description="[Admin] Check if the RR tracker is running"
+        name="valtrackerstatus",
+        description="[Admin] Check if the Valorant tracker is running",
     )
     @app_commands.default_permissions(administrator=True)
-    async def rrtrackerstatus(self, interaction: discord.Interaction):
+    async def valtrackerstatus(self, interaction: discord.Interaction):
         accounts = await self.bot.riot_accounts_col.find(
             {"guild_id": interaction.guild_id}
         ).to_list(length=100)
@@ -513,6 +515,62 @@ class RRTracker(commands.Cog):
                 )
 
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    # ── /valstats ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="valstats", description="Show Valorant ranked stats for any player"
+    )
+    @app_commands.describe(
+        username="Riot ID including tag, e.g. Name#EUW",
+        region="Server region",
+    )
+    @app_commands.choices(
+        region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP]
+    )
+    async def valstats(
+        self, interaction: discord.Interaction, username: str, region: str = "EUW"
+    ):
+        if "#" not in username:
+            await interaction.response.send_message(
+                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
+            )
+            return
+
+        name, tag = username.split("#", 1)
+        val_region = VAL_REGION_MAP[region]
+        await interaction.response.defer()
+
+        mmr = await self._get_mmr(name, tag, val_region)
+        if not mmr:
+            await interaction.followup.send(
+                f"⚠️ Couldn't find **{username}** on **{region}**."
+            )
+            return
+
+        current = mmr.get("current", {})
+        tier = current.get("tier", {}).get("name", "Unrated")
+        rr = current.get("rr", 0)
+        elo = current.get("elo", 0)
+        wins = mmr.get("wins", 0) or current.get("wins", 0)
+        losses = mmr.get("losses", 0) or current.get("losses", 0)
+        wr = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0
+        peak = mmr.get("peak", {})
+        peak_str = (
+            f"{peak.get('tier', {}).get('name', '?')} {peak.get('season', '')}"
+            if peak
+            else "?"
+        )
+
+        embed = discord.Embed(
+            title=f"{name}#{tag}  -  Valorant Stats",
+            color=_tier_colour(tier),
+        )
+        embed.add_field(name="Rank", value=f"**{tier}** {rr} RR", inline=True)
+        embed.add_field(name="W/L", value=f"**{wins}W {losses}L** ({wr}%)", inline=True)
+        embed.add_field(name="Peak", value=f"**{peak_str}**", inline=True)
+        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
+        await interaction.followup.send(embed=embed)
 
     # ── /footshot ─────────────────────────────────────────────────────────────
 
@@ -630,7 +688,7 @@ class RRTracker(commands.Cog):
         embed.add_field(name="Body %", value=f"**{bs_pct}%**", inline=True)
         embed.add_field(name="Leg %", value=f"**{ls_pct}%**", inline=True)
         embed.set_footer(
-            text=f"Last {games_counted} games  -  Reverie  -  {interaction.guild.name}"
+            text=f"Last {games_counted} games  •  Reverie  •  {interaction.guild.name}"
         )
         await interaction.followup.send(embed=embed)
 
@@ -786,7 +844,7 @@ class RRTracker(commands.Cog):
             won = score == max(team_scores.values()) if team_scores else False
             label = f"Team {team_id}  -  {score} rounds"
             embed.add_field(name=label, value=build_table(players), inline=False)
-        embed.set_footer(text=f"Reverie  -  {guild.name}")
+        embed.set_footer(text=f"Reverie  •  {guild.name}")
         return embed
 
     # ── r!scoreboard prefix command ───────────────────────────────────────────
@@ -806,7 +864,7 @@ class RRTracker(commands.Cog):
                 for embed in ref_msg.embeds:
                     if embed.footer and embed.footer.text:
                         # Footer format: "match_id  -  Reverie  -  guild"
-                        parts = embed.footer.text.split("  -  ")
+                        parts = embed.footer.text.split("  •  ")
                         if parts and len(parts[0]) > 30:  # UUID length check
                             match_id = parts[0].strip()
                             break
@@ -860,7 +918,7 @@ class RRTracker(commands.Cog):
                         new_games.append((account, new_game))
                 except Exception as e:
                     print(
-                        f"[RR Tracker] Error polling {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                        f"[Val Tracker] Error polling {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
                 await asyncio.sleep(1)
 
@@ -899,7 +957,7 @@ class RRTracker(commands.Cog):
                         p.get("puuid") for p in all_players if isinstance(p, dict)
                     }
                 print(
-                    f"[RR Tracker] Match scan: {len(all_puuids_in_match)} players, {len(accounts)} registered accounts"
+                    f"[Val Tracker] Match scan: {len(all_puuids_in_match)} players, {len(accounts)} registered accounts"
                 )
 
                 # Single pass: find registered accounts in match, update DB, collect to post
@@ -930,7 +988,7 @@ class RRTracker(commands.Cog):
 
                     if account not in [a for a, _ in new_games]:
                         print(
-                            f"[RR Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
+                            f"[Val Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
                         )
                     accounts_to_post.append(account)
 
@@ -943,7 +1001,7 @@ class RRTracker(commands.Cog):
                         import traceback
 
                         print(
-                            f"[RR Tracker] Error posting {account.get('val_name')}#{account.get('val_tag')}: {e}"
+                            f"[Val Tracker] Error posting {account.get('val_name')}#{account.get('val_tag')}: {e}"
                         )
                         traceback.print_exc()
                     await asyncio.sleep(2)
@@ -977,10 +1035,10 @@ class RRTracker(commands.Cog):
         )
 
         if last_id is None:
-            print(f"[RR Tracker] First match ID stored for {name}#{tag}: {match_id}")
+            print(f"[Val Tracker] First match ID stored for {name}#{tag}: {match_id}")
             return None
 
-        print(f"[RR Tracker] New game detected for {name}#{tag}: {match_id}")
+        print(f"[Val Tracker] New game detected for {name}#{tag}: {match_id}")
         return match_id
 
     async def _post_new_game(
@@ -999,27 +1057,27 @@ class RRTracker(commands.Cog):
         rr_change = 0
         map_name = "Unknown"
 
-        print(f"[RR Tracker] Fetching MMR for {name}#{tag}...")
+        print(f"[Val Tracker] Fetching MMR for {name}#{tag}...")
         mmr = await self._get_mmr(name, tag, account.get("val_region", "eu"))
         if mmr:
             tier_name = mmr["current"]["tier"]["name"]
             rr = mmr["current"]["rr"]
             rr_change = mmr["current"].get("last_change", rr_change)
-            print(f"[RR Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
+            print(f"[Val Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
         else:
             tier_name = "Unrated"
             rr = 0
-            print(f"[RR Tracker] MMR failed for {name}#{tag}")
+            print(f"[Val Tracker] MMR failed for {name}#{tag}")
 
         # Use pre-fetched match data if available
         if latest is None:
-            print(f"[RR Tracker] Fetching match details for {name}#{tag}...")
+            print(f"[Val Tracker] Fetching match details for {name}#{tag}...")
             await asyncio.sleep(1)
             latest = await self._get_match_details(
                 name, tag, account.get("val_region", "eu")
             )
             print(
-                f"[RR Tracker] Match details {'OK' if latest else 'FAILED'} for {name}#{tag}"
+                f"[Val Tracker] Match details {'OK' if latest else 'FAILED'} for {name}#{tag}"
             )
         kills = deaths = assists = 0
         hs_pct = 0
@@ -1128,7 +1186,7 @@ class RRTracker(commands.Cog):
         embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
         if agent_icon_url:
             embed.set_thumbnail(url=agent_icon_url)
-        embed.set_footer(text=f"{match_id}  -  Reverie  -  {guild.name}")
+        embed.set_footer(text=f"{match_id}  •  Reverie  •  {guild.name}")
 
         await channel.send(embed=embed)
 

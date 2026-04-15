@@ -504,7 +504,7 @@ class Anonymous(commands.Cog):
                     value=winner.mention,
                     inline=True,
                 )
-            embed.set_footer(text=f"Correctly guessed - Reverie - {guild.name}")
+            embed.set_footer(text=f"Correctly guessed  •  Reverie  •  {guild.name}")
         else:
             total_wrong = round_doc["wrong_count"]
             embed.add_field(
@@ -512,7 +512,7 @@ class Anonymous(commands.Cog):
                 value=f"*{total_wrong} wrong guess{'es' if total_wrong != 1 else ''} - identity remains a secret*",
                 inline=False,
             )
-            embed.set_footer(text=f"Round closed - Reverie - {guild.name}")
+            embed.set_footer(text=f"Round closed  •  Reverie  •  {guild.name}")
 
         await msg.edit(embed=embed, view=None)
 
