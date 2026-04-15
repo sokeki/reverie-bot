@@ -740,6 +740,9 @@ class RRTracker(commands.Cog):
                 .limit(20)
                 .to_list(length=20)
             )
+            print(
+                f"[Val Tracker] Cache query for puuid={puuid[:8] if puuid else None}: {len(cached_docs)} docs found"
+            )
             # Fallback: if the query returns nothing (v3 format stores players differently)
             # just use the fresh matches
             if cached_docs:
