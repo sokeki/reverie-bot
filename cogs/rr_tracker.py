@@ -1437,7 +1437,15 @@ class RRTracker(commands.Cog):
                 try:
                     new_game = await self._detect_new_game(account)
                     if new_game:
-                        new_games.append((account, new_game))
+                        new_games.append(
+                            (
+                                account,
+                                new_game[0],
+                                new_game[1],
+                                new_game[2],
+                                new_game[3],
+                            )
+                        )
                 except Exception as e:
                     print(
                         f"[Val Tracker] Error polling {account.get('val_name')}#{account.get('val_tag')}: {e}"
@@ -1451,7 +1459,7 @@ class RRTracker(commands.Cog):
             # Then find all registered accounts in that match and post for each
             matches_fetched: dict[str, dict] = {}
             by_match: dict[str, list[dict]] = {}
-            for account, match_id in new_games:
+            for account, match_id, *_ in new_games:
                 by_match.setdefault(match_id, []).append(account)
 
             for match_id, detected_accounts in by_match.items():
@@ -1506,20 +1514,37 @@ class RRTracker(commands.Cog):
                         {"_id": account["_id"]},
                         {"$set": {"last_match_id": match_id}},
                     )
+                    account["last_match_id"] = (
+                        match_id  # update in-memory to prevent re-detection
+                    )
 
                     if last_id is None:
                         continue  # first time baseline
 
-                    if account not in [a for a, _ in new_games]:
+                    if account not in [a for a, *_ in new_games]:
                         print(
                             f"[Val Tracker] Found in match: {account.get('val_name')}#{account.get('val_tag')}: {match_id}"
                         )
                     accounts_to_post.append(account)
 
+                # Build lookup of rr data from new_games detections
+                rr_data = {
+                    a.get("puuid", ""): (rc, r, t)
+                    for a, mid, rc, r, t in new_games
+                    if mid == match_id
+                }
                 for account in accounts_to_post:
                     try:
+                        rc, r, t = rr_data.get(account.get("puuid", ""), (0, 0, ""))
                         await self._post_new_game(
-                            account, match_id, channel, guild, match_data
+                            account,
+                            match_id,
+                            channel,
+                            guild,
+                            match_data,
+                            rr_change=rc,
+                            rr=r,
+                            tier_from_history=t,
                         )
                     except Exception as e:
                         import traceback
@@ -1530,8 +1555,8 @@ class RRTracker(commands.Cog):
                         traceback.print_exc()
                     await asyncio.sleep(2)
 
-    async def _detect_new_game(self, account: dict) -> str | None:
-        """Lightweight check - returns match_id if a new game is found, else None."""
+    async def _detect_new_game(self, account: dict) -> tuple | None:
+        """Lightweight check - returns (match_id, rr_change, rr, tier) if new game found, else None."""
         name = account["val_name"]
         tag = account["val_tag"]
 
@@ -1552,18 +1577,28 @@ class RRTracker(commands.Cog):
         if game_start and last_start and game_start < last_start:
             return None
 
-        # Update stored match ID and game_start
+        # Update stored match ID and game_start — also update in-memory dict so
+        # the match scan loop sees the updated last_match_id and won't double-post
         await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
             {"$set": {"last_match_id": match_id, "last_game_start": game_start}},
         )
+        account["last_match_id"] = match_id
+        account["last_game_start"] = game_start
 
         if last_id is None:
             print(f"[Val Tracker] First match ID stored for {name}#{tag}: {match_id}")
             return None
 
-        print(f"[Val Tracker] New game detected for {name}#{tag}: {match_id}")
-        return match_id
+        # Extract RR data from history entry to avoid a separate MMR API call
+        rr_change = latest_entry.get("mmr_change_to_last_game", 0)
+        rr = latest_entry.get("ranking_in_tier", 0)
+        tier = latest_entry.get("currenttier_patched", "")
+
+        print(
+            f"[Val Tracker] New game detected for {name}#{tag}: {match_id} ({rr_change:+d}RR)"
+        )
+        return (match_id, rr_change, rr, tier)
 
     async def _post_new_game(
         self,
@@ -1572,26 +1607,25 @@ class RRTracker(commands.Cog):
         channel: discord.TextChannel,
         guild: discord.Guild,
         latest: dict = None,
+        rr_change: int = 0,
+        rr: int = 0,
+        tier_from_history: str = "",
     ):
-        """Heavy lifting - fetch MMR and build and send embed. Match data passed in to avoid re-fetching."""
+        """Heavy lifting - build and send embed using RR data from history entry."""
         name = account["val_name"]
         tag = account["val_tag"]
-
-        # Fetch live MMR for accurate rank, RR and last_change
-        rr_change = 0
         map_name = "Unknown"
 
+        # Use live MMR for current rank display, but fall back to history values
         print(f"[Val Tracker] Fetching MMR for {name}#{tag}...")
         mmr = await self._get_mmr(name, tag, account.get("val_region", "eu"))
-        if mmr:
+        if mmr and mmr != "rate_limited":
             tier_name = mmr["current"]["tier"]["name"]
             rr = mmr["current"]["rr"]
-            rr_change = mmr["current"].get("last_change", rr_change)
             print(f"[Val Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
         else:
-            tier_name = "Unrated"
-            rr = 0
-            print(f"[Val Tracker] MMR failed for {name}#{tag}")
+            tier_name = tier_from_history or "Unrated"
+            print(f"[Val Tracker] MMR failed for {name}#{tag}, using history values")
 
         # Use pre-fetched match data if available
         if latest is None:
