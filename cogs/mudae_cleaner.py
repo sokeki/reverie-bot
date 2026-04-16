@@ -72,6 +72,7 @@ def _format_delay(seconds: int) -> str:
 class MudaeCleaner(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._scheduled: set[int] = set()
 
     async def cog_load(self):
         self.process_pending.start()
@@ -92,6 +93,7 @@ class MudaeCleaner(commands.Cog):
                 "delete_at": delete_at,
             }
         )
+        self._scheduled.add(message.id)
         asyncio.create_task(self._delete_after(message.id, message.channel.id, delay))
 
     async def _delete_after(self, message_id: int, channel_id: int, delay: int):
@@ -109,6 +111,7 @@ class MudaeCleaner(commands.Cog):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
         finally:
+            self._scheduled.discard(message_id)
             await self.bot.mudae_deletions_col.delete_one({"message_id": message_id})
 
     # ── Startup: process overdue + re-schedule future pending deletions ────────
@@ -122,19 +125,24 @@ class MudaeCleaner(commands.Cog):
             {"delete_at": {"$lte": now}}
         ).to_list(length=1000)
         for doc in overdue:
-            asyncio.create_task(
-                self._execute_deletion(doc["message_id"], doc["channel_id"])
-            )
+            if doc["message_id"] not in self._scheduled:
+                self._scheduled.add(doc["message_id"])
+                asyncio.create_task(
+                    self._execute_deletion(doc["message_id"], doc["channel_id"])
+                )
 
         # Re-schedule future deletions (handles restart recovery)
         future = await self.bot.mudae_deletions_col.find(
             {"delete_at": {"$gt": now}}
         ).to_list(length=1000)
         for doc in future:
+            if doc["message_id"] in self._scheduled:
+                continue  # already has an active task
             delete_at = doc["delete_at"]
             if delete_at.tzinfo is None:
                 delete_at = delete_at.replace(tzinfo=timezone.utc)
             delay = max(0, int((delete_at - now).total_seconds()))
+            self._scheduled.add(doc["message_id"])
             asyncio.create_task(
                 self._delete_after(doc["message_id"], doc["channel_id"], delay)
             )
