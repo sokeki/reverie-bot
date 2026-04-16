@@ -220,11 +220,16 @@ class RRTracker(commands.Cog):
         url = f"{API_BASE}/valorant/v1/mmr-history/{region}/{quote(name)}/{quote(tag)}"
         try:
             async with session.get(url) as resp:
+                if resp.status == 429:
+                    print(f"[Val Tracker] Rate limited on MMR history for {name}#{tag}")
+                    return []
                 if resp.status != 200:
+                    print(f"[Val Tracker] MMR history {resp.status} for {name}#{tag}")
                     return []
                 data = await resp.json()
                 return data.get("data", [])
-        except Exception:
+        except Exception as e:
+            print(f"[Val Tracker] MMR history error for {name}#{tag}: {e}")
             return []
 
     async def _get_match_details(
@@ -1720,8 +1725,11 @@ class RRTracker(commands.Cog):
                         f"[Val Tracker] MMR history OK for {name}#{tag}: rr_change={rr_change:+d}"
                     )
                 else:
+                    top_id = (
+                        history[0].get("match_id", "?") if history else "no history"
+                    )
                     print(
-                        f"[Val Tracker] MMR history: match not found for {name}#{tag}, rr_change unknown"
+                        f"[Val Tracker] MMR history: match not found for {name}#{tag} (looking for {match_id[:8]}..., history[0]={top_id[:8] if len(top_id) > 8 else top_id})"
                     )
 
         # Live MMR for current tier/rr display
