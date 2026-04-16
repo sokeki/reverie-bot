@@ -153,7 +153,7 @@ def _build_shop_embed(
             inline=False,
         )
     embed.set_footer(
-        text=f"Page {page + 1} of {total_pages}  •  /buy <item> to purchase  •  /rolepreview <item> for colour preview  •  Reverie"
+        text=f"Page {page + 1} of {total_pages}  •  /buy <item> to purchase  •  /rolepreview <item> for colour preview  •  Reverie  •  {guild.name}"
     )
     return embed
 
@@ -426,7 +426,7 @@ class Shop(commands.Cog):
             description="*choose which shop role to remove.*\n\nThis will consume one **Role Remover** from your inventory.",
             color=COLOUR_MAIN,
         )
-        embed.set_footer(text="This menu expires in 60 seconds  •  Reverie")
+        embed.set_footer(text=f"This menu expires in 60 seconds  •  Reverie  •  {interaction.guild.name}")
 
         view = RoleRemoverView(
             purchasable_roles, self.inv_col, role_item_names, remover["name"]
@@ -465,7 +465,7 @@ class Shop(commands.Cog):
                 lines.append(f"{label}  **{i['name']}**{active}")
             embed.description = "\n".join(lines)
             if any(i["type"] == "title" for i in inventory):
-                embed.set_footer(text="Use /settitle <n> to equip a title  •  Reverie")
+                embed.set_footer(text=f"Use /settitle <n> to equip a title  •  Reverie  •  {interaction.guild.name}")
             else:
                 embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
 
@@ -724,7 +724,7 @@ class Shop(commands.Cog):
             description=f"Your title is now **{title}**. It will show on your `/points` profile!",
             color=COLOUR_CONFIRM,
         )
-        embed.set_footer(text="Buy another Custom Title item to change it  •  Reverie")
+        embed.set_footer(text=f"Buy another Custom Title item to change it  •  Reverie  •  {interaction.guild.name}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /equip ───────────────────────────────────────────────────────────────

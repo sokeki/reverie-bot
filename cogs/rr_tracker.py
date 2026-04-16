@@ -838,7 +838,7 @@ class RRTracker(commands.Cog):
             )
             return
 
-        embed = discord.Embed(title=f"{name}#{tag}  -  Valorant Stats", color=colour)
+        embed = discord.Embed(title=f"{name}#{tag}  •  Valorant Stats", color=colour)
 
         if not detail:
             embed.add_field(name="Rank", value=f"**{tier}**\n{rr} RR", inline=True)
@@ -1254,7 +1254,7 @@ class RRTracker(commands.Cog):
         ls_pct = round(total_ls / grand_total * 100)
 
         embed = discord.Embed(
-            title=f"{name}#{tag}  -  Shot Accuracy",
+            title=f"{name}#{tag}  •  Shot Accuracy",
             color=COLOUR_MAIN,
         )
         embed.add_field(name="Headshot %", value=f"**{hs_pct}%**", inline=True)
@@ -1415,7 +1415,7 @@ class RRTracker(commands.Cog):
         for team_id, players in sorted(teams.items()):
             score = team_scores.get(team_id, "?")
             won = score == max(team_scores.values()) if team_scores else False
-            label = f"Team {team_id}  -  {score} rounds"
+            label = f"Team {team_id}  •  {score} rounds"
             embed.add_field(name=label, value=build_table(players), inline=False)
         embed.set_footer(text=f"Reverie  •  {guild.name}")
         return embed
@@ -1829,7 +1829,7 @@ class RRTracker(commands.Cog):
 
         tracker_url = f"https://tracker.gg/valorant/match/{match_id}"
         embed = discord.Embed(
-            title=f"{name}#{tag}  -  {result_str}",
+            title=f"{name}#{tag}  •  {result_str}",
             url=tracker_url,
             color=embed_colour,
         )

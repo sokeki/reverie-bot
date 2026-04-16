@@ -291,7 +291,7 @@ class Anonymous(commands.Cog):
         embed.add_field(name="Question", value=question, inline=False)
         embed.add_field(name="Answer", value=f"*{answer_text}*", inline=False)
         embed.set_footer(
-            text=f"Guess who answered  •  {timeout_hrs}h remaining  •  3 wrong guesses = answerer gets points"
+            text=f"Guess who answered  •  {timeout_hrs}h remaining  •  3 wrong guesses = answerer gets points  •  Reverie  •  {interaction.guild.name}"
         )
 
         # Save the round first to get the round_id

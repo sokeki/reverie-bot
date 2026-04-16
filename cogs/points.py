@@ -104,7 +104,7 @@ class Points(commands.Cog):
         embed.add_field(name="📅 Streak", value=streak_val, inline=True)
         if role_history_val:
             embed.add_field(
-                name="🎲  Role History", value=role_history_val, inline=True
+                name="🎲 Role History", value=role_history_val, inline=True
             )
             embed.add_field(name=_BLANK, value=_BLANK, inline=True)
         else:

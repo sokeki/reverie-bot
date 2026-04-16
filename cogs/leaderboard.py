@@ -100,7 +100,7 @@ class Leaderboard(commands.Cog):
             color=COLOUR_LB,
         )
         embed.set_footer(
-            text=f"Top {top} dreamers  •  /points to check yourself  •  Reverie"
+            text=f"Top {top} dreamers  •  /points to check yourself  •  Reverie  •  {interaction.guild.name}"
         )
         await interaction.response.send_message(embed=embed)
 

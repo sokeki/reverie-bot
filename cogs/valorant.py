@@ -100,7 +100,7 @@ class Valorant(commands.Cog):
             chosen = random.choice(AGENTS[role_name])
 
         embed = discord.Embed(
-            title=f"{ROLE_EMOJIS[role_name]}  {chosen}",
+            title=f"{ROLE_EMOJIS[role_name]} {chosen}",
             description=f"**Role:** {role_name}",
             color=ROLE_COLOURS[role_name],
         )
@@ -114,7 +114,7 @@ class Valorant(commands.Cog):
         role = random.choice(ALL_ROLES)
 
         embed = discord.Embed(
-            title=f"{ROLE_EMOJIS[role]}  {role}",
+            title=f"{ROLE_EMOJIS[role]} {role}",
             description="*your role for this round*",
             color=ROLE_COLOURS[role],
         )
