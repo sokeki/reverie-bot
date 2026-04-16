@@ -212,14 +212,15 @@ class TFTTracker(commands.Cog):
 
         rows.sort(key=lambda r: r["lp"], reverse=True)
         medals = {0: "🥇", 1: "🥈", 2: "🥉"}
-        embed = discord.Embed(title="🎮 TFT LP Leaderboard", color=COLOUR_LB)
+        lines = []
         for i, row in enumerate(rows):
             medal = medals.get(i, f"`#{i+1}`")
-            embed.add_field(
-                name=f"{medal} {row['name']}#{row['tag']}",
-                value=row["rank"],
-                inline=False,
-            )
+            lines.append(f"{medal} **{row['name']}#{row['tag']}** - {row['rank']}")
+        embed = discord.Embed(
+            title="🎮 TFT LP Leaderboard",
+            description="\n".join(lines),
+            color=COLOUR_LB,
+        )
         embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
