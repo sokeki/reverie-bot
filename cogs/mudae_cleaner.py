@@ -131,7 +131,10 @@ class MudaeCleaner(commands.Cog):
             {"delete_at": {"$gt": now}}
         ).to_list(length=1000)
         for doc in future:
-            delay = max(0, int((doc["delete_at"] - now).total_seconds()))
+            delete_at = doc["delete_at"]
+            if delete_at.tzinfo is None:
+                delete_at = delete_at.replace(tzinfo=timezone.utc)
+            delay = max(0, int((delete_at - now).total_seconds()))
             asyncio.create_task(
                 self._delete_after(doc["message_id"], doc["channel_id"], delay)
             )
