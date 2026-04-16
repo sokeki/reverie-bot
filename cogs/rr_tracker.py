@@ -1713,9 +1713,14 @@ class RRTracker(commands.Cog):
 
         # Fallback: fetch MMR history if still 0
         if rr_change == 0:
-            print(f"[Val Tracker] Fetching MMR history for {name}#{tag}...")
+            print(
+                f"[Val Tracker] Fetching MMR history for {name}#{tag} (looking for {match_id})..."
+            )
             history = await self._get_mmr_history(name, tag, val_region)
             if history:
+                print(
+                    f"[Val Tracker] History[0] match_id={history[0].get('match_id', '?')} for {name}#{tag}"
+                )
                 entry = next(
                     (e for e in history if e.get("match_id") == match_id), None
                 )
