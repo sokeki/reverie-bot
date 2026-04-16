@@ -157,6 +157,10 @@ async def on_message(message: discord.Message):
     if message.author.bot or not message.guild:
         return
 
+    # Don't count Mudae roll commands toward messages/points
+    if message.content.startswith("$"):
+        return
+
     # Ensure doc exists with all fields before incrementing
     await bot.users_col.update_one(
         {"user_id": message.author.id, "guild_id": message.guild.id},
