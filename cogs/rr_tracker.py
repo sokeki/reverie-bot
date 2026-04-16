@@ -1607,9 +1607,6 @@ class RRTracker(commands.Cog):
                     try:
                         puuid_ = account.get("puuid", "")
                         rc, r, t = rr_data.get(puuid_, (0, 0, ""))
-                        # Match-scan accounts: wait 30s for Henrik history to update
-                        if puuid_ not in detected_puuids:
-                            await asyncio.sleep(30)
                         await self._post_new_game(
                             account,
                             match_id,
@@ -1711,31 +1708,32 @@ class RRTracker(commands.Cog):
                     f"[Val Tracker] RR change from match data for {name}#{tag}: {rr_change:+d}"
                 )
 
-        # Fallback: fetch MMR history if still 0
+        # Fallback: retry history until match appears (Henrik cache lag)
         if rr_change == 0:
-            print(
-                f"[Val Tracker] Fetching MMR history for {name}#{tag} (looking for {match_id})..."
-            )
-            history = await self._get_mmr_history(name, tag, val_region)
-            if history:
+            for attempt in range(12):  # up to 3 minutes (12 x 15s)
+                await asyncio.sleep(15)
                 print(
-                    f"[Val Tracker] History[0] match_id={history[0].get('match_id', '?')} for {name}#{tag}"
+                    f"[Val Tracker] Fetching MMR history for {name}#{tag} (attempt {attempt + 1}/12)..."
                 )
-                entry = next(
-                    (e for e in history if e.get("match_id") == match_id), None
+                history = await self._get_mmr_history(name, tag, val_region)
+                if history:
+                    entry = next(
+                        (e for e in history if e.get("match_id") == match_id), None
+                    )
+                    if entry:
+                        rr_change = entry.get("mmr_change_to_last_game", 0)
+                        print(
+                            f"[Val Tracker] MMR history OK for {name}#{tag}: rr_change={rr_change:+d}"
+                        )
+                        break
+                    else:
+                        print(
+                            f"[Val Tracker] MMR history: not yet updated for {name}#{tag} (history[0]={history[0].get('match_id', '?')[:8]}...)"
+                        )
+            else:
+                print(
+                    f"[Val Tracker] MMR history: gave up after 3 minutes for {name}#{tag}"
                 )
-                if entry:
-                    rr_change = entry.get("mmr_change_to_last_game", 0)
-                    print(
-                        f"[Val Tracker] MMR history OK for {name}#{tag}: rr_change={rr_change:+d}"
-                    )
-                else:
-                    top_id = (
-                        history[0].get("match_id", "?") if history else "no history"
-                    )
-                    print(
-                        f"[Val Tracker] MMR history: match not found for {name}#{tag} (looking for {match_id[:8]}..., history[0]={top_id[:8] if len(top_id) > 8 else top_id})"
-                    )
 
         # Live MMR for current tier/rr display
         print(f"[Val Tracker] Fetching MMR for {name}#{tag}...")
