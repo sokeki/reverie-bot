@@ -1,14 +1,18 @@
 """
 cogs/mudae_cleaner.py
 Deletes Mudae roll command messages and their responses after a configurable delay.
+Pending deletions are persisted in MongoDB so they survive bot restarts.
 """
 
 import asyncio
+from datetime import datetime, timezone, timedelta
+
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 MUDAE_ID = 432610292342587392
+DEFAULT_DELAY = 60 * 60 * 3  # 3 hours in seconds
 
 # Prefix roll commands to watch for (lowercase, without prefix)
 ROLL_COMMANDS = {
@@ -37,11 +41,8 @@ ROLL_COMMANDS = {
     "pkm",
 }
 
-DEFAULT_DELAY = 60 * 60 * 3  # 3 hours in seconds
-
 
 def _parse_delay(value: str) -> int | None:
-    """Parse a delay string like '3h', '30m', '60s', or plain seconds."""
     value = value.strip().lower()
     try:
         if value.endswith("h"):
@@ -56,19 +57,90 @@ def _parse_delay(value: str) -> int | None:
         return None
 
 
-async def _try_delete(msg: discord.Message, delay: int = 0):
-    """Delete a message after a delay, ignoring errors."""
-    if delay > 0:
-        await asyncio.sleep(delay)
-    try:
-        await msg.delete()
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-        pass
+def _format_delay(seconds: int) -> str:
+    if seconds >= 3600:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h}h {m}m" if m else f"{h}h"
+    elif seconds >= 60:
+        m = seconds // 60
+        s = seconds % 60
+        return f"{m}m {s}s" if s else f"{m}m"
+    return f"{seconds}s"
 
 
 class MudaeCleaner(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    async def cog_load(self):
+        self.process_pending.start()
+
+    async def cog_unload(self):
+        self.process_pending.cancel()
+
+    # ── Persistent deletion helpers ───────────────────────────────────────────
+
+    async def _schedule_deletion(self, message: discord.Message, delay: int):
+        """Store a pending deletion in MongoDB and schedule the in-memory task."""
+        delete_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        await self.bot.mudae_deletions_col.insert_one(
+            {
+                "message_id": message.id,
+                "channel_id": message.channel.id,
+                "guild_id": message.guild.id,
+                "delete_at": delete_at,
+            }
+        )
+        asyncio.create_task(self._delete_after(message.id, message.channel.id, delay))
+
+    async def _delete_after(self, message_id: int, channel_id: int, delay: int):
+        """Wait then delete, cleaning up the DB record afterwards."""
+        await asyncio.sleep(delay)
+        await self._execute_deletion(message_id, channel_id)
+
+    async def _execute_deletion(self, message_id: int, channel_id: int):
+        """Delete a message and remove it from the pending deletions collection."""
+        try:
+            channel = self.bot.get_channel(channel_id)
+            if channel:
+                msg = await channel.fetch_message(message_id)
+                await msg.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+        finally:
+            await self.bot.mudae_deletions_col.delete_one({"message_id": message_id})
+
+    # ── Startup: process overdue + re-schedule future pending deletions ────────
+
+    @tasks.loop(minutes=5)
+    async def process_pending(self):
+        now = datetime.now(timezone.utc)
+
+        # Delete anything overdue
+        overdue = await self.bot.mudae_deletions_col.find(
+            {"delete_at": {"$lte": now}}
+        ).to_list(length=1000)
+        for doc in overdue:
+            asyncio.create_task(
+                self._execute_deletion(doc["message_id"], doc["channel_id"])
+            )
+
+        # Re-schedule future deletions (handles restart recovery)
+        future = await self.bot.mudae_deletions_col.find(
+            {"delete_at": {"$gt": now}}
+        ).to_list(length=1000)
+        for doc in future:
+            delay = max(0, int((doc["delete_at"] - now).total_seconds()))
+            asyncio.create_task(
+                self._delete_after(doc["message_id"], doc["channel_id"], delay)
+            )
+
+    @process_pending.before_loop
+    async def before_process_pending(self):
+        await self.bot.wait_until_ready()
+
+    # ── /mudaecleaner config command ──────────────────────────────────────────
 
     async def _get_settings(self, guild_id: int) -> dict:
         doc = await self.bot.settings_col.find_one({"guild_id": guild_id}) or {}
@@ -76,8 +148,6 @@ class MudaeCleaner(commands.Cog):
             "enabled": doc.get("mudae_cleaner_enabled", False),
             "delay": doc.get("mudae_cleaner_delay", DEFAULT_DELAY),
         }
-
-    # ── /setmuddaecleaner ─────────────────────────────────────────────────────
 
     @app_commands.command(
         name="mudaecleaner",
@@ -119,24 +189,14 @@ class MudaeCleaner(commands.Cog):
                 upsert=True,
             )
 
-        # Format delay for display
-        d = settings["delay"]
-        if d >= 3600:
-            delay_str = (
-                f"{d // 3600}h {(d % 3600) // 60}m" if d % 3600 else f"{d // 3600}h"
-            )
-        elif d >= 60:
-            delay_str = f"{d // 60}m {d % 60}s" if d % 60 else f"{d // 60}m"
-        else:
-            delay_str = f"{d}s"
-
         status = "enabled" if settings["enabled"] else "disabled"
+        delay_str = _format_delay(settings["delay"])
         await interaction.response.send_message(
             f"Mudae cleaner is **{status}**. Response delay: **{delay_str}**.",
             ephemeral=True,
         )
 
-    # ── Listen for roll command messages ─────────────────────────────────────
+    # ── Message listener ──────────────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -149,28 +209,26 @@ class MudaeCleaner(commands.Cog):
 
         delay = settings["delay"]
 
-        # Check if this is a Mudae response to a roll (embed with image from Mudae)
+        # Mudae roll response — schedule persistent deletion after delay
         if message.author.id == MUDAE_ID:
-            # Only delete roll result embeds — these have an image attached
-            if message.embeds and any(e.image or e.thumbnail for e in message.embeds):
-                asyncio.create_task(_try_delete(message, delay))
+            for embed in message.embeds:
+                desc = (embed.description or "").lower()
+                if embed.image and "react with any emoji to claim" in desc:
+                    await self._schedule_deletion(message, delay)
+                    break
             return
 
-        # Check if this is a user roll command (prefix)
+        # User prefix roll command — delete immediately
         if message.author.bot:
             return
 
         content = message.content.strip()
-        # Match $command or $command<args>
-        for prefix in ("$", message.guild.me.mention):
-            if content.startswith(prefix):
-                cmd = content[len(prefix) :].split()[0].lower().lstrip("$")
-                if cmd in ROLL_COMMANDS:
-                    asyncio.create_task(_try_delete(message, 0))
-                    return
-
-        # Slash commands from users — we can't see these directly, but we can
-        # detect the interaction response by watching for Mudae embeds above
+        if content.startswith("$"):
+            cmd = content[1:].split()[0].lower()
+            if cmd in ROLL_COMMANDS:
+                asyncio.create_task(
+                    self._delete_after(message.id, message.channel.id, 0)
+                )
 
 
 async def setup(bot: commands.Bot):

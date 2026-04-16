@@ -77,6 +77,7 @@ async def on_ready():
     bot.riot_accounts_col = db["riot_accounts"]
     bot.val_games_col = db["val_games"]
     bot.val_match_cache_col = db["val_match_cache"]
+    bot.mudae_deletions_col = db["mudae_deletions"]
     await bot.voice_sessions_col.create_index(
         [("user_id", 1), ("guild_id", 1)], unique=True
     )
