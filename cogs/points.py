@@ -49,24 +49,24 @@ class Points(commands.Cog):
         )
 
         embed = discord.Embed(
-            title=f"🌙  {target.display_name}",
+            title=f"🌙 {target.display_name}",
             description=description,
             color=COLOUR_MAIN,
         )
 
         # ── Row 1: three stats - always fills a clean 3-column row ───────────
         embed.add_field(
-            name="✨  Dream Points",
+            name="✨ Dream Points",
             value=f"```{doc['points']:,}```",
             inline=True,
         )
         embed.add_field(
-            name="🎙️  Voice Time",
+            name="🎙️ Voice Time",
             value=f"```{_fmt_voice(doc.get('voice_minutes', 0))}```",
             inline=True,
         )
         embed.add_field(
-            name="💬  Messages",
+            name="💬 Messages",
             value=f"```{doc.get('messages_sent', 0):,}```",
             inline=True,
         )
@@ -101,7 +101,7 @@ class Points(commands.Cog):
             role_history_val = "  ".join(parts)
 
         # ── Row 3: streak + role history side by side ─────────────────────────
-        embed.add_field(name="📅  Streak", value=streak_val, inline=True)
+        embed.add_field(name="📅 Streak", value=streak_val, inline=True)
         if role_history_val:
             embed.add_field(
                 name="🎲  Role History", value=role_history_val, inline=True

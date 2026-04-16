@@ -130,7 +130,7 @@ def _val_to_tft_region(val_region: str) -> str:
 
 
 class TFTTracker(commands.Cog):
-    """TFT LP tracker — monitors registered accounts and posts rank changes."""
+    """TFT LP tracker - monitors registered accounts and posts rank changes."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -269,7 +269,7 @@ class TFTTracker(commands.Cog):
             )
             return
 
-        embed = discord.Embed(title=f"{name}#{tag}  -  TFT Stats", color=COLOUR_MAIN)
+        embed = discord.Embed(title=f"{name}#{tag}  •  TFT Stats", color=COLOUR_MAIN)
         for e in entries:
             queue = (
                 e.get("queueType", "").replace("_", " ").title().replace("Tft", "TFT")
@@ -365,7 +365,7 @@ class TFTTracker(commands.Cog):
         colour = 0x4FBD6E if won else 0x8B4A4A
 
         embed = discord.Embed(
-            title=f"{name}#{tag}  -  {'WIN' if won else 'LOSS'}",
+            title=f"{name}#{tag}  •  {'WIN' if won else 'LOSS'}",
             color=colour,
         )
         embed.add_field(name="Rank", value=f"**{rank_str}**", inline=True)

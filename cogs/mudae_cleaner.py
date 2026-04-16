@@ -212,7 +212,7 @@ class MudaeCleaner(commands.Cog):
 
         delay = settings["delay"]
 
-        # Mudae roll response — schedule persistent deletion after delay
+        # Mudae roll response - schedule persistent deletion after delay
         if message.author.id == MUDAE_ID:
             for embed in message.embeds:
                 desc = (embed.description or "").lower()
@@ -221,7 +221,7 @@ class MudaeCleaner(commands.Cog):
                     break
             return
 
-        # User prefix roll command — delete immediately
+        # User prefix roll command - delete immediately
         if message.author.bot:
             return
 

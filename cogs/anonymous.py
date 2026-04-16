@@ -291,7 +291,7 @@ class Anonymous(commands.Cog):
         embed.add_field(name="Question", value=question, inline=False)
         embed.add_field(name="Answer", value=f"*{answer_text}*", inline=False)
         embed.set_footer(
-            text=f"Guess who answered - {timeout_hrs}h remaining - 3 wrong guesses = answerer gets points"
+            text=f"Guess who answered  •  {timeout_hrs}h remaining  •  3 wrong guesses = answerer gets points"
         )
 
         # Save the round first to get the round_id
@@ -485,7 +485,7 @@ class Anonymous(commands.Cog):
         answerer_name = answerer.display_name if answerer else "someone"
 
         embed = discord.Embed(
-            title="🌙 Anonymous Answer - Closed",
+            title="🌙 Anonymous Answer  •  Closed",
             color=COLOUR_CONFIRM if reveal else COLOUR_LB,
         )
         embed.add_field(name="Question", value=round_doc["question"], inline=False)

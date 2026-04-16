@@ -29,7 +29,7 @@ class Leaderboard(commands.Cog):
 
     @app_commands.command(
         name="leaderboard",
-        description="See the Hall of Dreamers - top members by points",
+        description="See the Hall of Dreamers  •  top members by points",
     )
     @app_commands.describe(
         top="How many dreamers to show (3–25, default 10)",
@@ -92,10 +92,10 @@ class Leaderboard(commands.Cog):
             else:
                 value = f"{doc.get('messages_sent', 0):,} messages"
 
-            lines.append(f"{medal} **{name}** - {value}")
+            lines.append(f"{medal} **{name}**  •  {value}")
 
         embed = discord.Embed(
-            title=f"🌒 Hall of Dreamers  ·  {label}",
+            title=f"🌒 Hall of Dreamers  •  {label}",
             description="\n".join(lines),
             color=COLOUR_LB,
         )

@@ -148,7 +148,7 @@ def _build_shop_embed(
             if role and role.colour.value:
                 colour_str = f"  •  🎨 `#{role.colour.value:06X}`"
         embed.add_field(
-            name=f"{item['name']}  -  ✨ {item['cost']:,} pts",
+            name=f"{item['name']}  •  ✨ {item['cost']:,} pts",
             value=f"{label}{colour_str}  •  {item.get('description', 'no description')}",
             inline=False,
         )

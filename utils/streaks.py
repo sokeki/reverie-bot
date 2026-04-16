@@ -6,9 +6,9 @@ weren't already active on. Missing a day resets the streak to 1 (the current
 day counts as day 1 of a new streak).
 
 The users collection stores:
-  streak:          int  — current streak in days
-  streak_best:     int  — all-time longest streak
-  streak_last_date: str — last active date as "YYYY-MM-DD" (UTC)
+  streak:          int  - current streak in days
+  streak_best:     int  - all-time longest streak
+  streak_last_date: str - last active date as "YYYY-MM-DD" (UTC)
 """
 
 from datetime import datetime, timezone
@@ -40,7 +40,7 @@ async def record_activity(users_col, user_id: int, guild_id: int) -> dict | None
 
     last_date = doc.get("streak_last_date")
 
-    # Already recorded activity today — nothing to do
+    # Already recorded activity today - nothing to do
     if last_date == today:
         return None
 

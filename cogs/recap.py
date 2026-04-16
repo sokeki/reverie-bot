@@ -277,7 +277,7 @@ class Recap(commands.Cog):
         # Rank ups field
         if rank_ups:
             lines = [
-                f"**{_name(r['user_id'])}** - {r['old_rank']['symbol']} {r['old_rank']['name']} - {r['new_rank']['symbol']} {r['new_rank']['name']}"
+                f"**{_name(r['user_id'])}**  •  {r['old_rank']['symbol']} {r['old_rank']['name']} -> {r['new_rank']['symbol']} {r['new_rank']['name']}"
                 for r in rank_ups[:10]
             ]
             embed.add_field(
@@ -326,7 +326,7 @@ class Recap(commands.Cog):
         if not any([top_points, top_voice, top_msgs, rank_ups, comp_lines]):
             embed.add_field(
                 name="A quiet week",
-                value="*no activity recorded this week - come back and earn some points!*",
+                value="*no activity recorded this week  •  come back and earn some points!*",
                 inline=False,
             )
 

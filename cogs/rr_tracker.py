@@ -141,7 +141,7 @@ class RRTracker(commands.Cog):
         self.api_key = os.getenv("HENRIK_API_KEY", "")
         self._recently_posted: set[str] = (
             set()
-        )  # guard against duplicate posts — stores 'puuid:match_id'
+        )  # guard against duplicate posts - stores 'puuid:match_id'
         self.poll_task.start()
         self.daily_summary_task.start()
 
@@ -275,7 +275,7 @@ class RRTracker(commands.Cog):
             if cached:
                 full.append(cached["data"])
                 continue
-            # Not cached — fetch from API
+            # Not cached - fetch from API
             url = f"{API_BASE}/valorant/v2/match/{match_id}"
             try:
                 async with session.get(url) as resp:
@@ -687,7 +687,7 @@ class RRTracker(commands.Cog):
         peak_season = peak.get("season", {}).get("short", "") if peak else ""
         peak_str = f"{peak_tier} ({peak_season})" if peak_season else peak_tier
 
-        # Use v2 MMR for season stats — by_season has number_of_games per act
+        # Use v2 MMR for season stats - by_season has number_of_games per act
         s_wins = s_losses = s_games = 0
         mmr_v2 = await self._get_mmr_v2(name, tag, val_region)
         if mmr_v2:
@@ -892,7 +892,7 @@ class RRTracker(commands.Cog):
                     if rnd_kills and rnd_kills[0].get("killer_puuid") == puuid:
                         first_bloods += 1
 
-                    # Clutch — who is still alive at end of round?
+                    # Clutch - who is still alive at end of round?
                     dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
                     alive_teammates = [
                         p.get("puuid")
@@ -1563,7 +1563,7 @@ class RRTracker(commands.Cog):
                         continue
                     if post_key in self._recently_posted:
                         continue
-                    # Skip if already has this match — unless it was directly detected
+                    # Skip if already has this match - unless it was directly detected
                     # (directly detected accounts have last_match_id already updated in memory)
                     if last_id == match_id and puuid not in detected_puuids:
                         continue
@@ -1643,7 +1643,7 @@ class RRTracker(commands.Cog):
         if game_start and last_start and game_start < last_start:
             return None
 
-        # Update stored match ID and game_start — also update in-memory dict so
+        # Update stored match ID and game_start - also update in-memory dict so
         # the match scan loop sees the updated last_match_id and won't double-post
         await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
@@ -1916,7 +1916,7 @@ class RRTracker(commands.Cog):
             return
         today = now.strftime("%Y-%m-%d")
         print(
-            f"[Daily Summary] Midnight window hit at {now.strftime('%H:%M')} UTC — date: {today}"
+            f"[Daily Summary] Midnight window hit at {now.strftime('%H:%M')} UTC - date: {today}"
         )
         if getattr(self, "_last_summary_date", None) == today:
             print(f"[Daily Summary] Already posted for {today}, skipping")
