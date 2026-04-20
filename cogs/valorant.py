@@ -100,7 +100,7 @@ class Valorant(commands.Cog):
             chosen = random.choice(AGENTS[role_name])
 
         embed = discord.Embed(
-            title=f"{ROLE_EMOJIS[role_name]} {chosen}",
+            title=f"{ROLE_EMOJIS[role_name]}  {chosen}",
             description=f"**Role:** {role_name}",
             color=ROLE_COLOURS[role_name],
         )
@@ -114,7 +114,7 @@ class Valorant(commands.Cog):
         role = random.choice(ALL_ROLES)
 
         embed = discord.Embed(
-            title=f"{ROLE_EMOJIS[role]} {role}",
+            title=f"{ROLE_EMOJIS[role]}  {role}",
             description="*your role for this round*",
             color=ROLE_COLOURS[role],
         )
@@ -195,6 +195,12 @@ class Valorant(commands.Cog):
                     "role": role,
                 },
                 {"$inc": {"count": 1}},
+                upsert=True,
+            )
+            # Also increment lifetime totals in users collection
+            await self.bot.users_col.update_one(
+                {"guild_id": interaction.guild_id, "user_id": member.id},
+                {"$inc": {f"comp_roles.{role}": 1}},
                 upsert=True,
             )
 

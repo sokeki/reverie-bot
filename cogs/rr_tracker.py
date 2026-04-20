@@ -924,29 +924,47 @@ class RRTracker(commands.Cog):
                     rnd_winner = rnd.get("winning_team", "").lower()
                     rnd_kills = sorted(
                         kills_by_round.get(rnd_idx, []),
-                        key=lambda k: k.get("time_in_round_in_ms", 0),
+                        key=lambda k: k.get("kill_time_in_round", 0),
                     )
 
                     # First blood
                     if rnd_kills and rnd_kills[0].get("killer_puuid") == puuid:
                         first_bloods += 1
 
-                    # Clutch — who is still alive at end of round?
-                    dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
-                    alive_teammates = [
+                    # Clutch — player was last alive on their team at some point this round.
+                    # Requires: all teammates died, and every teammate death happened
+                    # before (or at the same time as) the player's death / end of round.
+                    teammate_puuids = {
                         p.get("puuid")
                         for p in all_p
                         if isinstance(p, dict)
                         and team_map.get(p.get("puuid", "")) == player_team
                         and p.get("puuid") != puuid
-                        and p.get("puuid") not in dead_puuids
-                    ]
+                    }
+                    dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
+                    all_teammates_died = teammate_puuids.issubset(dead_puuids)
                     player_alive = puuid not in dead_puuids
 
-                    if player_alive and len(alive_teammates) == 0:
-                        clutch_opps += 1
-                        if rnd_winner == player_team:
-                            clutch_wins += 1
+                    if all_teammates_died:
+                        player_death_time = next(
+                            (
+                                k.get("kill_time_in_round", 0)
+                                for k in rnd_kills
+                                if k.get("victim_puuid") == puuid
+                            ),
+                            float("inf"),  # player survived
+                        )
+                        last_teammate_death_time = max(
+                            k.get("kill_time_in_round", 0)
+                            for k in rnd_kills
+                            if k.get("victim_puuid") in teammate_puuids
+                        )
+                        # Player was genuinely last alive only if all teammates died
+                        # strictly before the player died (or player survived)
+                        if last_teammate_death_time < player_death_time:
+                            clutch_opps += 1
+                            if rnd_winner == player_team:
+                                clutch_wins += 1
 
             clutch_pct = (
                 round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0

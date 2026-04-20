@@ -49,24 +49,24 @@ class Points(commands.Cog):
         )
 
         embed = discord.Embed(
-            title=f"🌙 {target.display_name}",
+            title=f"🌙  {target.display_name}",
             description=description,
             color=COLOUR_MAIN,
         )
 
         # ── Row 1: three stats - always fills a clean 3-column row ───────────
         embed.add_field(
-            name="✨ Dream Points",
+            name="✨  Dream Points",
             value=f"```{doc['points']:,}```",
             inline=True,
         )
         embed.add_field(
-            name="🎙️ Voice Time",
+            name="🎙️  Voice Time",
             value=f"```{_fmt_voice(doc.get('voice_minutes', 0))}```",
             inline=True,
         )
         embed.add_field(
-            name="💬 Messages",
+            name="💬  Messages",
             value=f"```{doc.get('messages_sent', 0):,}```",
             inline=True,
         )
@@ -87,24 +87,26 @@ class Points(commands.Cog):
             "Sentinel": "🛡️",
             "Free Pick": "🌀",
         }
-        roll_docs = await self.bot.comp_rolls_col.find(
+        user_doc = await self.bot.users_col.find_one(
             {"guild_id": interaction.guild_id, "user_id": target.id}
-        ).to_list(length=100)
+        )
+        comp_roles = (user_doc or {}).get("comp_roles", {})
 
         role_history_val = None
-        if roll_docs:
-            totals: dict[str, int] = {}
-            for doc in roll_docs:
-                totals[doc["role"]] = totals.get(doc["role"], 0) + doc["count"]
+        if comp_roles:
             role_order = ["Duelist", "Initiator", "Controller", "Sentinel", "Free Pick"]
-            parts = [f"{ROLE_ICONS[r]} {totals[r]}" for r in role_order if r in totals]
+            parts = [
+                f"{ROLE_ICONS[r]} {comp_roles[r]}"
+                for r in role_order
+                if r in comp_roles
+            ]
             role_history_val = "  ".join(parts)
 
         # ── Row 3: streak + role history side by side ─────────────────────────
-        embed.add_field(name="📅 Streak", value=streak_val, inline=True)
+        embed.add_field(name="📅  Streak", value=streak_val, inline=True)
         if role_history_val:
             embed.add_field(
-                name="🎲 Role History", value=role_history_val, inline=True
+                name="🎲  Role History", value=role_history_val, inline=True
             )
             embed.add_field(name=_BLANK, value=_BLANK, inline=True)
         else:
