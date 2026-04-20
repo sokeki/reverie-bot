@@ -240,30 +240,48 @@ class RRTracker(commands.Cog):
         return matches[0] if matches else None
 
     async def _cache_full_match(self, match_id: str) -> None:
-        """Fetch and cache a full match by ID if not already cached."""
+        """Fetch and cache a full match by ID if not already cached with rounds."""
         existing = await self.bot.val_match_cache_col.find_one({"match_id": match_id})
-        if existing:
+        if existing and existing.get("has_rounds"):
             return
         session = await self._get_session()
         url = f"{API_BASE}/valorant/v2/match/{match_id}"
-        try:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    full_match = data.get("data", data)
-                    rounds = full_match.get("rounds", [])
-                    await self.bot.val_match_cache_col.insert_one(
-                        {
-                            "match_id": match_id,
-                            "data": full_match,
-                            "cached_at": datetime.now(timezone.utc),
-                        }
-                    )
-                    print(
-                        f"[Val Tracker] Cached {match_id[:8]}... ({len(rounds)} rounds)"
-                    )
-        except Exception as e:
-            print(f"[Val Tracker] Cache error for {match_id[:8]}...: {e}")
+        for attempt in range(5):
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        full_match = data.get("data", data)
+                        rounds = full_match.get("rounds", [])
+                        await self.bot.val_match_cache_col.update_one(
+                            {"match_id": match_id},
+                            {
+                                "$set": {
+                                    "data": full_match,
+                                    "has_rounds": True,
+                                    "cached_at": datetime.now(timezone.utc),
+                                }
+                            },
+                            upsert=True,
+                        )
+                        print(
+                            f"[Val Tracker] Cached {match_id[:8]}... ({len(rounds)} rounds)"
+                        )
+                        break
+                    elif resp.status == 429:
+                        wait = 10 * (attempt + 1)
+                        print(
+                            f"[Val Tracker] Rate limited caching {match_id[:8]}..., waiting {wait}s"
+                        )
+                        await asyncio.sleep(wait)
+                    else:
+                        print(
+                            f"[Val Tracker] Cache fetch {resp.status} for {match_id[:8]}..."
+                        )
+                        break
+            except Exception as e:
+                print(f"[Val Tracker] Cache error for {match_id[:8]}...: {e}")
+                break
 
     async def _get_full_matches(self, matches: list) -> list:
         """Return full match data from cache, fetching from API only if not cached."""
@@ -282,43 +300,43 @@ class RRTracker(commands.Cog):
                 continue
             # Not cached — fetch from API
             url = f"{API_BASE}/valorant/v2/match/{match_id}"
-            try:
-                async with session.get(url) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        full_match = data.get("data", data)
-                        rounds = full_match.get("rounds", [])
-                        print(
-                            f"[Val Tracker] Fetched & cached {match_id[:8]}... ({len(rounds)} rounds)"
-                        )
-                        # Extract puuid from match participants
-                        raw_p = full_match.get("players", {})
-                        all_p_c = (
-                            raw_p
-                            if isinstance(raw_p, list)
-                            else raw_p.get("all_players", [])
-                        )
-                        match_puuids = [
-                            p.get("puuid") for p in all_p_c if isinstance(p, dict)
-                        ]
-                        await self.bot.val_match_cache_col.update_one(
-                            {"match_id": match_id},
-                            {
-                                "$set": {
-                                    "data": full_match,
-                                    "has_rounds": True,
-                                    "cached_at": datetime.now(timezone.utc),
-                                }
-                            },
-                            upsert=True,
-                        )
-                        full.append(full_match)
-                    else:
-                        print(
-                            f"[Val Tracker] Match fetch {resp.status} for {match_id[:8]}..."
-                        )
-            except Exception as e:
-                print(f"[Val Tracker] Match fetch error: {e}")
+            for attempt in range(5):
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            full_match = data.get("data", data)
+                            rounds = full_match.get("rounds", [])
+                            print(
+                                f"[Val Tracker] Fetched & cached {match_id[:8]}... ({len(rounds)} rounds)"
+                            )
+                            await self.bot.val_match_cache_col.update_one(
+                                {"match_id": match_id},
+                                {
+                                    "$set": {
+                                        "data": full_match,
+                                        "has_rounds": True,
+                                        "cached_at": datetime.now(timezone.utc),
+                                    }
+                                },
+                                upsert=True,
+                            )
+                            full.append(full_match)
+                            break
+                        elif resp.status == 429:
+                            wait = 10 * (attempt + 1)
+                            print(
+                                f"[Val Tracker] Rate limited on match fetch, waiting {wait}s..."
+                            )
+                            await asyncio.sleep(wait)
+                        else:
+                            print(
+                                f"[Val Tracker] Match fetch {resp.status} for {match_id[:8]}..."
+                            )
+                            break
+                except Exception as e:
+                    print(f"[Val Tracker] Match fetch error: {e}")
+                    break
             await asyncio.sleep(1)
         return full
 
