@@ -317,10 +317,10 @@ class Recap(commands.Cog):
         NICK_PRIORITY = ["Free Pick", "Duelist", "Initiator", "Sentinel", "Controller"]
         NICK_TITLES = {
             "Free Pick": "freest",
-            "Duelist": "happiest player",
+            "Duelist": "happiest five stack",
             "Initiator": "initiator victim",
             "Sentinel": "chamber role",
-            "Controller": "fill main",
+            "Controller": "smokes fill main",
         }
 
         # Find winner per role
@@ -356,7 +356,7 @@ class Recap(commands.Cog):
             m = guild.get_member(int(uid_str))
             if m:
                 try:
-                    await m.edit(nick=old_nick)  # restores original nickname
+                    await m.edit(nick=old_nick)
                 except (discord.Forbidden, discord.HTTPException):
                     pass
 
@@ -369,10 +369,10 @@ class Recap(commands.Cog):
             old_nick = m.nick  # store current nickname before changing
             title = NICK_TITLES[role]
             base = m.nick or m.display_name
-            new_nick = f"{base} ({title})"
+            new_nick = f"👑 {base} ({title})"
             if len(new_nick) > 32:
-                max_base = 32 - len(f" ({title})") - 1
-                new_nick = f"{base[:max_base]} ({title})"
+                max_base = 32 - len(f"👑  ({title})") - 1
+                new_nick = f"👑 {base[:max_base]} ({title})"
             try:
                 await m.edit(nick=new_nick)
                 new_nicks[str(uid)] = old_nick
