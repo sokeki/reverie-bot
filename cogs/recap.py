@@ -317,10 +317,10 @@ class Recap(commands.Cog):
         NICK_PRIORITY = ["Free Pick", "Duelist", "Initiator", "Sentinel", "Controller"]
         NICK_TITLES = {
             "Free Pick": "freest",
-            "Duelist": "happiest five stack",
+            "Duelist": "happiest player",
             "Initiator": "initiator victim",
             "Sentinel": "chamber role",
-            "Controller": "smokes fill main",
+            "Controller": "fill main",
         }
 
         # Find winner per role
