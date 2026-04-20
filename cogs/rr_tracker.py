@@ -829,6 +829,9 @@ class RRTracker(commands.Cog):
             )
             # Fallback: if the query returns nothing (v3 format stores players differently)
             # just use the fresh matches
+            print(
+                f"[Val Tracker] valstats cache: {len(cached_docs)} docs for puuid={puuid[:8] if puuid else None}, has_rounds counts: {sum(1 for d in cached_docs if d.get('has_rounds'))}/{len(cached_docs)}"
+            )
             if cached_docs:
                 matches = [doc["data"] for doc in cached_docs]
             else:
