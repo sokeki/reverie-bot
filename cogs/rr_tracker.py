@@ -773,21 +773,27 @@ class RRTracker(commands.Cog):
                 "metadata", {}
             ).get("match_id")
             if match_id and puuid:
+                raw_p_f = match.get("players", [])
+                if isinstance(raw_p_f, list):
+                    all_p_f = raw_p_f
+                elif isinstance(raw_p_f, dict):
+                    all_p_f = raw_p_f.get("all_players", [])
+                    if not all_p_f:
+                        # v2 format: players stored under team keys e.g. red/blue
+                        for val in raw_p_f.values():
+                            if isinstance(val, list):
+                                all_p_f.extend(val)
+                else:
+                    all_p_f = []
+                match_puuids = [
+                    p.get("puuid")
+                    for p in all_p_f
+                    if isinstance(p, dict) and p.get("puuid")
+                ]
                 exists = await self.bot.val_match_cache_col.find_one(
                     {"match_id": match_id}
                 )
                 if not exists:
-                    raw_p_f = match.get("players", [])
-                    all_p_f = (
-                        raw_p_f
-                        if isinstance(raw_p_f, list)
-                        else raw_p_f.get("all_players", [])
-                    )
-                    match_puuids = [
-                        p.get("puuid")
-                        for p in all_p_f
-                        if isinstance(p, dict) and p.get("puuid")
-                    ]
                     await self.bot.val_match_cache_col.insert_one(
                         {
                             "match_id": match_id,
@@ -797,6 +803,13 @@ class RRTracker(commands.Cog):
                             "cached_at": datetime.now(timezone.utc),
                             "has_rounds": False,
                         }
+                    )
+                    inserted = True
+                elif not exists.get("puuids"):
+                    # Upgrade existing doc with puuids if missing
+                    await self.bot.val_match_cache_col.update_one(
+                        {"match_id": match_id},
+                        {"$set": {"puuid": puuid, "puuids": match_puuids}},
                     )
                     inserted = True
         if inserted and puuid:
