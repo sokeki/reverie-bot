@@ -347,36 +347,39 @@ class Recap(commands.Cog):
                 assigned[uid] = role
 
         # Step 1: Reset all nicknames that were previously set by Reverie
-        prev_winners = await self.bot.settings_col.find_one({"guild_id": guild.id})
-        prev_nicks = (prev_winners or {}).get("comp_nick_winners", [])
-        for uid in prev_nicks:
-            m = guild.get_member(uid)
+        prev_settings = await self.bot.settings_col.find_one({"guild_id": guild.id})
+        prev_nicks = (prev_settings or {}).get("comp_nick_winners", {})
+        # prev_nicks is {str(user_id): old_nickname}
+        if isinstance(prev_nicks, list):
+            prev_nicks = {str(uid): None for uid in prev_nicks}  # migrate old format
+        for uid_str, old_nick in prev_nicks.items():
+            m = guild.get_member(int(uid_str))
             if m:
                 try:
-                    await m.edit(nick=None)
+                    await m.edit(nick=old_nick)  # restores original nickname
                 except (discord.Forbidden, discord.HTTPException):
                     pass
 
         # Step 2: Apply new nicknames
-        new_nicks = []
+        new_nicks = {}  # {str(user_id): old_nickname}
         for uid, role in assigned.items():
             m = guild.get_member(uid)
             if not m:
                 continue
+            old_nick = m.nick  # store current nickname before changing
             title = NICK_TITLES[role]
-            base = m.name
+            base = m.nick or m.display_name
             new_nick = f"{base} ({title})"
             if len(new_nick) > 32:
-                # Truncate base name to fit
                 max_base = 32 - len(f" ({title})") - 1
                 new_nick = f"{base[:max_base]} ({title})"
             try:
                 await m.edit(nick=new_nick)
-                new_nicks.append(uid)
+                new_nicks[str(uid)] = old_nick
             except (discord.Forbidden, discord.HTTPException):
                 pass
 
-        # Store winners for reset next week
+        # Store winners + their old nicknames for reset next week
         await self.bot.settings_col.update_one(
             {"guild_id": guild.id},
             {"$set": {"comp_nick_winners": new_nicks}},
