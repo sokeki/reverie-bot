@@ -60,17 +60,20 @@ class Recap(commands.Cog):
 
     @app_commands.command(
         name="sendrecap",
-        description="[Admin] Manually trigger this week's recap",
+        description="[Admin] Manually trigger the weekly recap",
+    )
+    @app_commands.describe(
+        week="Week start date (YYYY-MM-DD, e.g. 2026-04-13). Defaults to current week."
     )
     @app_commands.default_permissions(administrator=True)
-    async def sendrecap(self, interaction: discord.Interaction):
+    async def sendrecap(self, interaction: discord.Interaction, week: str = None):
         await interaction.response.defer(ephemeral=True)
-        sent = await self._post_recap(interaction.guild)
+        sent = await self._post_recap(interaction.guild, week_override=week)
         if sent:
             await interaction.followup.send("✅ Recap posted!", ephemeral=True)
         else:
             await interaction.followup.send(
-                "⚠️ No recap channel set. Run `/setrecapchannel` first.",
+                "⚠️ No recap channel set or no data for that week.",
                 ephemeral=True,
             )
 
@@ -130,14 +133,16 @@ class Recap(commands.Cog):
             )
             await self.bot.weekly_snapshots_col.insert_many(snapshots)
 
-    async def _get_weekly_deltas(self, guild_id: int) -> list[dict]:
+    async def _get_weekly_deltas(
+        self, guild_id: int, week_override: str = None
+    ) -> list[dict]:
         """
         Compare current stats against last week's snapshot.
         Returns list of dicts with user_id and weekly gains.
         """
-        last_week = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
-            "%Y-%m-%d"
-        )
+        last_week = week_override or (
+            datetime.now(timezone.utc) - timedelta(days=7)
+        ).strftime("%Y-%m-%d")
         snapshots = await self.bot.weekly_snapshots_col.find(
             {"guild_id": guild_id, "week": last_week}
         ).to_list(length=5000)
@@ -167,7 +172,9 @@ class Recap(commands.Cog):
 
     # ── Recap builder ─────────────────────────────────────────────────────────
 
-    async def _post_recap(self, guild: discord.Guild) -> bool:
+    async def _post_recap(
+        self, guild: discord.Guild, week_override: str = None
+    ) -> bool:
         settings = await self.bot.settings_col.find_one({"guild_id": guild.id})
         if not settings or not settings.get("recap_channel_id"):
             return False
@@ -176,7 +183,7 @@ class Recap(commands.Cog):
         if not channel:
             return False
 
-        deltas = await self._get_weekly_deltas(guild.id)
+        deltas = await self._get_weekly_deltas(guild.id, week_override=week_override)
         if not deltas:
             return False
 
@@ -207,35 +214,9 @@ class Recap(commands.Cog):
             reverse=True,
         )[:3]
 
-        # New rank achievements this week - compare rank from snapshot vs now
-        last_week = (datetime.now(timezone.utc) - timedelta(days=7)).strftime(
-            "%Y-%m-%d"
-        )
-        snapshots = await self.bot.weekly_snapshots_col.find(
-            {"guild_id": guild.id, "week": last_week}
-        ).to_list(length=5000)
-        snap_map = {s["user_id"]: s for s in snapshots}
-        current_docs = await self.bot.users_col.find(
-            {"guild_id": guild.id},
-            {"user_id": 1, "voice_minutes": 1, "messages_sent": 1},
-        ).to_list(length=5000)
-
-        rank_ups = []
-        for doc in current_docs:
-            uid = doc["user_id"]
-            snap = snap_map.get(uid, {})
-            old_score = snap.get("voice_minutes", 0) + snap.get("messages_sent", 0)
-            new_score = doc.get("voice_minutes", 0) + doc.get("messages_sent", 0)
-            old_rank = get_rank(old_score)
-            new_rank = get_rank(new_score)
-            if new_rank["index"] > old_rank["index"]:
-                rank_ups.append(
-                    {
-                        "user_id": uid,
-                        "old_rank": old_rank,
-                        "new_rank": new_rank,
-                    }
-                )
+        last_week = week_override or (
+            datetime.now(timezone.utc) - timedelta(days=7)
+        ).strftime("%Y-%m-%d")
 
         # Build embed
         embed = discord.Embed(
@@ -274,17 +255,11 @@ class Recap(commands.Cog):
                 name="💬 Most Messages Sent", value="\n".join(lines), inline=False
             )
 
-        # Rank ups field
-        if rank_ups:
-            lines = [
-                f"**{_name(r['user_id'])}**  •  {r['old_rank']['symbol']} {r['old_rank']['name']} -> {r['new_rank']['symbol']} {r['new_rank']['name']}"
-                for r in rank_ups[:10]
-            ]
-            embed.add_field(
-                name="🏅 Rank Achievements", value="\n".join(lines), inline=False
-            )
-
-        # Comp roll stats
+        # Comp roll stats — use same week key as valorant.py (most recent Sunday)
+        now_utc = datetime.now(timezone.utc)
+        comp_week = (now_utc - timedelta(days=(now_utc.weekday() + 1) % 7)).strftime(
+            "%Y-%m-%d"
+        )
         ROLE_LABELS = {
             "Duelist": "🎯 Happiest five stack player",
             "Initiator": "🔍 Initiator victim",
@@ -301,7 +276,7 @@ class Recap(commands.Cog):
                 self.bot.comp_rolls_col.find(
                     {
                         "guild_id": guild.id,
-                        "week": last_week,
+                        "week": comp_week,
                         "role": role,
                     }
                 )
@@ -323,10 +298,10 @@ class Recap(commands.Cog):
                 inline=False,
             )
 
-        if not any([top_points, top_voice, top_msgs, rank_ups, comp_lines]):
+        if not any([top_points, top_voice, top_msgs, comp_lines]):
             embed.add_field(
                 name="A quiet week",
-                value="*no activity recorded this week  •  come back and earn some points!*",
+                value="*no activity recorded this week - come back and earn some points!*",
                 inline=False,
             )
 
@@ -341,7 +316,7 @@ class Recap(commands.Cog):
         await self.bot.comp_rolls_col.delete_many(
             {
                 "guild_id": guild.id,
-                "week": last_week,
+                "week": comp_week,
             }
         )
 
