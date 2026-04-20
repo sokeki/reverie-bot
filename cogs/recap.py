@@ -312,6 +312,77 @@ class Recap(commands.Cog):
 
         await channel.send(embed=embed)
 
+        # ── Nickname awards ───────────────────────────────────────────────────
+        # Priority order for duplicate winners
+        NICK_PRIORITY = ["Free Pick", "Duelist", "Initiator", "Sentinel", "Controller"]
+        NICK_TITLES = {
+            "Free Pick": "freest",
+            "Duelist": "happiest five stack",
+            "Initiator": "initiator victim",
+            "Sentinel": "chamber role",
+            "Controller": "smokes fill main",
+        }
+
+        # Find winner per role
+        role_winners: dict[str, int] = {}
+        for role in NICK_PRIORITY:
+            async for doc in (
+                self.bot.comp_rolls_col.find(
+                    {
+                        "guild_id": guild.id,
+                        "week": comp_week,
+                        "role": role,
+                    }
+                )
+                .sort("count", -1)
+                .limit(1)
+            ):
+                role_winners[role] = doc["user_id"]
+
+        # Resolve duplicates — each user gets only their highest priority role
+        assigned: dict[int, str] = {}  # user_id -> role
+        for role in NICK_PRIORITY:
+            uid = role_winners.get(role)
+            if uid and uid not in assigned:
+                assigned[uid] = role
+
+        # Step 1: Reset all nicknames that were previously set by Reverie
+        prev_winners = await self.bot.settings_col.find_one({"guild_id": guild.id})
+        prev_nicks = (prev_winners or {}).get("comp_nick_winners", [])
+        for uid in prev_nicks:
+            m = guild.get_member(uid)
+            if m:
+                try:
+                    await m.edit(nick=None)
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
+        # Step 2: Apply new nicknames
+        new_nicks = []
+        for uid, role in assigned.items():
+            m = guild.get_member(uid)
+            if not m:
+                continue
+            title = NICK_TITLES[role]
+            base = m.name
+            new_nick = f"{base} ({title})"
+            if len(new_nick) > 32:
+                # Truncate base name to fit
+                max_base = 32 - len(f" ({title})") - 1
+                new_nick = f"{base[:max_base]} ({title})"
+            try:
+                await m.edit(nick=new_nick)
+                new_nicks.append(uid)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        # Store winners for reset next week
+        await self.bot.settings_col.update_one(
+            {"guild_id": guild.id},
+            {"$set": {"comp_nick_winners": new_nicks}},
+            upsert=True,
+        )
+
         # Take a fresh snapshot for next week
         await self._take_snapshot(guild.id)
 
