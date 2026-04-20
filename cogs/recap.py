@@ -110,7 +110,8 @@ class Recap(commands.Cog):
 
     async def _take_snapshot(self, guild_id: int):
         """Save current stats for all members so we can diff next week."""
-        week = _week_start()
+        now_s = datetime.now(timezone.utc)
+        week = (now_s - timedelta(days=(now_s.weekday() + 1) % 7)).strftime("%Y-%m-%d")
         docs = await self.bot.users_col.find(
             {"guild_id": guild_id},
             {"user_id": 1, "points": 1, "voice_minutes": 1, "messages_sent": 1},
@@ -140,8 +141,9 @@ class Recap(commands.Cog):
         Compare current stats against last week's snapshot.
         Returns list of dicts with user_id and weekly gains.
         """
+        now_utc = datetime.now(timezone.utc)
         last_week = week_override or (
-            datetime.now(timezone.utc) - timedelta(days=7)
+            now_utc - timedelta(days=(now_utc.weekday() + 1) % 7 + 7)
         ).strftime("%Y-%m-%d")
         snapshots = await self.bot.weekly_snapshots_col.find(
             {"guild_id": guild_id, "week": last_week}
@@ -214,8 +216,9 @@ class Recap(commands.Cog):
             reverse=True,
         )[:3]
 
+        now_utc__ = datetime.now(timezone.utc)
         last_week = week_override or (
-            datetime.now(timezone.utc) - timedelta(days=7)
+            now_utc__ - timedelta(days=(now_utc__.weekday() + 1) % 7 + 7)
         ).strftime("%Y-%m-%d")
 
         # Build embed
@@ -257,9 +260,9 @@ class Recap(commands.Cog):
 
         # Comp roll stats — use same week key as valorant.py (most recent Sunday)
         now_utc = datetime.now(timezone.utc)
-        comp_week = (now_utc - timedelta(days=(now_utc.weekday() + 1) % 7)).strftime(
-            "%Y-%m-%d"
-        )
+        comp_week = week_override or (
+            now_utc - timedelta(days=(now_utc.weekday() + 1) % 7)
+        ).strftime("%Y-%m-%d")
         ROLE_LABELS = {
             "Duelist": "🎯 Happiest five stack player",
             "Initiator": "🔍 Initiator victim",
