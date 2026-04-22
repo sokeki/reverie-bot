@@ -315,9 +315,12 @@ class TFTTracker(commands.Cog):
                 try:
                     await self._check_account(account, channel)
                 except Exception as e:
+                    import traceback
+
                     print(
                         f"[TFT] Error checking {account.get('val_name')}#{account.get('val_tag')}: {e}"
                     )
+                    traceback.print_exc()
                 await asyncio.sleep(2)
 
     async def _check_account(self, account: dict, channel: discord.TextChannel):
@@ -362,8 +365,9 @@ class TFTTracker(commands.Cog):
             print(f"[TFT] Baseline stored for {name}#{tag}")
             return
 
-        lp_diff = new_lp - old_lp if new_lp else 0
-        lp_changed = new_lp and new_lp != old_lp
+        old_lp_val = old_lp if old_lp is not None else 0
+        lp_diff = new_lp - old_lp_val if new_lp else 0
+        lp_changed = new_lp and new_lp != old_lp_val
 
         # Reset stored LP if API returns no entries (new season reset)
         if not entries and old_lp is not None and old_lp > 0:
@@ -374,6 +378,9 @@ class TFTTracker(commands.Cog):
             print(f"[TFT] Season reset detected for {name}#{tag}, LP cleared")
 
         # Fallback: match-first detection during placements (no league entries)
+        print(
+            f"[TFT] {name}#{tag} lp_changed={lp_changed} entries={len(entries)} new_lp={new_lp}"
+        )
         if not lp_changed and not entries:
             match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
             new_match = None
