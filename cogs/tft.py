@@ -190,17 +190,23 @@ class TFTTracker(commands.Cog):
                 acc.get("val_region", "eu")
             )
             entries = await self.riot.get_league_entries(region, puuid)
-            lp_total = 0
+            lp_total = tft.get("lp", 0) or 0
             rank_str = "Unranked"
             for e in entries:
                 if e.get("queueType") == "RANKED_TFT":
                     lp_total = _lp_total(e["tier"], e["rank"], e["leaguePoints"])
                     rank_str = _format_rank(e["tier"], e["rank"], e["leaguePoints"])
-                    # Update stored LP
                     await self.bot.riot_accounts_col.update_one(
                         {"_id": acc["_id"]},
                         {"$set": {"tft.lp": lp_total, "tft.region": region}},
                     )
+            # If API returned no entries, reset stored LP (new season/unranked)
+            if not entries:
+                lp_total = 0
+                await self.bot.riot_accounts_col.update_one(
+                    {"_id": acc["_id"]},
+                    {"$set": {"tft.lp": None}},
+                )
             rows.append(
                 {
                     "name": acc.get("val_name", "?"),
@@ -324,43 +330,9 @@ class TFTTracker(commands.Cog):
         name = tft.get("name") or account.get("val_name", "?")
         tag = tft.get("tag") or account.get("val_tag", "?")
 
-        # Primary detection: check for new ranked match IDs
-        match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
-        known_ids = set(tft.get("last_match_ids", []))
-
-        new_match = None
-        for match_id in match_ids:
-            if match_id in known_ids:
-                continue
-            match = await self.riot.get_match(routing, match_id)
-            if not match:
-                continue
-            if match["info"].get("queue_id") != 1100:
-                # Not ranked TFT — add to known so we don't re-check
-                known_ids.add(match_id)
-                continue
-            new_match = (match_id, match)
-            break
-
-        if not new_match:
-            return
-
-        match_id, match = new_match
-        participants = match["info"].get("participants", [])
-        player = next((p for p in participants if p["puuid"] == puuid), None)
-        if not player:
-            return
-
-        placement = player.get("placement", "?")
-        eliminations = player.get("players_eliminated", 0)
-        damage = player.get("total_damage_to_players", 0)
-        level = player.get("level", 0)
-        tactician_id = player.get("companion", {}).get("item_ID", 0)
-        icon_url = await self._get_companion_icon(tactician_id)
-
-        # Get LP from league entries — use stored LP as fallback
+        # Check for LP change (primary detection)
         entries = await self.riot.get_league_entries(region, puuid)
-        new_lp = old_lp = tft.get("lp", 0)
+        new_lp = 0
         tier = div = ""
         raw_lp = 0
         for e in entries:
@@ -370,46 +342,146 @@ class TFTTracker(commands.Cog):
                 raw_lp = e.get("leaguePoints", 0)
                 new_lp = _lp_total(tier, div, raw_lp)
 
-        lp_diff = new_lp - old_lp
-        rank_str = _format_rank(tier, div, raw_lp) if tier else "Unranked"
-        won = placement <= 4
-        colour = 0x4FBD6E if won else 0x8B4A4A
+        old_lp = tft.get("lp")
+        known_ids = set(tft.get("last_match_ids", []))
 
-        # First time — just store baseline
-        if not known_ids and old_lp == 0:
-            new_ids = list({match_id})
+        # Baseline on first run
+        if old_lp is None:
+            match_ids = await self.riot.get_match_ids(routing, puuid, count=10)
             await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"tft.lp": new_lp, "tft.last_match_ids": new_ids}},
+                {"$set": {"tft.lp": new_lp, "tft.last_match_ids": list(match_ids)}},
+            )
+            print(f"[TFT] Baseline stored for {name}#{tag}")
+            return
+
+        lp_diff = new_lp - old_lp if new_lp else 0
+        lp_changed = new_lp and new_lp != old_lp
+
+        # Reset stored LP if API returns no entries (new season reset)
+        if not entries and old_lp is not None and old_lp > 0:
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.lp": None}},
+            )
+            print(f"[TFT] Season reset detected for {name}#{tag}, LP cleared")
+
+        # Fallback: match-first detection during placements (no league entries)
+        if not lp_changed and not entries:
+            match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
+            new_match = None
+            for match_id in match_ids:
+                if match_id in known_ids:
+                    continue
+                match = await self.riot.get_match(routing, match_id)
+                if not match:
+                    continue
+                if match["info"].get("queue_id") != 1100:
+                    known_ids.add(match_id)
+                    continue
+                new_match = (match_id, match)
+                break
+            if not new_match:
+                return
+            match_id, match_data = new_match
+            participants = match_data["info"].get("participants", [])
+            player = next((p for p in participants if p["puuid"] == puuid), None)
+            if not player:
+                return
+            placement = player.get("placement", "?")
+            eliminations = player.get("players_eliminated", 0)
+            damage = player.get("total_damage_to_players", 0)
+            level = player.get("level", 0)
+            tactician_id = player.get("companion", {}).get("item_ID", 0)
+            icon_url = await self._get_companion_icon(tactician_id)
+            won = placement <= 4
+            colour = 0x4FBD6E if won else 0x8B4A4A
+            embed = discord.Embed(
+                title=f"{name}#{tag}  -  {'WIN' if won else 'LOSS'} (Placement)",
+                color=colour,
+            )
+            embed.add_field(name="Rank", value="**Placement**", inline=True)
+            embed.add_field(name="Change", value="**-**", inline=True)
+            embed.add_field(name="Placement", value=f"**#{placement}**", inline=True)
+            embed.add_field(name="Elims", value=f"**{eliminations}**", inline=True)
+            embed.add_field(name="Damage", value=f"**{damage}**", inline=True)
+            embed.add_field(name="Level", value=f"**{level}**", inline=True)
+            if icon_url:
+                embed.set_thumbnail(url=icon_url)
+            embed.set_footer(text=f"Reverie  •  {channel.guild.name}")
+            await channel.send(embed=embed)
+            new_ids = list((known_ids | {match_id}))[-20:]
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.last_match_ids": new_ids}},
             )
             return
+
+        if not lp_changed:
+            return
+
+        # LP changed — update stored LP and post
+        await self.bot.riot_accounts_col.update_one(
+            {"_id": account["_id"]},
+            {"$set": {"tft.lp": new_lp}},
+        )
+
+        rank_str = _format_rank(tier, div, raw_lp) if tier else "Unranked"
+        won = lp_diff > 0
+        colour = 0x4FBD6E if won else 0x8B4A4A
 
         embed = discord.Embed(
             title=f"{name}#{tag}  -  {'WIN' if won else 'LOSS'}",
             color=colour,
         )
         embed.add_field(name="Rank", value=f"**{rank_str}**", inline=True)
-        embed.add_field(
-            name="Change",
-            value=f"**{_lp_arrow(lp_diff)}**" if lp_diff else "**-**",
-            inline=True,
-        )
-        embed.add_field(name="Placement", value=f"**#{placement}**", inline=True)
-        embed.add_field(name="Elims", value=f"**{eliminations}**", inline=True)
-        embed.add_field(name="Damage", value=f"**{damage}**", inline=True)
-        embed.add_field(name="Level", value=f"**{level}**", inline=True)
-        if icon_url:
-            embed.set_thumbnail(url=icon_url)
+        embed.add_field(name="Change", value=f"**{_lp_arrow(lp_diff)}**", inline=True)
+        embed.add_field(name="Placement", value="*updating...*", inline=True)
         embed.set_footer(text=f"Reverie  •  {channel.guild.name}")
 
-        await channel.send(embed=embed)
+        msg = await channel.send(embed=embed)
 
-        # Update stored LP and known match IDs
-        new_ids = list((known_ids | {match_id}))[-20:]
         await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
-            {"$set": {"tft.lp": new_lp, "tft.last_match_ids": new_ids}},
+            {"$set": {"tft.last_message_id": str(msg.id)}},
         )
+
+        # Try to get placement from match history
+        await asyncio.sleep(3)
+        match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
+        for match_id in match_ids:
+            if match_id in known_ids:
+                continue
+            match = await self.riot.get_match(routing, match_id)
+            if not match:
+                continue
+            if match["info"].get("queue_id") != 1100:
+                continue
+            participants = match["info"].get("participants", [])
+            player = next((p for p in participants if p["puuid"] == puuid), None)
+            if not player:
+                continue
+            placement = player.get("placement", "?")
+            eliminations = player.get("players_eliminated", 0)
+            damage = player.get("total_damage_to_players", 0)
+            level = player.get("level", 0)
+            tactician_id = player.get("companion", {}).get("item_ID", 0)
+            icon_url = await self._get_companion_icon(tactician_id)
+            embed.set_field_at(
+                2, name="Placement", value=f"**#{placement}**", inline=True
+            )
+            embed.add_field(name="Elims", value=f"**{eliminations}**", inline=True)
+            embed.add_field(name="Damage", value=f"**{damage}**", inline=True)
+            embed.add_field(name="Level", value=f"**{level}**", inline=True)
+            if icon_url:
+                embed.set_thumbnail(url=icon_url)
+            await msg.edit(embed=embed)
+            new_ids = list((known_ids | {match_id}))[-20:]
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.last_match_ids": new_ids, "tft.last_message_id": ""}},
+            )
+            break
 
     async def _get_companion_icon(self, item_id: int) -> str | None:
         """Fetch companion icon URL, using cache."""
