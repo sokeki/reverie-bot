@@ -378,14 +378,8 @@ class TFTTracker(commands.Cog):
             print(f"[TFT] Season reset detected for {name}#{tag}, LP cleared")
 
         # Fallback: match-first detection during placements (no league entries)
-        print(
-            f"[TFT] {name}#{tag} lp_changed={lp_changed} entries={len(entries)} new_lp={new_lp}"
-        )
         if not lp_changed and not entries:
             match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
-            print(
-                f"[TFT] {name}#{tag} match_ids={len(match_ids)} known={len(known_ids)} new={len(set(match_ids)-known_ids)}"
-            )
             new_match = None
             for match_id in match_ids:
                 if match_id in known_ids:
