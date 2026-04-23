@@ -341,11 +341,12 @@ class RRTracker(commands.Cog):
         return full
 
     async def _trim_match_cache(self, puuid: str) -> None:
-        """Keep only the last 20 cached matches per player."""
+        """Keep only the last 20 cached matches per player.
+        Only deletes docs where this player is the primary owner (puuid field),
+        not matches they merely appeared in as a participant (puuids array).
+        """
         docs = (
-            await self.bot.val_match_cache_col.find(
-                {"$or": [{"puuid": puuid}, {"puuids": puuid}]}
-            )
+            await self.bot.val_match_cache_col.find({"puuid": puuid})
             .sort("cached_at", -1)
             .skip(20)
             .to_list(length=1000)
@@ -890,14 +891,9 @@ class RRTracker(commands.Cog):
             )
             embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="\u200b", value="\u200b", inline=True)
-            bs_pct_v = round(total_bs / total_shots * 100) if total_shots > 0 else 0
-            ls_pct_v = round(total_ls / total_shots * 100) if total_shots > 0 else 0
             embed.add_field(name="ACS", value=f"**{avg_acs}**", inline=True)
             embed.add_field(name="KDA", value=f"**{kda}**", inline=True)
-            embed.add_field(name="\u200b", value="\u200b", inline=True)
             embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
-            embed.add_field(name="BS%", value=f"**{bs_pct_v}%**", inline=True)
-            embed.add_field(name="LS%", value=f"**{ls_pct_v}%**", inline=True)
             embed.set_footer(
                 text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
             )
@@ -929,29 +925,47 @@ class RRTracker(commands.Cog):
                     rnd_winner = rnd.get("winning_team", "").lower()
                     rnd_kills = sorted(
                         kills_by_round.get(rnd_idx, []),
-                        key=lambda k: k.get("time_in_round_in_ms", 0),
+                        key=lambda k: k.get("kill_time_in_round", 0),
                     )
 
                     # First blood
                     if rnd_kills and rnd_kills[0].get("killer_puuid") == puuid:
                         first_bloods += 1
 
-                    # Clutch — who is still alive at end of round?
-                    dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
-                    alive_teammates = [
+                    # Clutch — player was last alive on their team at some point this round.
+                    # Requires: all teammates died, and every teammate death happened
+                    # before (or at the same time as) the player's death / end of round.
+                    teammate_puuids = {
                         p.get("puuid")
                         for p in all_p
                         if isinstance(p, dict)
                         and team_map.get(p.get("puuid", "")) == player_team
                         and p.get("puuid") != puuid
-                        and p.get("puuid") not in dead_puuids
-                    ]
+                    }
+                    dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
+                    all_teammates_died = teammate_puuids.issubset(dead_puuids)
                     player_alive = puuid not in dead_puuids
 
-                    if player_alive and len(alive_teammates) == 0:
-                        clutch_opps += 1
-                        if rnd_winner == player_team:
-                            clutch_wins += 1
+                    if all_teammates_died:
+                        player_death_time = next(
+                            (
+                                k.get("kill_time_in_round", 0)
+                                for k in rnd_kills
+                                if k.get("victim_puuid") == puuid
+                            ),
+                            float("inf"),  # player survived
+                        )
+                        last_teammate_death_time = max(
+                            k.get("kill_time_in_round", 0)
+                            for k in rnd_kills
+                            if k.get("victim_puuid") in teammate_puuids
+                        )
+                        # Player was genuinely last alive only if all teammates died
+                        # strictly before the player died (or player survived)
+                        if last_teammate_death_time < player_death_time:
+                            clutch_opps += 1
+                            if rnd_winner == player_team:
+                                clutch_wins += 1
 
             clutch_pct = (
                 round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
@@ -1298,18 +1312,12 @@ class RRTracker(commands.Cog):
         ls_pct = round(total_ls / grand_total * 100)
 
         embed = discord.Embed(
-            title=f"{name}#{tag}  -  Shot Counts",
+            title=f"{name}#{tag}  -  Shot Accuracy",
             color=COLOUR_MAIN,
         )
-        embed.add_field(
-            name="Headshots", value=f"**{total_hs}**\n{hs_pct}%", inline=True
-        )
-        embed.add_field(
-            name="Bodyshots", value=f"**{total_bs}**\n{bs_pct}%", inline=True
-        )
-        embed.add_field(
-            name="Legshots", value=f"**{total_ls}**\n{ls_pct}%", inline=True
-        )
+        embed.add_field(name="Headshot %", value=f"**{hs_pct}%**", inline=True)
+        embed.add_field(name="Body %", value=f"**{bs_pct}%**", inline=True)
+        embed.add_field(name="Leg %", value=f"**{ls_pct}%**", inline=True)
         embed.set_footer(
             text=f"Last {games_counted} competitive games  •  Reverie  •  {interaction.guild.name}"
         )
