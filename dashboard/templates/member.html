@@ -141,7 +141,6 @@
 
     const weeklyLabels = WEEKLY.labels;
     const hasEnoughData = weeklyLabels.length >= 2;
-    console.log('[member charts] has_weekly={{ has_weekly }}, hasEnoughData=', hasEnoughData, 'WEEKLY=', WEEKLY);
     if (!hasEnoughData) {
         const sub = document.getElementById('weekly-subtitle');
         if (sub) sub.textContent = 'Snapshot from this week — history builds up over time';
@@ -149,7 +148,7 @@
 
     // Init on load
     window.addEventListener('load', () => {
-        requestAnimationFrame(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
             {% if has_daily %}
             setMode('daily');
             {% elif has_weekly %}
@@ -184,7 +183,7 @@
                 });
             }
             {% endif %}
-        });
+        }));
     });
 </script>
 

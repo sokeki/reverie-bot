@@ -175,8 +175,8 @@
 
         if (view === 'charts' && !barChartsDrawn) {
             barChartsDrawn = true;
-            // Defer so the container is visible before Chart.js measures it
-            requestAnimationFrame(() => {
+            // Double-rAF: first frame makes div visible, second frame lets browser measure it
+            requestAnimationFrame(() => requestAnimationFrame(() => {
                 makeBar('chartPoints', BAR.points.labels, BAR.points.values, '#9b8ec4');
                 makeBar('chartVoice', BAR.voice.labels, BAR.voice.values, '#6a9ec4');
                 makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
@@ -198,7 +198,7 @@
                 actFn('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4'),
                 actFn('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e')]
                     .filter(Boolean).forEach(c => actCharts.push(c));
-            });
+            }));
         }
     }
 </script>
