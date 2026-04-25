@@ -156,7 +156,25 @@
         if (!ctx) return null;
         return new Chart(ctx, {
             type: 'line',
-            data: { labels, datasets: [{ data, borderColor: colour, backgroundColor: colour + '33', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointBackgroundColor: colour }] },
+            data: { labels: labels, datasets: [{ data: data, borderColor: colour, backgroundColor: colour + '33', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointBackgroundColor: colour }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 6 } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function makeActChart(id, labels, data, colour) {
+        var ctx = document.getElementById(id);
+        if (!ctx) return null;
+        var chartType = labels.length >= 2 ? 'line' : 'bar';
+        return new Chart(ctx, {
+            type: chartType,
+            data: { labels: labels, datasets: [{ data: data, borderColor: colour, backgroundColor: colour + '33', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointBackgroundColor: colour, borderRadius: 6 }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
@@ -176,30 +194,21 @@
 
         if (view === 'charts' && !barChartsDrawn) {
             barChartsDrawn = true;
-            // Double-rAF: first frame makes div visible, second frame lets browser measure it
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                makeBar('chartPoints', BAR.points.labels, BAR.points.values, '#9b8ec4');
-                makeBar('chartVoice', BAR.voice.labels, BAR.voice.values, '#6a9ec4');
-                makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
-                actCharts.forEach(c => c.destroy());
-                actCharts = [];
-                const actFn = WEEKLY_ACT.labels.length >= 2 ? makeLine : (id, labels, data, colour) => {
-                    const ctx = document.getElementById(id);
-                    if (!ctx) return null;
-                    return new Chart(ctx, {
-                        type: 'bar',
-                        data: { labels, datasets: [{ data, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 6 }] },
-                        options: {
-                            responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-                            scales: { x: { grid: { display: false }, ticks: { color: '#b0a8c8' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true } }
-                        }
-                    });
-                };
-                [actFn('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4'),
-                actFn('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4'),
-                actFn('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e')]
-                    .filter(Boolean).forEach(c => actCharts.push(c));
-            }));
+            requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    makeBar('chartPoints', BAR.points.labels, BAR.points.values, '#9b8ec4');
+                    makeBar('chartVoice', BAR.voice.labels, BAR.voice.values, '#6a9ec4');
+                    makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
+                    actCharts.forEach(function (ch) { ch.destroy(); });
+                    actCharts = [];
+                    var c1 = makeActChart('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4');
+                    var c2 = makeActChart('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4');
+                    var c3 = makeActChart('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e');
+                    if (c1) actCharts.push(c1);
+                    if (c2) actCharts.push(c2);
+                    if (c3) actCharts.push(c3);
+                });
+            });
         }
     }
 </script>

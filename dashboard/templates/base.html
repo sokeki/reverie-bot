@@ -37,7 +37,7 @@
         <div class="nav-user">
             {% if user.avatar %}
             <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" class="avatar"
-                alt="avatar">
+                crossorigin="anonymous" referrerpolicy="no-referrer" alt="avatar">
             {% else %}
             <div class="avatar-placeholder">{{ user.username[0] }}</div>
             {% endif %}
