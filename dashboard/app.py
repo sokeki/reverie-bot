@@ -310,10 +310,10 @@ async def index(request: Request, user: dict = Depends(require_user)):
         await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
     )
     chart_weekly = {
-        "labels": [d["_id"] for d in weekly_agg],
-        "points": [d["points"] for d in weekly_agg],
-        "voice": [d["voice_minutes"] for d in weekly_agg],
-        "messages": [d["messages_sent"] for d in weekly_agg],
+        "labels": list([d["_id"] for d in weekly_agg]),
+        "points": list([d["points"] for d in weekly_agg]),
+        "voice": list([d["voice_minutes"] for d in weekly_agg]),
+        "messages": list([d["messages_sent"] for d in weekly_agg]),
     }
 
     # Daily server totals
@@ -325,10 +325,10 @@ async def index(request: Request, user: dict = Depends(require_user)):
     )
     daily_docs.reverse()
     chart_daily = {
-        "labels": [d["date"] for d in daily_docs],
-        "points": [d.get("points", 0) for d in daily_docs],
-        "voice": [d.get("voice", 0) for d in daily_docs],
-        "messages": [d.get("messages", 0) for d in daily_docs],
+        "labels": list([d["date"] for d in daily_docs]),
+        "points": list([d.get("points", 0) for d in daily_docs]),
+        "voice": list([d.get("voice", 0) for d in daily_docs]),
+        "messages": list([d.get("messages", 0) for d in daily_docs]),
     }
 
     return templates.TemplateResponse(

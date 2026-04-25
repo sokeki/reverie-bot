@@ -82,6 +82,8 @@
     voice: { { weekly_history | map(attribute = 'voice_minutes') | list | tojson } },
     messages: { { weekly_history | map(attribute = 'messages_sent') | list | tojson } },
 };
+    // Ensure no undefined values
+    ['points', 'voice', 'messages'].forEach(k => { weeklyData[k] = weeklyData[k].map(v => v || 0); });
 
     let charts = [];
 
