@@ -281,15 +281,15 @@ async def index(request: Request, user: dict = Depends(require_user)):
 
     chart_points = {
         "labels": [_label(d) for d in top_points_docs],
-        "data": [d.get("points", 0) for d in top_points_docs],
+        "values": [d.get("points", 0) for d in top_points_docs],
     }
     chart_voice = {
         "labels": [_label(d) for d in top_voice_docs],
-        "data": [d.get("voice_minutes", 0) for d in top_voice_docs],
+        "values": [d.get("voice_minutes", 0) for d in top_voice_docs],
     }
     chart_msgs = {
         "labels": [_label(d) for d in top_msg_docs],
-        "data": [d.get("messages_sent", 0) for d in top_msg_docs],
+        "values": [d.get("messages_sent", 0) for d in top_msg_docs],
     }
 
     # Weekly server totals for trend chart
@@ -690,6 +690,7 @@ async def member_page(
     # Fall back to weekly snapshots if no daily data
     weekly_history = []
     if not history:
+        # Try with guild_id first, fall back without it
         weekly_history = (
             await _db["weekly_snapshots"]
             .find({"guild_id": GUILD_ID, "user_id": user_id})
@@ -697,8 +698,23 @@ async def member_page(
             .limit(12)
             .to_list(length=12)
         )
+        if not weekly_history:
+            weekly_history = (
+                await _db["weekly_snapshots"]
+                .find({"user_id": user_id})
+                .sort("week", 1)
+                .limit(12)
+                .to_list(length=12)
+            )
+        print(f"[Member {user_id}] weekly_history count: {len(weekly_history)}")
+        if weekly_history:
+            print(
+                f"[Member {user_id}] sample doc keys: {list(weekly_history[0].keys())}"
+            )
 
     member_doc["_id"] = str(member_doc["_id"])
+    for doc in weekly_history:
+        doc["_id"] = str(doc["_id"])
     # Always pass both — toggle in template
     return templates.TemplateResponse(
         "member.html",
