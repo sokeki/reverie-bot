@@ -77,17 +77,19 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
+    const _history = {{ history | tojson }};
     const DAILY = {
-        labels: {{ history | map(attribute = 'date') | list | tojson }},
-    points: { { history | map(attribute = 'points') | list | tojson } },
-    voice: { { history | map(attribute = 'voice') | list | tojson } },
-    messages: { { history | map(attribute = 'messages') | list | tojson } },
+        labels: _history.map(d => d.date || ''),
+        points: _history.map(d => d.points || 0),
+        voice: _history.map(d => d.voice || 0),
+        messages: _history.map(d => d.messages || 0),
     };
+    const _weekly = {{ weekly_history | tojson }};
     const WEEKLY = {
-        labels: {{ weekly_history | map(attribute = 'week') | list | tojson }},
-    points: { { weekly_history | map(attribute = 'points') | list | tojson } },
-    voice: { { weekly_history | map(attribute = 'voice_minutes') | list | tojson } },
-    messages: { { weekly_history | map(attribute = 'messages_sent') | list | tojson } },
+        labels: _weekly.map(d => d.week || ''),
+        points: _weekly.map(d => d.points || 0),
+        voice: _weekly.map(d => d.voice_minutes || 0),
+        messages: _weekly.map(d => d.messages_sent || 0),
     };
 
     let activeCharts = [];

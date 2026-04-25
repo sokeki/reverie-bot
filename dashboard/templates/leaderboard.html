@@ -123,11 +123,12 @@
     voice: { labels: { { bar_voice_labels | tojson } }, values: { { bar_voice_values | tojson } } },
     msgs: { labels: { { bar_msgs_labels | tojson } }, values: { { bar_msgs_values | tojson } } },
     };
+    const _weekly = {{ weekly | tojson }};
     const WEEKLY_ACT = {
-        labels: {{ weekly | map(attribute = 'week') | list | tojson }},
-    points: { { weekly | map(attribute = 'points') | list | tojson } },
-    voice: { { weekly | map(attribute = 'voice_minutes') | list | tojson } },
-    messages: { { weekly | map(attribute = 'messages_sent') | list | tojson } },
+        labels: _weekly.map(d => d.week || ''),
+        points: _weekly.map(d => d.points || 0),
+        voice: _weekly.map(d => d.voice_minutes || 0),
+        messages: _weekly.map(d => d.messages_sent || 0),
     };
 
     let barChartsDrawn = false;
