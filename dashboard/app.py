@@ -286,45 +286,6 @@ async def index(request: Request, user: dict = Depends(require_user)):
     bar_msgs_labels = [_label(d) for d in top_msg_docs]
     bar_msgs_values = [d.get("messages_sent", 0) for d in top_msg_docs]
 
-    # Weekly server totals for trend chart
-    weekly_pipeline = [
-        {"$match": {"guild_id": GUILD_ID}},
-        {
-            "$group": {
-                "_id": "$week",
-                "points": {"$sum": "$points"},
-                "voice_minutes": {"$sum": "$voice_minutes"},
-                "messages_sent": {"$sum": "$messages_sent"},
-            }
-        },
-        {"$sort": {"_id": 1}},
-        {"$limit": 12},
-    ]
-    weekly_agg = (
-        await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
-    )
-    chart_weekly = {
-        "labels": list([d["_id"] for d in weekly_agg]),
-        "points": list([d["points"] for d in weekly_agg]),
-        "voice": list([d["voice_minutes"] for d in weekly_agg]),
-        "messages": list([d["messages_sent"] for d in weekly_agg]),
-    }
-
-    # Daily server totals
-    daily_docs = (
-        await daily_snapshots_col.find({"guild_id": GUILD_ID, "type": "server"})
-        .sort("date", -1)
-        .limit(30)
-        .to_list(length=30)
-    )
-    daily_docs.reverse()
-    chart_daily = {
-        "labels": list([d["date"] for d in daily_docs]),
-        "points": list([d.get("points", 0) for d in daily_docs]),
-        "voice": list([d.get("voice", 0) for d in daily_docs]),
-        "messages": list([d.get("messages", 0) for d in daily_docs]),
-    }
-
     return templates.TemplateResponse(
         "index.html",
         {
@@ -343,8 +304,6 @@ async def index(request: Request, user: dict = Depends(require_user)):
             "bar_voice_values": bar_voice_values,
             "bar_msgs_labels": bar_msgs_labels,
             "bar_msgs_values": bar_msgs_values,
-            "chart_weekly": chart_weekly,
-            "chart_daily": chart_daily,
         },
     )
 

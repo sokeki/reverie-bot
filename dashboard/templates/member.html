@@ -5,7 +5,7 @@
 <div class="page-header">
     <div style="display:flex;align-items:center;gap:1rem">
         {% if member.avatar_url %}
-        <img src="{{ member.avatar_url }}" style="width:48px;height:48px;border-radius:50%">
+        <img src="{{ member.avatar_url }}" style="width:48px;height:48px;border-radius:50%;object-fit:cover">
         {% endif %}
         <div>
             <h1>{{ member.username or 'Unknown Member' }}</h1>
@@ -45,79 +45,100 @@
         <h2>📅 Activity History</h2>
         {% if has_daily and has_weekly %}
         <div class="toggle-pills">
-            <button class="toggle-pill active" onclick="setMode('weekly')">Weekly</button>
-            <button class="toggle-pill" onclick="setMode('daily')">Daily</button>
+            <button class="toggle-pill" id="btn-weekly" onclick="setMode('weekly')">Weekly</button>
+            <button class="toggle-pill" id="btn-daily" onclick="setMode('daily')">Daily</button>
         </div>
         {% elif has_weekly %}
-        <span style="font-size:0.8em;color:var(--text-muted)">Weekly (daily data not yet available)</span>
+        <span style="font-size:0.8em;color:var(--text-muted)">Weekly — daily data available from tomorrow</span>
         {% else %}
         <span style="font-size:0.8em;color:var(--text-muted)">Last 30 days</span>
         {% endif %}
     </div>
 
     <div class="charts-grid">
-        <div class="chart-card">
-            <h3>✨ Dream Points</h3><canvas id="cPoints"></canvas>
+        <div class="chart-card" style="min-height:200px">
+            <h3>✨ Dream Points</h3><canvas id="cPoints" height="160"></canvas>
         </div>
-        <div class="chart-card">
-            <h3>🎙️ Voice Minutes</h3><canvas id="cVoice"></canvas>
+        <div class="chart-card" style="min-height:200px">
+            <h3>🎙️ Voice Minutes</h3><canvas id="cVoice" height="160"></canvas>
         </div>
-        <div class="chart-card">
-            <h3>💬 Messages</h3><canvas id="cMsgs"></canvas>
+        <div class="chart-card" style="min-height:200px">
+            <h3>💬 Messages</h3><canvas id="cMsgs" height="160"></canvas>
         </div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-    const dailyData = {
+    // Inline Chart.js to avoid CDN issues
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+    const DAILY = {
         labels: {{ history | map(attribute = 'date') | list | tojson }},
     points: { { history | map(attribute = 'points') | list | tojson } },
     voice: { { history | map(attribute = 'voice') | list | tojson } },
     messages: { { history | map(attribute = 'messages') | list | tojson } },
 };
-    const weeklyData = {
+    const WEEKLY = {
         labels: {{ weekly_history | map(attribute = 'week') | list | tojson }},
     points: { { weekly_history | map(attribute = 'points') | list | tojson } },
     voice: { { weekly_history | map(attribute = 'voice_minutes') | list | tojson } },
     messages: { { weekly_history | map(attribute = 'messages_sent') | list | tojson } },
 };
-    // Ensure no undefined values
-    ['points', 'voice', 'messages'].forEach(k => { weeklyData[k] = weeklyData[k].map(v => v || 0); });
 
-    let charts = [];
+    let activeCharts = [];
 
-    function makeChart(id, labels, data, colour) {
-        return new Chart(document.getElementById(id), {
-            type: 'line',
-            data: { labels, datasets: [{ data, borderColor: colour, backgroundColor: colour + '22', fill: true, tension: 0.3, borderWidth: 2 }] },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 8 } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } }
+    function drawCharts(d) {
+        activeCharts.forEach(c => c.destroy());
+        activeCharts = [];
+        [
+            ['cPoints', d.points, '#9b8ec4'],
+            ['cVoice', d.voice, '#6a9ec4'],
+            ['cMsgs', d.messages, '#c49e8e'],
+        ].forEach(([id, data, colour]) => {
+            const ctx = document.getElementById(id);
+            if (!ctx) return;
+            activeCharts.push(new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: d.labels,
+                    datasets: [{
+                        data, borderColor: colour,
+                        backgroundColor: colour + '33',
+                        fill: true, tension: 0.3, borderWidth: 2,
+                        pointRadius: 4, pointBackgroundColor: colour,
+                    }]
                 },
-                elements: { point: { radius: 3 } }
-            }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 6 } },
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true }
+                    }
+                }
+            }));
         });
     }
 
     function setMode(mode) {
-        charts.forEach(c => c.destroy());
-        const d = mode === 'daily' ? dailyData : weeklyData;
-        charts = [
-            makeChart('cPoints', d.labels, d.points, '#9b8ec4'),
-            makeChart('cVoice', d.labels, d.voice, '#6a9ec4'),
-            makeChart('cMsgs', d.labels, d.messages, '#c49e8e'),
-        ];
         document.querySelectorAll('.toggle-pill').forEach(b => b.classList.remove('active'));
-        const btn = document.querySelector(`.toggle-pill[onclick="setMode('${mode}')"]`);
+        const btn = document.getElementById('btn-' + mode);
         if (btn) btn.classList.add('active');
+        drawCharts(mode === 'daily' ? DAILY : WEEKLY);
     }
 
-    setMode('{{ "daily" if has_daily else "weekly" }}');
+    // Init on load
+    window.addEventListener('load', () => {
+        {% if has_daily %}
+        setMode('daily');
+        {% else %}
+        setMode('weekly');
+        {% endif %}
+    });
 </script>
+
 {% else %}
 <div class="empty-state" style="margin-top:2rem">
     <p>No activity history yet — snapshots are taken at midnight UTC.</p>

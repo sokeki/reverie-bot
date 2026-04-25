@@ -75,65 +75,46 @@
     </div>
 </div>
 
-<!-- Top members bar charts -->
 <div class="charts-section">
     <div class="charts-section-header">
         <h2>📊 Top Members</h2>
+        <a href="/activity" class="btn-sm">Server activity →</a>
     </div>
     <div class="charts-grid">
-        <div class="chart-card">
-            <h3>✨ Dream Points</h3>
-            <canvas id="chartPoints"></canvas>
+        <div class="chart-card" style="min-height:220px">
+            <h3>✨ Dream Points</h3><canvas id="chartPoints" height="180"></canvas>
         </div>
-        <div class="chart-card">
-            <h3>🎙️ Voice Minutes</h3>
-            <canvas id="chartVoice"></canvas>
+        <div class="chart-card" style="min-height:220px">
+            <h3>🎙️ Voice Minutes</h3><canvas id="chartVoice" height="180"></canvas>
         </div>
-        <div class="chart-card">
-            <h3>💬 Messages Sent</h3>
-            <canvas id="chartMsgs"></canvas>
+        <div class="chart-card" style="min-height:220px">
+            <h3>💬 Messages Sent</h3><canvas id="chartMsgs" height="180"></canvas>
         </div>
     </div>
 </div>
 
-<!-- Server activity over time -->
-<div class="charts-section">
-    <div class="charts-section-header">
-        <h2>📈 Server Activity</h2>
-        <div class="toggle-pills">
-            <button class="toggle-pill active" onclick="setMode('weekly')">Weekly</button>
-            <button class="toggle-pill" onclick="setMode('daily')" id="dailyBtn">Daily</button>
-        </div>
-    </div>
-    <p class="section-hint" id="dailyHint"
-        style="display:none;color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem">
-        Daily data starts accumulating from midnight UTC — check back tomorrow!
-    </p>
-    <div class="charts-grid charts-grid-tall">
-        <div class="chart-card">
-            <h3>✨ Dream Points</h3>
-            <canvas id="chartActivityPoints"></canvas>
-        </div>
-        <div class="chart-card">
-            <h3>🎙️ Voice Minutes</h3>
-            <canvas id="chartActivityVoice"></canvas>
-        </div>
-        <div class="chart-card">
-            <h3>💬 Messages</h3>
-            <canvas id="chartActivityMsgs"></canvas>
-        </div>
-    </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-    // ── Top members bar charts ────────────────────────────────────────────────
+    const BAR_POINTS_LABELS = {{ bar_points_labels | tojson }};
+    const BAR_POINTS_VALUES = {{ bar_points_values | tojson }};
+    const BAR_VOICE_LABELS = {{ bar_voice_labels  | tojson }};
+    const BAR_VOICE_VALUES = {{ bar_voice_values  | tojson }};
+    const BAR_MSGS_LABELS = {{ bar_msgs_labels   | tojson }};
+    const BAR_MSGS_VALUES = {{ bar_msgs_values   | tojson }};
+
     function makeBar(id, labels, values, colour) {
-        new Chart(document.getElementById(id), {
+        const ctx = document.getElementById(id);
+        if (!ctx) return;
+        new Chart(ctx, {
             type: 'bar',
-            data: { labels, datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }] },
+            data: {
+                labels,
+                datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }]
+            },
             options: {
-                indexAxis: 'y', responsive: true,
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
                 plugins: { legend: { display: false } },
                 scales: {
                     x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } },
@@ -142,68 +123,11 @@
             }
         });
     }
-    makeBar('chartPoints', {{ bar_points_labels | tojson }}, {{ bar_points_values | tojson }}, '#9b8ec4');
-    makeBar('chartVoice', {{ bar_voice_labels  | tojson }}, {{ bar_voice_values  | tojson }}, '#6a9ec4');
-    makeBar('chartMsgs', {{ bar_msgs_labels   | tojson }}, {{ bar_msgs_values   | tojson }}, '#c49e8e');
 
-    // ── Server activity line charts ───────────────────────────────────────────
-    const weeklyData = {
-        labels: {{ chart_weekly.labels   | tojson }},
-    points: { { chart_weekly.points | tojson } },
-    voice: { { chart_weekly.voice | tojson } },
-    messages: { { chart_weekly.messages | tojson } },
-};
-    const dailyData = {
-        labels: {{ chart_daily.labels   | tojson }},
-    points: { { chart_daily.points | tojson } },
-    voice: { { chart_daily.voice | tojson } },
-    messages: { { chart_daily.messages | tojson } },
-};
-
-    let activityCharts = [];
-
-    function makeActivity(id, data, colour) {
-        const c = new Chart(document.getElementById(id), {
-            type: 'line',
-            data: { labels: data.labels, datasets: [{ data, borderColor: colour, backgroundColor: colour + '22', fill: true, tension: 0.3, borderWidth: 2 }] },
-            options: {
-                responsive: true,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 8 } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } }
-                },
-                elements: { point: { radius: 3 } }
-            }
-        });
-        return c;
-    }
-
-    function initActivityCharts(d) {
-        activityCharts.forEach(c => c.destroy());
-        activityCharts = [
-            makeActivity('chartActivityPoints', { labels: d.labels, ...{} }, '#9b8ec4'),
-            makeActivity('chartActivityVoice', { labels: d.labels, ...{} }, '#6a9ec4'),
-            makeActivity('chartActivityMsgs', { labels: d.labels, ...{} }, '#c49e8e'),
-        ];
-        // update datasets
-        activityCharts[0].data.datasets[0].data = d.points;
-        activityCharts[1].data.datasets[0].data = d.voice;
-        activityCharts[2].data.datasets[0].data = d.messages;
-        activityCharts[0].data.labels = d.labels;
-        activityCharts[1].data.labels = d.labels;
-        activityCharts[2].data.labels = d.labels;
-        activityCharts.forEach(c => c.update());
-    }
-
-    function setMode(mode) {
-        document.querySelectorAll('.toggle-pill').forEach(b => b.classList.remove('active'));
-        document.querySelector(`.toggle-pill[onclick="setMode('${mode}')"]`).classList.add('active');
-        const hasDailyData = dailyData.labels.length > 0;
-        document.getElementById('dailyHint').style.display = (mode === 'daily' && !hasDailyData) ? 'block' : 'none';
-        initActivityCharts(mode === 'daily' ? dailyData : weeklyData);
-    }
-
-    setMode('weekly');
+    window.addEventListener('load', () => {
+        makeBar('chartPoints', BAR_POINTS_LABELS, BAR_POINTS_VALUES, '#9b8ec4');
+        makeBar('chartVoice', BAR_VOICE_LABELS, BAR_VOICE_VALUES, '#6a9ec4');
+        makeBar('chartMsgs', BAR_MSGS_LABELS, BAR_MSGS_VALUES, '#c49e8e');
+    });
 </script>
 {% endblock %}
