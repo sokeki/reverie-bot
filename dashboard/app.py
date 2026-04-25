@@ -395,7 +395,8 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
     weekly_agg = (
         await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
     )
-    weekly = [
+    # Compute server-wide deltas week-over-week
+    raw = [
         {
             "week": d["_id"],
             "points": d["points"],
@@ -404,6 +405,24 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
         }
         for d in weekly_agg
     ]
+    weekly = []
+    for i, row in enumerate(raw):
+        if i == 0:
+            weekly.append(row)
+        else:
+            prev = raw[i - 1]
+            weekly.append(
+                {
+                    "week": row["week"],
+                    "points": max(0, row["points"] - prev["points"]),
+                    "voice_minutes": max(
+                        0, row["voice_minutes"] - prev["voice_minutes"]
+                    ),
+                    "messages_sent": max(
+                        0, row["messages_sent"] - prev["messages_sent"]
+                    ),
+                }
+            )
 
     return templates.TemplateResponse(
         "leaderboard.html",
@@ -728,8 +747,35 @@ async def member_page(
         )
 
     member_doc["_id"] = str(member_doc["_id"])
-    for doc in weekly_history:
-        doc["_id"] = str(doc["_id"])
+
+    # Build weekly delta history for charting
+    # weekly_history is sorted by week asc; compute gains vs prior week
+    weekly_chart = []
+    for i, doc in enumerate(weekly_history):
+        if i == 0:
+            weekly_chart.append(
+                {
+                    "week": doc["week"],
+                    "points": doc.get("points", 0),
+                    "voice_minutes": doc.get("voice_minutes", 0),
+                    "messages_sent": doc.get("messages_sent", 0),
+                }
+            )
+        else:
+            prev = weekly_history[i - 1]
+            weekly_chart.append(
+                {
+                    "week": doc["week"],
+                    "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
+                    "voice_minutes": max(
+                        0, doc.get("voice_minutes", 0) - prev.get("voice_minutes", 0)
+                    ),
+                    "messages_sent": max(
+                        0, doc.get("messages_sent", 0) - prev.get("messages_sent", 0)
+                    ),
+                }
+            )
+
     # Always pass both — toggle in template
     return templates.TemplateResponse(
         "member.html",
@@ -739,8 +785,8 @@ async def member_page(
             "user": user,
             "member": member_doc,
             "history": history,
-            "weekly_history": weekly_history,
+            "weekly_history": weekly_chart,
             "has_daily": len(history) > 0,
-            "has_weekly": len(weekly_history) > 0,
+            "has_weekly": len(weekly_chart) > 0,
         },
     )

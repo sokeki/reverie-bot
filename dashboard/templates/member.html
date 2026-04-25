@@ -49,7 +49,8 @@
             <button class="toggle-pill" id="btn-daily" onclick="setMode('daily')">Daily</button>
         </div>
         {% elif has_weekly %}
-        <span style="font-size:0.8em;color:var(--text-muted)">Weekly — daily data available from tomorrow</span>
+        <span style="font-size:0.8em;color:var(--text-muted)" id="weekly-subtitle">Weekly — daily data available from
+            tomorrow</span>
         {% else %}
         <span style="font-size:0.8em;color:var(--text-muted)">Last 30 days</span>
         {% endif %}
@@ -132,13 +133,49 @@
         drawCharts(mode === 'daily' ? DAILY : WEEKLY);
     }
 
+    const weeklyLabels = WEEKLY.labels;
+    const hasEnoughData = weeklyLabels.length >= 2;
+    if (!hasEnoughData) {
+        const sub = document.getElementById('weekly-subtitle');
+        if (sub) sub.textContent = 'Snapshot from this week — history builds up over time';
+    }
+
     // Init on load
     window.addEventListener('load', () => {
         requestAnimationFrame(() => {
             {% if has_daily %}
             setMode('daily');
-            {% else %}
-            setMode('weekly');
+            {% elif has_weekly %}
+            if (hasEnoughData) {
+                setMode('weekly');
+            } else {
+                // Only one week of data — show a bar chart snapshot instead
+                activeCharts.forEach(c => c.destroy());
+                activeCharts = [];
+                [
+                    ['cPoints', WEEKLY.points[0], '#9b8ec4'],
+                    ['cVoice', WEEKLY.voice[0], '#6a9ec4'],
+                    ['cMsgs', WEEKLY.messages[0], '#c49e8e'],
+                ].forEach(([id, val, colour]) => {
+                    const ctx = document.getElementById(id);
+                    if (!ctx) return;
+                    activeCharts.push(new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['This week'],
+                            datasets: [{ data: [val], backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 6 }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { grid: { display: false }, ticks: { color: '#b0a8c8' } },
+                                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true }
+                            }
+                        }
+                    }));
+                });
+            }
             {% endif %}
         });
     });

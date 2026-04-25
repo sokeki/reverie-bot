@@ -149,11 +149,17 @@ class Recap(commands.Cog):
             }
             for d in docs
         ]
-        if snapshots:
-            await self.bot.weekly_snapshots_col.delete_many(
-                {"guild_id": guild_id, "week": week}
+        # Upsert each snapshot so history accumulates across weeks
+        for snap in snapshots:
+            await self.bot.weekly_snapshots_col.update_one(
+                {
+                    "guild_id": snap["guild_id"],
+                    "week": snap["week"],
+                    "user_id": snap["user_id"],
+                },
+                {"$set": snap},
+                upsert=True,
             )
-            await self.bot.weekly_snapshots_col.insert_many(snapshots)
 
     async def _get_weekly_deltas(
         self, guild_id: int, week_override: str = None

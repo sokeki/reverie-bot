@@ -182,9 +182,21 @@
                 makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
                 actCharts.forEach(c => c.destroy());
                 actCharts = [];
-                [makeLine('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4'),
-                makeLine('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4'),
-                makeLine('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e')]
+                const actFn = WEEKLY_ACT.labels.length >= 2 ? makeLine : (id, labels, data, colour) => {
+                    const ctx = document.getElementById(id);
+                    if (!ctx) return null;
+                    return new Chart(ctx, {
+                        type: 'bar',
+                        data: { labels, datasets: [{ data, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 6 }] },
+                        options: {
+                            responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                            scales: { x: { grid: { display: false }, ticks: { color: '#b0a8c8' } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true } }
+                        }
+                    });
+                };
+                [actFn('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4'),
+                actFn('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4'),
+                actFn('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e')]
                     .filter(Boolean).forEach(c => actCharts.push(c));
             });
         }
