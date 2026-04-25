@@ -56,17 +56,17 @@
     </div>
 
     <div class="charts-grid">
-        <div class="chart-card" style="height:260px;display:flex;flex-direction:column">
+        <div class="chart-card">
             <h3>✨ Dream Points</h3>
-            <div style="flex:1;position:relative"><canvas id="cPoints"></canvas></div>
+            <div style="height:180px;position:relative"><canvas id="cPoints"></canvas></div>
         </div>
-        <div class="chart-card" style="height:260px;display:flex;flex-direction:column">
+        <div class="chart-card">
             <h3>🎙️ Voice Minutes</h3>
-            <div style="flex:1;position:relative"><canvas id="cVoice"></canvas></div>
+            <div style="height:180px;position:relative"><canvas id="cVoice"></canvas></div>
         </div>
-        <div class="chart-card" style="height:260px;display:flex;flex-direction:column">
+        <div class="chart-card">
             <h3>💬 Messages</h3>
-            <div style="flex:1;position:relative"><canvas id="cMsgs"></canvas></div>
+            <div style="height:180px;position:relative"><canvas id="cMsgs"></canvas></div>
         </div>
     </div>
 </div>
@@ -134,11 +134,13 @@
 
     // Init on load
     window.addEventListener('load', () => {
-        {% if has_daily %}
-        setMode('daily');
-        {% else %}
-        setMode('weekly');
-        {% endif %}
+        requestAnimationFrame(() => {
+            {% if has_daily %}
+            setMode('daily');
+            {% else %}
+            setMode('weekly');
+            {% endif %}
+        });
     });
 </script>
 

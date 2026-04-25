@@ -76,42 +76,44 @@
     <div class="charts-section" style="margin-top:0">
         <h2 style="margin-bottom:1rem">📊 Top 10 Members</h2>
         <div class="charts-grid">
-            <div class="chart-card" style="height:320px;display:flex;flex-direction:column">
+            <div class="chart-card">
                 <h3>✨ Dream Points</h3>
-                <div style="flex:1;position:relative"><canvas id="chartPoints"></canvas></div>
+                <div style="height:240px;position:relative"><canvas id="chartPoints"></canvas></div>
             </div>
-            <div class="chart-card" style="height:320px;display:flex;flex-direction:column">
+            <div class="chart-card">
                 <h3>🎙️ Voice Minutes</h3>
-                <div style="flex:1;position:relative"><canvas id="chartVoice"></canvas></div>
+                <div style="height:240px;position:relative"><canvas id="chartVoice"></canvas></div>
             </div>
-            <div class="chart-card" style="height:320px;display:flex;flex-direction:column">
+            <div class="chart-card">
                 <h3>💬 Messages Sent</h3>
-                <div style="flex:1;position:relative"><canvas id="chartMsgs"></canvas></div>
+                <div style="height:240px;position:relative"><canvas id="chartMsgs"></canvas></div>
             </div>
         </div>
     </div>
 
-    {% if weekly %}
     <div class="charts-section">
         <div class="charts-section-header">
             <h2>📅 Server Activity Over Time</h2>
         </div>
+        {% if not weekly %}
+        <p style="color:var(--text-muted);font-size:0.85rem">No weekly snapshots yet — data appears after the first
+            weekly recap.</p>
+        {% endif %}
         <div class="charts-grid">
-            <div class="chart-card" style="height:240px;display:flex;flex-direction:column">
+            <div class="chart-card">
                 <h3>✨ Dream Points</h3>
-                <div style="flex:1;position:relative"><canvas id="actPoints"></canvas></div>
+                <div style="height:180px;position:relative"><canvas id="actPoints"></canvas></div>
             </div>
-            <div class="chart-card" style="height:240px;display:flex;flex-direction:column">
+            <div class="chart-card">
                 <h3>🎙️ Voice Minutes</h3>
-                <div style="flex:1;position:relative"><canvas id="actVoice"></canvas></div>
+                <div style="height:180px;position:relative"><canvas id="actVoice"></canvas></div>
             </div>
-            <div class="chart-card" style="height:240px;display:flex;flex-direction:column">
+            <div class="chart-card">
                 <h3>💬 Messages</h3>
-                <div style="flex:1;position:relative"><canvas id="actMsgs"></canvas></div>
+                <div style="height:180px;position:relative"><canvas id="actMsgs"></canvas></div>
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
@@ -173,15 +175,18 @@
 
         if (view === 'charts' && !barChartsDrawn) {
             barChartsDrawn = true;
-            makeBar('chartPoints', BAR.points.labels, BAR.points.values, '#9b8ec4');
-            makeBar('chartVoice', BAR.voice.labels, BAR.voice.values, '#6a9ec4');
-            makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
-            actCharts.forEach(c => c.destroy());
-            actCharts = [];
-            [makeLine('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4'),
-            makeLine('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4'),
-            makeLine('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e')]
-                .filter(Boolean).forEach(c => actCharts.push(c));
+            // Defer so the container is visible before Chart.js measures it
+            requestAnimationFrame(() => {
+                makeBar('chartPoints', BAR.points.labels, BAR.points.values, '#9b8ec4');
+                makeBar('chartVoice', BAR.voice.labels, BAR.voice.values, '#6a9ec4');
+                makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
+                actCharts.forEach(c => c.destroy());
+                actCharts = [];
+                [makeLine('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4'),
+                makeLine('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4'),
+                makeLine('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e')]
+                    .filter(Boolean).forEach(c => actCharts.push(c));
+            });
         }
     }
 </script>
