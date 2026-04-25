@@ -212,6 +212,21 @@ async def callback(request: Request, code: str = None, error: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/avatar-proxy")
+async def avatar_proxy(url: str):
+    """Proxy Discord avatar images to avoid CORB issues."""
+    import httpx
+    from fastapi.responses import Response
+
+    if not url.startswith("https://cdn.discordapp.com/"):
+        raise HTTPException(status_code=400)
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+    return Response(
+        content=r.content, media_type=r.headers.get("content-type", "image/png")
+    )
+
+
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
