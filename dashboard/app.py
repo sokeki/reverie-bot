@@ -83,6 +83,7 @@ _db = _client[DB_NAME]
 users_col = _db["users"]
 items_col = _db["shop_items"]
 settings_col = _db["guild_settings"]
+questions_col = _db["questions"]
 
 
 async def get_settings() -> dict:
@@ -269,11 +270,7 @@ async def index(request: Request, user: dict = Depends(require_user)):
     )
 
     def _label(doc):
-        return (
-            doc.get("val_name")
-            or doc.get("username")
-            or f"user_{str(doc.get('user_id', '?'))[-4:]}"
-        )
+        return doc.get("username") or f"user_{str(doc.get('user_id', '?'))[-4:]}"
 
     chart_points = {
         "labels": [_label(d) for d in top_points_docs],
