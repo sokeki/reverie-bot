@@ -56,14 +56,17 @@
     </div>
 
     <div class="charts-grid">
-        <div class="chart-card" style="min-height:200px">
-            <h3>✨ Dream Points</h3><canvas id="cPoints" height="160"></canvas>
+        <div class="chart-card" style="height:260px;display:flex;flex-direction:column">
+            <h3>✨ Dream Points</h3>
+            <div style="flex:1;position:relative"><canvas id="cPoints"></canvas></div>
         </div>
-        <div class="chart-card" style="min-height:200px">
-            <h3>🎙️ Voice Minutes</h3><canvas id="cVoice" height="160"></canvas>
+        <div class="chart-card" style="height:260px;display:flex;flex-direction:column">
+            <h3>🎙️ Voice Minutes</h3>
+            <div style="flex:1;position:relative"><canvas id="cVoice"></canvas></div>
         </div>
-        <div class="chart-card" style="min-height:200px">
-            <h3>💬 Messages</h3><canvas id="cMsgs" height="160"></canvas>
+        <div class="chart-card" style="height:260px;display:flex;flex-direction:column">
+            <h3>💬 Messages</h3>
+            <div style="flex:1;position:relative"><canvas id="cMsgs"></canvas></div>
         </div>
     </div>
 </div>
@@ -78,13 +81,13 @@
     points: { { history | map(attribute = 'points') | list | tojson } },
     voice: { { history | map(attribute = 'voice') | list | tojson } },
     messages: { { history | map(attribute = 'messages') | list | tojson } },
-};
+    };
     const WEEKLY = {
         labels: {{ weekly_history | map(attribute = 'week') | list | tojson }},
     points: { { weekly_history | map(attribute = 'points') | list | tojson } },
     voice: { { weekly_history | map(attribute = 'voice_minutes') | list | tojson } },
     messages: { { weekly_history | map(attribute = 'messages_sent') | list | tojson } },
-};
+    };
 
     let activeCharts = [];
 
