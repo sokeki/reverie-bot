@@ -133,8 +133,15 @@
         drawCharts(mode === 'daily' ? DAILY : WEEKLY);
     }
 
+    // Null-safe the data arrays
+    ['points', 'voice', 'messages'].forEach(k => {
+        WEEKLY[k] = (WEEKLY[k] || []).map(v => v ?? 0);
+        DAILY[k] = (DAILY[k] || []).map(v => v ?? 0);
+    });
+
     const weeklyLabels = WEEKLY.labels;
     const hasEnoughData = weeklyLabels.length >= 2;
+    console.log('[member charts] has_weekly={{ has_weekly }}, hasEnoughData=', hasEnoughData, 'WEEKLY=', WEEKLY);
     if (!hasEnoughData) {
         const sub = document.getElementById('weekly-subtitle');
         if (sub) sub.textContent = 'Snapshot from this week — history builds up over time';
