@@ -279,18 +279,12 @@ async def index(request: Request, user: dict = Depends(require_user)):
         uid = doc.get("user_id")
         return f"#{str(uid)[-4:]}" if uid else "?"
 
-    chart_points = {
-        "labels": [_label(d) for d in top_points_docs],
-        "values": [d.get("points", 0) for d in top_points_docs],
-    }
-    chart_voice = {
-        "labels": [_label(d) for d in top_voice_docs],
-        "values": [d.get("voice_minutes", 0) for d in top_voice_docs],
-    }
-    chart_msgs = {
-        "labels": [_label(d) for d in top_msg_docs],
-        "values": [d.get("messages_sent", 0) for d in top_msg_docs],
-    }
+    bar_points_labels = [_label(d) for d in top_points_docs]
+    bar_points_values = [d.get("points", 0) for d in top_points_docs]
+    bar_voice_labels = [_label(d) for d in top_voice_docs]
+    bar_voice_values = [d.get("voice_minutes", 0) for d in top_voice_docs]
+    bar_msgs_labels = [_label(d) for d in top_msg_docs]
+    bar_msgs_values = [d.get("messages_sent", 0) for d in top_msg_docs]
 
     # Weekly server totals for trend chart
     weekly_pipeline = [
@@ -343,9 +337,12 @@ async def index(request: Request, user: dict = Depends(require_user)):
             "total_messages": total_messages,
             "total_items": total_items,
             "settings": settings,
-            "chart_points": chart_points,
-            "chart_voice": chart_voice,
-            "chart_msgs": chart_msgs,
+            "bar_points_labels": bar_points_labels,
+            "bar_points_values": bar_points_values,
+            "bar_voice_labels": bar_voice_labels,
+            "bar_voice_values": bar_voice_values,
+            "bar_msgs_labels": bar_msgs_labels,
+            "bar_msgs_values": bar_msgs_values,
             "chart_weekly": chart_weekly,
             "chart_daily": chart_daily,
         },

@@ -142,9 +142,9 @@
             }
         });
     }
-    makeBar('chartPoints', {{ chart_points.labels | tojson }}, {{ chart_points.values | tojson }}, '#9b8ec4');
-    makeBar('chartVoice', {{ chart_voice.labels | tojson }}, {{ chart_voice.values | tojson }}, '#6a9ec4');
-    makeBar('chartMsgs', {{ chart_msgs.labels | tojson }}, {{ chart_msgs.values | tojson }}, '#c49e8e');
+    makeBar('chartPoints', {{ bar_points_labels | tojson }}, {{ bar_points_values | tojson }}, '#9b8ec4');
+    makeBar('chartVoice', {{ bar_voice_labels  | tojson }}, {{ bar_voice_values  | tojson }}, '#6a9ec4');
+    makeBar('chartMsgs', {{ bar_msgs_labels   | tojson }}, {{ bar_msgs_values   | tojson }}, '#c49e8e');
 
     // ── Server activity line charts ───────────────────────────────────────────
     const weeklyData = {
