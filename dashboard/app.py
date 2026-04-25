@@ -244,6 +244,50 @@ async def index(request: Request, user: dict = Depends(require_user)):
     total_voice = agg[0]["total_voice"] if agg else 0
     total_messages = agg[0]["total_messages"] if agg else 0
 
+    # Chart data — top 10 members for each stat
+    top_points_docs = (
+        await users_col.find({"guild_id": GUILD_ID}, {"val_name": 1, "points": 1})
+        .sort("points", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+    top_voice_docs = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"val_name": 1, "voice_minutes": 1}
+        )
+        .sort("voice_minutes", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+    top_msg_docs = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"val_name": 1, "messages_sent": 1}
+        )
+        .sort("messages_sent", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+
+    def _label(doc):
+        return (
+            doc.get("val_name")
+            or doc.get("username")
+            or f"user_{str(doc.get('user_id', '?'))[-4:]}"
+        )
+
+    chart_points = {
+        "labels": [_label(d) for d in top_points_docs],
+        "values": [d.get("points", 0) for d in top_points_docs],
+    }
+    chart_voice = {
+        "labels": [_label(d) for d in top_voice_docs],
+        "values": [d.get("voice_minutes", 0) for d in top_voice_docs],
+    }
+    chart_msgs = {
+        "labels": [_label(d) for d in top_msg_docs],
+        "values": [d.get("messages_sent", 0) for d in top_msg_docs],
+    }
+
     return templates.TemplateResponse(
         "index.html",
         {
@@ -256,6 +300,9 @@ async def index(request: Request, user: dict = Depends(require_user)):
             "total_messages": total_messages,
             "total_items": total_items,
             "settings": settings,
+            "chart_points": chart_points,
+            "chart_voice": chart_voice,
+            "chart_msgs": chart_msgs,
         },
     )
 
@@ -462,3 +509,56 @@ async def save_settings(request: Request, user: dict = Depends(require_admin)):
         upsert=True,
     )
     return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+# ── Questions manager ──────────────────────────────────────────────────────────
+
+
+@app.get("/questions", response_class=HTMLResponse)
+async def questions_page(request: Request, user: dict = Depends(require_admin)):
+    questions = (
+        await questions_col.find({"guild_id": GUILD_ID})
+        .sort("_id", -1)
+        .to_list(length=500)
+    )
+    for q in questions:
+        q["_id"] = str(q["_id"])
+    return templates.TemplateResponse(
+        "questions.html",
+        {
+            "request": request,
+            "guild_name": GUILD_NAME,
+            "user": user,
+            "questions": questions,
+            "saved": request.query_params.get("saved"),
+            "deleted": request.query_params.get("deleted"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.post("/questions/add")
+async def questions_add(request: Request, user: dict = Depends(require_admin)):
+    form = await request.form()
+    text = form.get("text", "").strip()
+    if not text:
+        return RedirectResponse(
+            "/questions?error=Question+text+is+required", status_code=303
+        )
+    existing = await questions_col.find_one({"guild_id": GUILD_ID, "text": text})
+    if existing:
+        return RedirectResponse(
+            "/questions?error=That+question+already+exists", status_code=303
+        )
+    await questions_col.insert_one({"guild_id": GUILD_ID, "text": text})
+    return RedirectResponse("/questions?saved=1", status_code=303)
+
+
+@app.post("/questions/delete/{question_id}")
+async def questions_delete(
+    question_id: str, request: Request, user: dict = Depends(require_admin)
+):
+    from bson import ObjectId
+
+    await questions_col.delete_one({"_id": ObjectId(question_id)})
+    return RedirectResponse("/questions?deleted=1", status_code=303)

@@ -74,4 +74,65 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Charts -->
+<div class="charts-section">
+    <h2>📊 Top Members</h2>
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h3>✨ Dream Points</h3>
+            <canvas id="chartPoints"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>🎙️ Voice Minutes</h3>
+            <canvas id="chartVoice"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>💬 Messages Sent</h3>
+            <canvas id="chartMsgs"></canvas>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    const chartDefaults = {
+        type: 'bar',
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } },
+                y: { grid: { display: false }, ticks: { color: '#e8e0f0' } }
+            }
+        }
+    };
+
+    function makeChart(id, labels, values, colour) {
+        new Chart(document.getElementById(id), {
+            ...chartDefaults,
+            data: {
+                labels,
+                datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }]
+            }
+        });
+    }
+
+    makeChart('chartPoints',
+        {{ chart_points.labels | tojson }},
+        {{ chart_points.values | tojson }},
+        '#9b8ec4'
+    );
+    makeChart('chartVoice',
+        {{ chart_voice.labels | tojson }},
+        {{ chart_voice.values | tojson }},
+        '#6a9ec4'
+    );
+    makeChart('chartMsgs',
+        {{ chart_msgs.labels | tojson }},
+        {{ chart_msgs.values | tojson }},
+        '#c49e8e'
+    );
+</script>
 {% endblock %}

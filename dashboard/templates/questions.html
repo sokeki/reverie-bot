@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}— Questions{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>❓ Questions</h1>
+    <p class="subtitle"><em>{{ questions | length }} question{% if questions | length != 1 %}s{% endif %} in the
+            pool</em></p>
+</div>
+
+{% if saved %}<div class="toast">✅ Question added!</div>{% endif %}
+{% if deleted %}<div class="toast toast-warn">🗑️ Question deleted.</div>{% endif %}
+{% if error %}<div class="toast toast-error">⚠️ {{ error }}</div>{% endif %}
+
+<div class="questions-layout">
+
+    <div class="add-card" style="margin-bottom:2rem">
+        <div class="shop-type">➕ Add question</div>
+        <form method="POST" action="/questions/add" class="edit-form" style="margin-top:0.75rem">
+            <div class="field-row">
+                <label>Question text <span class="req">*</span></label>
+                <input type="text" name="text" placeholder="e.g. What's your biggest fear?" required style="flex:1">
+            </div>
+            <div class="edit-actions">
+                <button type="submit" class="btn-edit-save">Add question</button>
+            </div>
+        </form>
+    </div>
+
+    {% if not questions %}
+    <div class="empty-state">
+        <p>No questions yet — add one above!</p>
+    </div>
+    {% else %}
+    <div class="questions-list">
+        {% for q in questions %}
+        <div class="question-row">
+            <span class="question-text">{{ q.text }}</span>
+            <form method="POST" action="/questions/delete/{{ q._id }}"
+                onsubmit="return confirm('Delete this question?')" style="flex-shrink:0">
+                <button type="submit" class="btn-delete btn-delete-sm">Delete</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

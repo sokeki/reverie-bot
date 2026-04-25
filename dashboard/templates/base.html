@@ -30,6 +30,7 @@
             <a href="/shop" {% if request.url.path=="/shop" %}class="active" {% endif %}>Shop</a>
             <a href="/commands" {% if request.url.path=="/commands" %}class="active" {% endif %}>Commands</a>
             {% if user.is_admin %}
+            <a href="/questions" {% if request.url.path=="/questions" %}class="active" {% endif %}>Questions</a>
             <a href="/settings" {% if request.url.path=="/settings" %}class="active" {% endif %}>Settings</a>
             {% endif %}
         </div>
