@@ -1,6 +1,6 @@
 # 🌙 Reverie
 
-A dreamy Discord points bot for **Hypnagogia**. Tracks voice chat time and messages, rewards members with dream points, and includes a fully featured shop, dashboard, guest invite system, anonymous Q&A game, and Valorant/TFT tracking.
+A dreamy Discord points bot for **Hypnagogia**. Tracks voice chat time and messages, rewards members with dream points, and includes a fully featured shop, dashboard, guest invite system, anonymous Q&A game, Valorant/TFT tracking, weekly recap, and Mudae cleaner.
 
 ---
 
@@ -22,6 +22,23 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | 🖊️ Custom Title | One-use item - member types their own title |
 | 🗑️ Role Remover | Consumable - removes one purchased shop role |
 
+### Valorant tracking
+- Polls the Henrik API every minute for new competitive games
+- Posts per-game embeds with rank, RR change, KDA, map, score, HS%
+- Daily summary posted at midnight UTC
+- `/valstats` with 5 detail views: clutch & first bloods, utility, behaviour, agents, maps
+- Mudae roll cleaner — auto-deletes unclaimed rolls after a configurable delay
+
+### TFT tracking
+- Polls Riot API every minute for LP changes
+- Posts LP gain/loss with rank, change, placement, elims, damage, level, tactician icon
+- Handles placement matches (no LP) via match-first detection
+
+### Weekly recap
+- Posts every Sunday at midnight UTC (or manually with `/sendrecap week:YYYY-MM-DD`)
+- Top points earners, voice time, messages sent, comp roll awards
+- Comp roll winners get a crown nickname (`👑 username`) and title roles for the week
+
 ---
 
 ## Commands
@@ -32,7 +49,7 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | `/points` | Check your dream points, voice time, rank and streak |
 | `/points @user` | Check another member's stats |
 | `/leaderboard` | Hall of Dreamers - sortable by points, rank, voice, messages |
-| `/shop` | Browse the dream shop (10 items per page) |
+| `/shop` | Browse the dream shop (5 items per page with pagination) |
 | `/buy <item>` | Purchase an item from the shop |
 | `/inventory` | See the items you own |
 | `/inventory @user` | Check another member's inventory |
@@ -54,11 +71,11 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | `/registerriot <name#tag> <region>` | Add a Riot account to server tracking (Valorant RR + TFT LP) |
 | `/unregisterriot <name#tag>` | Remove a Riot account from server tracking |
 | `/valleaderboard` | See current rank and RR for all registered players, sorted by ELO |
-| `/valstats <name#tag> <region> [detail]` | Valorant stats for any player. Optional detail: `clutch`, `utility`, `behaviour`, `agents`, `maps` |
+| `/valstats <name#tag> <region> [detail]` | Valorant stats for any player. Detail options: `clutch`, `utility`, `behaviour`, `agents`, `maps` |
 | `/tftleaderboard` | TFT LP leaderboard for all tracked accounts |
 | `/tftstats <name#tag> <region>` | TFT ranked stats for any player: wins, losses, winrate and rank |
 | `/scoreboard` | Scoreboard for a match - provide a match ID or username, or reply to an RR update with `r!sb` |
-| `/footshot <name#tag>` | Headshot, bodyshot and legshot percentages across last 10 competitive games |
+| `/footshot <name#tag>` | Raw headshot, bodyshot and legshot counts with percentages across last 10 competitive games |
 
 ### Invite role only
 | Command | Description |
@@ -83,12 +100,14 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | `/addquestion <text>` | Add a question to the anonymous Q&A pool |
 | `/removequestion <text>` | Remove a question from the pool by its exact text |
 | `/listquestions` | List all questions in the anonymous Q&A pool |
-| `/setrecapchannel #channel` | Set the channel where the weekly recap is posted every Monday at midnight UTC |
-| `/sendrecap` | Manually trigger this week's recap |
-| `/setvalchannel #channel` | Set the channel for Valorant RR and TFT tracking updates and the daily summary |
+| `/setrecapchannel #channel` | Set the channel where the weekly recap is posted |
+| `/sendrecap [week:YYYY-MM-DD]` | Manually trigger the recap. Optionally specify a week start date |
+| `/setcompwinnerrole @role` | Set the shared role given to all comp roll winners each week |
+| `/setvalchannel #channel` | Set the channel for Valorant RR tracking updates and the daily summary |
 | `/valtrackerstatus` | Check if the RR tracker is running and see the status of all registered accounts |
 | `/valtrackertest <name#tag>` | Test the Henrik API for a specific account and see the raw response |
 | `/settftchannel #channel` | Set the channel for TFT LP tracking updates |
+| `/mudaecleaner enabled:<bool> [delay:<duration>]` | Enable/disable the Mudae roll cleaner and set the deletion delay (e.g. `3h`) |
 
 ---
 
@@ -96,72 +115,42 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 
 ```
 reverie/
-├── bot.py               - main entry point, DB setup, message tracking
-├── config.py            - constants and fallback settings
-├── Procfile             - Heroku worker + web dynos
-├── runtime.txt          - Python version for Heroku
-├── requirements.txt     - all dependencies
-├── .gitignore
+├── bot.py                    - main entry point, DB setup, message tracking
+├── config.py                 - constants and fallback settings
 ├── cogs/
-│   ├── admin.py         - /addpoints, /dashboard
-│   ├── anonymous.py     - /answer, anonymous Q&A game with guessing and points
-│   ├── guest_invite.py  - /guestinvite, /drag, /setinviterole, /setlingeringrole
-│   ├── leaderboard.py   - /leaderboard with sort options
-│   ├── mudae_cleaner.py - auto-deletes Mudae roll messages on a delay
-│   ├── points.py        - /points embed with rank, streak and comp roll history
-│   ├── recap.py         - weekly recap posted every Monday, /setrecapchannel, /sendrecap
-│   ├── rr_tracker.py    - Valorant RR tracking, /valstats, /valleaderboard, /scoreboard, /footshot
-│   ├── shop.py          - full shop system, /buy, /inventory, /equip, /unequip, /setcustomtitle
-│   ├── tft.py           - TFT LP tracking, /tftleaderboard, /tftstats
-│   ├── valorant.py      - /randomagent, /randomrole, /randomcomp
-│   └── voice.py         - voice tracking, points, persistent sessions
-├── utils/
-│   ├── db.py            - shared DB helpers
-│   ├── ranks.py         - infinite Greek letter rank system
-│   └── streaks.py       - streak tracking logic
-├── scripts/
-│   ├── migrate_accounts.py  - one-off data migration helper
-│   ├── reset_accounts.py    - wipe account data for a guild
-│   ├── roles.py             - bulk Valorant agent role setup script
-│   ├── fix_rr.py            - backfill missing RR history from API
-│   ├── recache_games.py     - rebuild cached game data from stored match docs
-│   ├── remove_match.py      - remove a specific match from the DB
-│   ├── remove_duplicates.py - deduplicate match records
-│   └── reset_15Apr.py       - point-in-time reset script
-└── dashboard/
-    ├── app.py           - FastAPI app, Discord OAuth, all routes
-    ├── static/
-    │   ├── favicon.svg  - moon tab icon
-    │   ├── og-image.png - Open Graph preview image
-    │   ├── style.css    - Reverie theme
-    │   └── fonts/       - Alter Haas Grotesk font files (add manually)
-    └── templates/
-        ├── base.html        - shared nav and layout
-        ├── login.html       - Discord OAuth login page
-        ├── index.html       - overview and server stats
-        ├── leaderboard.html - Hall of Dreamers with sort pills
-        ├── shop.html        - shop browser and admin CRUD
-        ├── commands.html    - command reference
-        └── settings.html    - admin settings panel
+│   ├── shop.py               - dream shop, inventory, titles, role remover
+│   ├── points.py             - /points, /leaderboard
+│   ├── voice.py              - voice session tracking
+│   ├── leaderboard.py        - extended leaderboard
+│   ├── admin.py              - admin point commands
+│   ├── anonymous.py          - anonymous Q&A game
+│   ├── guest_invite.py       - guest invite and drag system
+│   ├── valorant.py           - /randomcomp and comp roll tracking
+│   ├── rr_tracker.py         - Valorant RR tracking, /valstats, daily summary
+│   ├── tft.py                - TFT LP tracking and leaderboard
+│   ├── recap.py              - weekly recap, nickname/role awards
+│   └── mudae_cleaner.py      - auto-delete unclaimed Mudae rolls
+├── dashboard/
+│   ├── app.py                - FastAPI dashboard (OAuth, shop management, settings)
+│   ├── templates/            - Jinja2 HTML templates
+│   └── static/               - CSS and assets
+├── scripts/                  - one-off maintenance and backfill scripts
+└── utils/
+    ├── db.py                 - DB helpers
+    ├── ranks.py              - rank calculation
+    └── streaks.py            - streak helpers
 ```
 
 ---
 
-## Setup - running locally
+## Setup - local development
 
-### 1. Create the Discord bot
+### 1. Clone the repo
 
-1. Go to https://discord.com/developers/applications - **New Application**
-2. Go to **Bot** tab - **Reset Token** and copy it
-3. Under **Privileged Gateway Intents**, enable:
-   - Server Members Intent
-   - Message Content Intent
-4. Go to **OAuth2 - URL Generator**, select scopes:
-   - `bot` and `applications.commands`
-   - Permissions: `Send Messages`, `Read Message History`, `Connect`, `View Channels`, `Manage Roles`, `Kick Members`, `Create Instant Invite`, `Move Members`
-5. Open the generated URL and invite the bot to your server
-
-> Reverie's bot role must be **above** any purchasable roles in Server Settings - Roles, otherwise it cannot assign or remove them.
+```bash
+git clone https://github.com/your-username/reverie.git
+cd reverie
+```
 
 ### 2. Install dependencies
 
@@ -210,7 +199,8 @@ Go to **Settings - Reveal Config Vars** and add:
 | `DISCORD_CLIENT_SECRET` | Your Discord app client secret |
 | `DISCORD_REDIRECT_URI` | `https://your-app.herokuapp.com/callback` |
 | `DASHBOARD_SECRET_KEY` | A long random string for session signing |
-| `HENRIK_API_KEY` | Your Henrik API key (for Valorant/TFT tracking) |
+| `HENRIK_API_KEY` | Your Henrik API key (for Valorant tracking) |
+| `RIOT_API_KEY` | Your Riot Games production API key (for TFT tracking) |
 
 ### 4. Deploy
 
@@ -245,15 +235,19 @@ VOICE_TICK_SECONDS     = VOICE_BLOCK_MINUTES * 60
 
 | Collection | Purpose |
 |---|---|
-| `users` | Points, voice minutes, messages, streak per member |
+| `users` | Points, voice minutes, messages, streak, comp role history per member |
 | `shop_items` | Items listed in the shop |
 | `inventories` | Items owned by each member, active title |
-| `guild_settings` | Live settings, embed colours, invite roles, guest list |
+| `guild_settings` | Live settings, channel IDs, comp winner roles, nick award data |
 | `voice_sessions` | Persistent voice session times (survives restarts) |
 | `anon_rounds` | Anonymous Q&A rounds, answers, guesses and outcomes |
-| `comp_rolls` | Valorant comp roll history per member per week |
-| `val_matches` | Cached Valorant match data for registered accounts |
-| `tft_accounts` | Registered TFT accounts and their last known LP |
+| `questions` | Anonymous Q&A question pool |
+| `comp_rolls` | Valorant comp roll counts per member per week |
+| `val_games` | Per-game RR data for daily summaries |
+| `val_match_cache` | Cached Valorant match data for /valstats detail views |
+| `riot_accounts` | Registered Riot accounts, Valorant and TFT tracking state |
+| `mudae_deletions` | Pending Mudae message deletions |
+| `weekly_snapshots` | Weekly points/voice/message snapshots for recap deltas |
 
 ---
 

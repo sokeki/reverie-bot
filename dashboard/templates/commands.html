@@ -15,14 +15,12 @@
         <div class="cmd-card">
             <div class="cmd-name">/points</div>
             <div class="cmd-desc">Check your dream points, voice time, rank, streak and comp roll history. Add
-                <code>@user</code> to check someone else.
-            </div>
+                <code>@user</code> to check someone else.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/leaderboard</div>
             <div class="cmd-desc">See the Hall of Dreamers. Sortable by points, rank, voice time or messages. Use
-                <code>top</code> to change how many are shown.
-            </div>
+                <code>top</code> to change how many are shown.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/shop</div>
@@ -112,8 +110,7 @@
                 and HS% across their last 10 games. Use the optional <code>detail</code> argument to see:
                 <code>clutch</code> (clutch % and first bloods), <code>utility</code> (ability casts per game),
                 <code>behaviour</code> (AFK/spawn/friendly fire), <code>agents</code> (per-agent KD, ACS, winrate), or
-                <code>maps</code> (winrate per map).
-            </div>
+                <code>maps</code> (winrate per map).</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/tftleaderboard</div>
@@ -121,7 +118,7 @@
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/tftstats &lt;name#tag&gt; &lt;region&gt;</div>
-            <div class="cmd-desc">Show detailed TFT ranked stats for any player: wins, losses, winrate and rank.</div>
+            <div class="cmd-desc">Show detailed TFT ranked stats for any player - wins, losses, winrate and rank.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/scoreboard</div>
@@ -130,7 +127,7 @@
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/footshot &lt;name#tag&gt;</div>
-            <div class="cmd-desc">Check a player's headshot, bodyshot and legshot percentages across their last 10
+            <div class="cmd-desc">Raw headshot, bodyshot and legshot counts with percentages across a player's last 10
                 competitive games.</div>
         </div>
     </div>
@@ -218,8 +215,14 @@
             <div class="cmd-desc">Set the channel where the weekly recap is posted every Monday at midnight UTC.</div>
         </div>
         <div class="cmd-card">
-            <div class="cmd-name">/sendrecap</div>
-            <div class="cmd-desc">Manually trigger this week's recap.</div>
+            <div class="cmd-name">/sendrecap [week:YYYY-MM-DD]</div>
+            <div class="cmd-desc">Manually trigger the weekly recap. Optionally specify a week start date to post a
+                specific week's recap.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/setcompwinnerrole @role</div>
+            <div class="cmd-desc">Set the shared role given to all comp roll winners each week alongside their
+                individual title roles.</div>
         </div>
         <div class="cmd-card">
             <div class="cmd-name">/setvalchannel #channel</div>
@@ -237,6 +240,11 @@
         <div class="cmd-card">
             <div class="cmd-name">/settftchannel #channel</div>
             <div class="cmd-desc">Set the channel for TFT LP tracking updates.</div>
+        </div>
+        <div class="cmd-card">
+            <div class="cmd-name">/mudaecleaner enabled:&lt;bool&gt; [delay:&lt;duration&gt;]</div>
+            <div class="cmd-desc">Enable or disable the Mudae roll cleaner. Set the delay before unclaimed rolls are
+                deleted (e.g. <code>3h</code>). Defaults to 3 hours.</div>
         </div>
     </div>
 
