@@ -118,10 +118,16 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
+    const _bpl = {{ bar_points_labels | tojson }};
+    const _bpv = {{ bar_points_values | tojson }};
+    const _bvl = {{ bar_voice_labels  | tojson }};
+    const _bvv = {{ bar_voice_values  | tojson }};
+    const _bml = {{ bar_msgs_labels   | tojson }};
+    const _bmv = {{ bar_msgs_values   | tojson }};
     const BAR = {
-        points: { labels: {{ bar_points_labels | tojson }}, values: { { bar_points_values | tojson } } },
-    voice: { labels: { { bar_voice_labels | tojson } }, values: { { bar_voice_values | tojson } } },
-    msgs: { labels: { { bar_msgs_labels | tojson } }, values: { { bar_msgs_values | tojson } } },
+        points: { labels: _bpl, values: _bpv },
+        voice: { labels: _bvl, values: _bvv },
+        msgs: { labels: _bml, values: _bmv },
     };
     const _weekly = {{ weekly | tojson }};
     const WEEKLY_ACT = {
