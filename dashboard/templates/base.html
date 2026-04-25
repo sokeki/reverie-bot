@@ -36,7 +36,7 @@
         </div>
         <div class="nav-user">
             {% if user.avatar %}
-            <img src="/avatar-proxy?url=https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png%3Fsize%3D32"
+            <img src="/avatar-proxy?url=https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png"
                 class="avatar" alt="avatar">
             {% else %}
             <div class="avatar-placeholder">{{ user.username[0] }}</div>
