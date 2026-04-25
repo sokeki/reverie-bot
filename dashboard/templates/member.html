@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}— {{ member.username or 'Member' }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div style="display:flex;align-items:center;gap:1rem">
+        {% if member.avatar %}
+        <img src="https://cdn.discordapp.com/avatars/{{ member.user_id }}/{{ member.avatar }}.png?size=64"
+            class="avatar" style="width:48px;height:48px;border-radius:50%">
+        {% endif %}
+        <div>
+            <h1>{{ member.username or 'Unknown Member' }}</h1>
+            {% if member.active_title %}
+            <p class="subtitle"><em>{{ member.active_title }}</em></p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+    <div class="stat-card">
+        <div class="stat-icon">✨</div>
+        <div class="stat-value">{{ "{:,}".format(member.points or 0) }}</div>
+        <div class="stat-label">Dream Points</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🎙️</div>
+        <div class="stat-value">{{ "{:,}".format(member.voice_minutes or 0) }}</div>
+        <div class="stat-label">Voice Minutes</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">💬</div>
+        <div class="stat-value">{{ "{:,}".format(member.messages_sent or 0) }}</div>
+        <div class="stat-label">Messages</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon">🔥</div>
+        <div class="stat-value">{{ member.streak or 0 }}</div>
+        <div class="stat-label">Day Streak</div>
+    </div>
+</div>
+
+{% if history %}
+<div class="charts-section">
+    <h2>📅 Last 30 Days</h2>
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h3>✨ Dream Points</h3>
+            <canvas id="chartPoints"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>🎙️ Voice Minutes</h3>
+            <canvas id="chartVoice"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>💬 Messages</h3>
+            <canvas id="chartMsgs"></canvas>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    const labels = {{ history | map(attribute = 'date') | list | tojson }};
+    const points = {{ history | map(attribute = 'points') | list | tojson }};
+    const voice = {{ history | map(attribute = 'voice') | list | tojson }};
+    const msgs = {{ history | map(attribute = 'messages') | list | tojson }};
+
+    function makeLine(id, data, colour) {
+        new Chart(document.getElementById(id), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    data, borderColor: colour, backgroundColor: colour + '22',
+                    fill: true, tension: 0.3, borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 8 } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } }
+                },
+                elements: { point: { radius: 3 } }
+            }
+        });
+    }
+    makeLine('chartPoints', points, '#9b8ec4');
+    makeLine('chartVoice', voice, '#6a9ec4');
+    makeLine('chartMsgs', msgs, '#c49e8e');
+</script>
+{% else %}
+<div class="empty-state" style="margin-top:2rem">
+    <p>No daily history yet — snapshots are taken at midnight UTC.</p>
+</div>
+{% endif %}
+{% endblock %}

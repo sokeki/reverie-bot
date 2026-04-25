@@ -84,6 +84,7 @@ users_col = _db["users"]
 items_col = _db["shop_items"]
 settings_col = _db["guild_settings"]
 questions_col = _db["questions"]
+daily_snapshots_col = _db["daily_snapshots"]
 
 
 async def get_settings() -> dict:
@@ -247,14 +248,16 @@ async def index(request: Request, user: dict = Depends(require_user)):
 
     # Chart data — top 10 members for each stat
     top_points_docs = (
-        await users_col.find({"guild_id": GUILD_ID}, {"val_name": 1, "points": 1})
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "points": 1}
+        )
         .sort("points", -1)
         .limit(10)
         .to_list(length=10)
     )
     top_voice_docs = (
         await users_col.find(
-            {"guild_id": GUILD_ID}, {"val_name": 1, "voice_minutes": 1}
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "voice_minutes": 1}
         )
         .sort("voice_minutes", -1)
         .limit(10)
@@ -262,7 +265,7 @@ async def index(request: Request, user: dict = Depends(require_user)):
     )
     top_msg_docs = (
         await users_col.find(
-            {"guild_id": GUILD_ID}, {"val_name": 1, "messages_sent": 1}
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "messages_sent": 1}
         )
         .sort("messages_sent", -1)
         .limit(10)
@@ -270,7 +273,11 @@ async def index(request: Request, user: dict = Depends(require_user)):
     )
 
     def _label(doc):
-        return doc.get("username") or f"user_{str(doc.get('user_id', '?'))[-4:]}"
+        name = doc.get("username") or ""
+        if name.strip():
+            return name
+        uid = doc.get("user_id")
+        return f"#{str(uid)[-4:]}" if uid else "?"
 
     chart_points = {
         "labels": [_label(d) for d in top_points_docs],
@@ -559,3 +566,77 @@ async def questions_delete(
 
     await questions_col.delete_one({"_id": ObjectId(question_id)})
     return RedirectResponse("/questions?deleted=1", status_code=303)
+
+
+# ── Server activity chart ──────────────────────────────────────────────────────
+
+
+@app.get("/activity", response_class=HTMLResponse)
+async def activity_page(request: Request, user: dict = Depends(require_user)):
+    # Get last 30 daily server snapshots
+    docs = (
+        await daily_snapshots_col.find({"guild_id": GUILD_ID, "type": "server"})
+        .sort("date", -1)
+        .limit(30)
+        .to_list(length=30)
+    )
+    docs.reverse()
+
+    # Fall back to weekly_snapshots if no daily data yet
+    weekly = []
+    if not docs:
+        weekly_docs = (
+            await _db["weekly_snapshots"]
+            .find({"guild_id": GUILD_ID})
+            .sort("week", -1)
+            .limit(12)
+            .to_list(length=12)
+        )
+        weekly_docs.reverse()
+        weekly = weekly_docs
+
+    return templates.TemplateResponse(
+        "activity.html",
+        {
+            "request": request,
+            "guild_name": GUILD_NAME,
+            "user": user,
+            "daily": docs,
+            "weekly": weekly,
+        },
+    )
+
+
+# ── Per-member stats ───────────────────────────────────────────────────────────
+
+
+@app.get("/member/{user_id}", response_class=HTMLResponse)
+async def member_page(
+    user_id: int, request: Request, user: dict = Depends(require_user)
+):
+    member_doc = await users_col.find_one({"guild_id": GUILD_ID, "user_id": user_id})
+    if not member_doc:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Daily history for this member
+    history = (
+        await daily_snapshots_col.find(
+            {"guild_id": GUILD_ID, "type": "member", "user_id": user_id}
+        )
+        .sort("date", -1)
+        .limit(30)
+        .to_list(length=30)
+    )
+    history.reverse()
+
+    member_doc["_id"] = str(member_doc["_id"])
+    return templates.TemplateResponse(
+        "member.html",
+        {
+            "request": request,
+            "guild_name": GUILD_NAME,
+            "user": user,
+            "member": member_doc,
+            "history": history,
+        },
+    )

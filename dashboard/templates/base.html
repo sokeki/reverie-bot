@@ -27,6 +27,7 @@
         <div class="nav-links">
             <a href="/" {% if request.url.path=="/" %}class="active" {% endif %}>Overview</a>
             <a href="/leaderboard" {% if request.url.path=="/leaderboard" %}class="active" {% endif %}>Leaderboard</a>
+            <a href="/activity" {% if request.url.path=="/activity" %}class="active" {% endif %}>Activity</a>
             <a href="/shop" {% if request.url.path=="/shop" %}class="active" {% endif %}>Shop</a>
             <a href="/commands" {% if request.url.path=="/commands" %}class="active" {% endif %}>Commands</a>
             {% if user.is_admin %}

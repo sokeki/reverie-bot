@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from motor.motor_asyncio import AsyncIOMotorClient
 
 import os
@@ -78,6 +78,11 @@ async def on_ready():
     bot.val_games_col = db["val_games"]
     bot.val_match_cache_col = db["val_match_cache"]
     bot.mudae_deletions_col = db["mudae_deletions"]
+    bot.daily_snapshots_col = db["daily_snapshots"]
+
+    # Start daily snapshot task
+    if not daily_snapshot.is_running():
+        daily_snapshot.start()
     await bot.voice_sessions_col.create_index(
         [("user_id", 1), ("guild_id", 1)], unique=True
     )
@@ -155,10 +160,6 @@ async def on_ready():
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot or not message.guild:
-        return
-
-    # Don't count Mudae roll commands toward messages/points
-    if message.content.startswith("$"):
         return
 
     # Ensure doc exists with all fields before incrementing
@@ -275,6 +276,76 @@ async def on_guild_role_update(before: discord.Role, after: discord.Role):
         {"guild_id": after.guild.id, "role_id": after.id},
         {"$set": {"role_colour": colour}},
     )
+
+
+# ── Daily snapshot task ──────────────────────────────────────────────────────
+
+
+@tasks.loop(minutes=1)
+async def daily_snapshot():
+    """Save daily server + per-member stats at midnight UTC."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    if now.hour != 0 or now.minute != 0:
+        return
+
+    date_str = now.strftime("%Y-%m-%d")
+    for guild in bot.guilds:
+        # Server-wide totals
+        agg = await bot.users_col.aggregate(
+            [
+                {"$match": {"guild_id": guild.id}},
+                {
+                    "$group": {
+                        "_id": None,
+                        "total_points": {"$sum": "$points"},
+                        "total_voice": {"$sum": "$voice_minutes"},
+                        "total_messages": {"$sum": "$messages_sent"},
+                    }
+                },
+            ]
+        ).to_list(length=1)
+
+        if agg:
+            await bot.daily_snapshots_col.update_one(
+                {"guild_id": guild.id, "date": date_str, "type": "server"},
+                {
+                    "$set": {
+                        "points": agg[0]["total_points"],
+                        "voice": agg[0]["total_voice"],
+                        "messages": agg[0]["total_messages"],
+                    }
+                },
+                upsert=True,
+            )
+
+        # Per-member snapshots
+        async for doc in bot.users_col.find({"guild_id": guild.id}):
+            await bot.daily_snapshots_col.update_one(
+                {
+                    "guild_id": guild.id,
+                    "date": date_str,
+                    "type": "member",
+                    "user_id": doc["user_id"],
+                },
+                {
+                    "$set": {
+                        "username": doc.get("username", ""),
+                        "points": doc.get("points", 0),
+                        "voice": doc.get("voice_minutes", 0),
+                        "messages": doc.get("messages_sent", 0),
+                    }
+                },
+                upsert=True,
+            )
+
+    print(f"[Daily Snapshot] Saved for {date_str}")
+
+
+@daily_snapshot.before_loop
+async def before_snapshot():
+    await bot.wait_until_ready()
 
 
 # ── Run ───────────────────────────────────────────────────────────────────────

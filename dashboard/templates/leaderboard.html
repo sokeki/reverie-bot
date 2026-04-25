@@ -46,7 +46,8 @@
                     {% else %}
                     <div class="lb-avatar-placeholder">{{ m.get("username", "?")[0] }}</div>
                     {% endif %}
-                    <span class="member-name">{{ m.get("username", "Unknown#" ~ m.user_id) }}</span>
+                    <a href="/member/{{ m.user_id }}" class="member-name member-link">{{ m.get("username", "Unknown#" ~
+                        m.user_id) }}</a>
                 </td>
                 <td class="rank-cell"><span class="greek-sym">{{ m.rank_symbol }}</span> {{ m.rank_name }}</td>
                 <td class="pts">{{ "{:,}".format(m.get("points", 0)) }}</td>
