@@ -4,9 +4,8 @@
 {% block content %}
 <div class="page-header">
     <div style="display:flex;align-items:center;gap:1rem">
-        {% if member.avatar %}
-        <img src="https://cdn.discordapp.com/avatars/{{ member.user_id }}/{{ member.avatar }}.png?size=64"
-            class="avatar" style="width:48px;height:48px;border-radius:50%">
+        {% if member.avatar_url %}
+        <img src="{{ member.avatar_url }}" class="avatar" style="width:48px;height:48px;border-radius:50%">
         {% endif %}
         <div>
             <h1>{{ member.username or 'Unknown Member' }}</h1>
