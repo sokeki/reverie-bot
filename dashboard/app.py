@@ -345,6 +345,66 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
         h, m = divmod(mins, 60)
         doc["voice_fmt"] = f"{h}h {m}m" if h else f"{m}m"
 
+    # Bar chart data (top 10 by each stat)
+    top_pts = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "points": 1}
+        )
+        .sort("points", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+    top_voice = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "voice_minutes": 1}
+        )
+        .sort("voice_minutes", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+    top_msgs = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "messages_sent": 1}
+        )
+        .sort("messages_sent", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+
+    def _lbl(d):
+        name = d.get("username") or ""
+        if name.strip():
+            return name
+        uid = d.get("user_id")
+        return f"#{str(uid)[-4:]}" if uid else "?"
+
+    # Server weekly activity
+    weekly_pipeline = [
+        {"$match": {"guild_id": GUILD_ID}},
+        {
+            "$group": {
+                "_id": "$week",
+                "points": {"$sum": "$points"},
+                "voice_minutes": {"$sum": "$voice_minutes"},
+                "messages_sent": {"$sum": "$messages_sent"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+        {"$limit": 12},
+    ]
+    weekly_agg = (
+        await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
+    )
+    weekly = [
+        {
+            "week": d["_id"],
+            "points": d["points"],
+            "voice_minutes": d["voice_minutes"],
+            "messages_sent": d["messages_sent"],
+        }
+        for d in weekly_agg
+    ]
+
     return templates.TemplateResponse(
         "leaderboard.html",
         {
@@ -353,6 +413,13 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
             "user": user,
             "members": docs,
             "sort": sort_param,
+            "bar_points_labels": [_lbl(d) for d in top_pts],
+            "bar_points_values": [d.get("points", 0) for d in top_pts],
+            "bar_voice_labels": [_lbl(d) for d in top_voice],
+            "bar_voice_values": [d.get("voice_minutes", 0) for d in top_voice],
+            "bar_msgs_labels": [_lbl(d) for d in top_msgs],
+            "bar_msgs_values": [d.get("messages_sent", 0) for d in top_msgs],
+            "weekly": weekly,
         },
     )
 
@@ -643,30 +710,22 @@ async def member_page(
     )
     history.reverse()
 
-    # Fall back to weekly snapshots if no daily data
-    weekly_history = []
-    if not history:
-        # Try with guild_id first, fall back without it
+    # Always fetch weekly history (for toggle)
+    weekly_history = (
+        await _db["weekly_snapshots"]
+        .find({"guild_id": GUILD_ID, "user_id": user_id})
+        .sort("week", 1)
+        .limit(12)
+        .to_list(length=12)
+    )
+    if not weekly_history:
         weekly_history = (
             await _db["weekly_snapshots"]
-            .find({"guild_id": GUILD_ID, "user_id": user_id})
+            .find({"user_id": user_id})
             .sort("week", 1)
             .limit(12)
             .to_list(length=12)
         )
-        if not weekly_history:
-            weekly_history = (
-                await _db["weekly_snapshots"]
-                .find({"user_id": user_id})
-                .sort("week", 1)
-                .limit(12)
-                .to_list(length=12)
-            )
-        print(f"[Member {user_id}] weekly_history count: {len(weekly_history)}")
-        if weekly_history:
-            print(
-                f"[Member {user_id}] sample doc keys: {list(weekly_history[0].keys())}"
-            )
 
     member_doc["_id"] = str(member_doc["_id"])
     for doc in weekly_history:
