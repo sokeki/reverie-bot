@@ -1024,3 +1024,42 @@ body.login-page {
 .charts-grid-tall .chart-card canvas {
     max-height: 220px;
 }
+
+/* ── Toggle pills ─────────────────────────────────────────────────────────── */
+.charts-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.charts-section-header h2 {
+    margin: 0;
+}
+
+.toggle-pills {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.toggle-pill {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 20px;
+    padding: 0.25rem 0.85rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.toggle-pill:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.toggle-pill.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}

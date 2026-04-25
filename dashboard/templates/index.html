@@ -75,9 +75,11 @@
     </div>
 </div>
 
-<!-- Charts -->
+<!-- Top members bar charts -->
 <div class="charts-section">
-    <h2>📊 Top Members</h2>
+    <div class="charts-section-header">
+        <h2>📊 Top Members</h2>
+    </div>
     <div class="charts-grid">
         <div class="chart-card">
             <h3>✨ Dream Points</h3>
@@ -94,45 +96,114 @@
     </div>
 </div>
 
+<!-- Server activity over time -->
+<div class="charts-section">
+    <div class="charts-section-header">
+        <h2>📈 Server Activity</h2>
+        <div class="toggle-pills">
+            <button class="toggle-pill active" onclick="setMode('weekly')">Weekly</button>
+            <button class="toggle-pill" onclick="setMode('daily')" id="dailyBtn">Daily</button>
+        </div>
+    </div>
+    <p class="section-hint" id="dailyHint"
+        style="display:none;color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem">
+        Daily data starts accumulating from midnight UTC — check back tomorrow!
+    </p>
+    <div class="charts-grid charts-grid-tall">
+        <div class="chart-card">
+            <h3>✨ Dream Points</h3>
+            <canvas id="chartActivityPoints"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>🎙️ Voice Minutes</h3>
+            <canvas id="chartActivityVoice"></canvas>
+        </div>
+        <div class="chart-card">
+            <h3>💬 Messages</h3>
+            <canvas id="chartActivityMsgs"></canvas>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-    const chartDefaults = {
-        type: 'bar',
-        options: {
-            indexAxis: 'y',
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } },
-                y: { grid: { display: false }, ticks: { color: '#e8e0f0' } }
-            }
-        }
-    };
-
-    function makeChart(id, labels, values, colour) {
+    // ── Top members bar charts ────────────────────────────────────────────────
+    function makeBar(id, labels, values, colour) {
         new Chart(document.getElementById(id), {
-            ...chartDefaults,
-            data: {
-                labels,
-                datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }]
+            type: 'bar',
+            data: { labels, datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }] },
+            options: {
+                indexAxis: 'y', responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } },
+                    y: { grid: { display: false }, ticks: { color: '#e8e0f0' } }
+                }
             }
         });
     }
+    makeBar('chartPoints', {{ chart_points.labels | tojson }}, {{ chart_points.values | tojson }}, '#9b8ec4');
+    makeBar('chartVoice', {{ chart_voice.labels | tojson }}, {{ chart_voice.values | tojson }}, '#6a9ec4');
+    makeBar('chartMsgs', {{ chart_msgs.labels | tojson }}, {{ chart_msgs.values | tojson }}, '#c49e8e');
 
-    makeChart('chartPoints',
-        {{ chart_points.labels | tojson }},
-        {{ chart_points.data | tojson }},
-        '#9b8ec4'
-    );
-    makeChart('chartVoice',
-        {{ chart_voice.labels | tojson }},
-        {{ chart_voice.data | tojson }},
-        '#6a9ec4'
-    );
-    makeChart('chartMsgs',
-        {{ chart_msgs.labels | tojson }},
-        {{ chart_msgs.data | tojson }},
-        '#c49e8e'
-    );
+    // ── Server activity line charts ───────────────────────────────────────────
+    const weeklyData = {
+        labels: {{ chart_weekly.labels   | tojson }},
+    points: { { chart_weekly.points | tojson } },
+    voice: { { chart_weekly.voice | tojson } },
+    messages: { { chart_weekly.messages | tojson } },
+};
+    const dailyData = {
+        labels: {{ chart_daily.labels   | tojson }},
+    points: { { chart_daily.points | tojson } },
+    voice: { { chart_daily.voice | tojson } },
+    messages: { { chart_daily.messages | tojson } },
+};
+
+    let activityCharts = [];
+
+    function makeActivity(id, data, colour) {
+        const c = new Chart(document.getElementById(id), {
+            type: 'line',
+            data: { labels: data.labels, datasets: [{ data, borderColor: colour, backgroundColor: colour + '22', fill: true, tension: 0.3, borderWidth: 2 }] },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 8 } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } }
+                },
+                elements: { point: { radius: 3 } }
+            }
+        });
+        return c;
+    }
+
+    function initActivityCharts(d) {
+        activityCharts.forEach(c => c.destroy());
+        activityCharts = [
+            makeActivity('chartActivityPoints', { labels: d.labels, ...{} }, '#9b8ec4'),
+            makeActivity('chartActivityVoice', { labels: d.labels, ...{} }, '#6a9ec4'),
+            makeActivity('chartActivityMsgs', { labels: d.labels, ...{} }, '#c49e8e'),
+        ];
+        // update datasets
+        activityCharts[0].data.datasets[0].data = d.points;
+        activityCharts[1].data.datasets[0].data = d.voice;
+        activityCharts[2].data.datasets[0].data = d.messages;
+        activityCharts[0].data.labels = d.labels;
+        activityCharts[1].data.labels = d.labels;
+        activityCharts[2].data.labels = d.labels;
+        activityCharts.forEach(c => c.update());
+    }
+
+    function setMode(mode) {
+        document.querySelectorAll('.toggle-pill').forEach(b => b.classList.remove('active'));
+        document.querySelector(`.toggle-pill[onclick="setMode('${mode}')"]`).classList.add('active');
+        const hasDailyData = dailyData.labels.length > 0;
+        document.getElementById('dailyHint').style.display = (mode === 'daily' && !hasDailyData) ? 'block' : 'none';
+        initActivityCharts(mode === 'daily' ? dailyData : weeklyData);
+    }
+
+    setMode('weekly');
 </script>
 {% endblock %}

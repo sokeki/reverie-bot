@@ -292,6 +292,45 @@ async def index(request: Request, user: dict = Depends(require_user)):
         "data": [d.get("messages_sent", 0) for d in top_msg_docs],
     }
 
+    # Weekly server totals for trend chart
+    weekly_pipeline = [
+        {"$match": {"guild_id": GUILD_ID}},
+        {
+            "$group": {
+                "_id": "$week",
+                "points": {"$sum": "$points"},
+                "voice_minutes": {"$sum": "$voice_minutes"},
+                "messages_sent": {"$sum": "$messages_sent"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+        {"$limit": 12},
+    ]
+    weekly_agg = (
+        await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
+    )
+    chart_weekly = {
+        "labels": [d["_id"] for d in weekly_agg],
+        "points": [d["points"] for d in weekly_agg],
+        "voice": [d["voice_minutes"] for d in weekly_agg],
+        "messages": [d["messages_sent"] for d in weekly_agg],
+    }
+
+    # Daily server totals
+    daily_docs = (
+        await daily_snapshots_col.find({"guild_id": GUILD_ID, "type": "server"})
+        .sort("date", -1)
+        .limit(30)
+        .to_list(length=30)
+    )
+    daily_docs.reverse()
+    chart_daily = {
+        "labels": [d["date"] for d in daily_docs],
+        "points": [d.get("points", 0) for d in daily_docs],
+        "voice": [d.get("voice", 0) for d in daily_docs],
+        "messages": [d.get("messages", 0) for d in daily_docs],
+    }
+
     return templates.TemplateResponse(
         "index.html",
         {
@@ -307,6 +346,8 @@ async def index(request: Request, user: dict = Depends(require_user)):
             "chart_points": chart_points,
             "chart_voice": chart_voice,
             "chart_msgs": chart_msgs,
+            "chart_weekly": chart_weekly,
+            "chart_daily": chart_daily,
         },
     )
 
@@ -583,17 +624,34 @@ async def activity_page(request: Request, user: dict = Depends(require_user)):
     docs.reverse()
 
     # Fall back to weekly_snapshots if no daily data yet
+    # Aggregate per week across all users
     weekly = []
     if not docs:
-        weekly_docs = (
-            await _db["weekly_snapshots"]
-            .find({"guild_id": GUILD_ID})
-            .sort("week", -1)
-            .limit(12)
-            .to_list(length=12)
+        pipeline = [
+            {"$match": {"guild_id": GUILD_ID}},
+            {
+                "$group": {
+                    "_id": "$week",
+                    "points": {"$sum": "$points"},
+                    "voice_minutes": {"$sum": "$voice_minutes"},
+                    "messages_sent": {"$sum": "$messages_sent"},
+                }
+            },
+            {"$sort": {"_id": 1}},
+            {"$limit": 12},
+        ]
+        weekly_agg = (
+            await _db["weekly_snapshots"].aggregate(pipeline).to_list(length=12)
         )
-        weekly_docs.reverse()
-        weekly = weekly_docs
+        weekly = [
+            {
+                "week": d["_id"],
+                "points": d["points"],
+                "voice_minutes": d["voice_minutes"],
+                "messages_sent": d["messages_sent"],
+            }
+            for d in weekly_agg
+        ]
 
     return templates.TemplateResponse(
         "activity.html",
@@ -629,7 +687,19 @@ async def member_page(
     )
     history.reverse()
 
+    # Fall back to weekly snapshots if no daily data
+    weekly_history = []
+    if not history:
+        weekly_history = (
+            await _db["weekly_snapshots"]
+            .find({"guild_id": GUILD_ID, "user_id": user_id})
+            .sort("week", 1)
+            .limit(12)
+            .to_list(length=12)
+        )
+
     member_doc["_id"] = str(member_doc["_id"])
+    # Always pass both — toggle in template
     return templates.TemplateResponse(
         "member.html",
         {
@@ -638,5 +708,8 @@ async def member_page(
             "user": user,
             "member": member_doc,
             "history": history,
+            "weekly_history": weekly_history,
+            "has_daily": len(history) > 0,
+            "has_weekly": len(weekly_history) > 0,
         },
     )
