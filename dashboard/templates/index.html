@@ -121,17 +121,17 @@
 
     makeChart('chartPoints',
         {{ chart_points.labels | tojson }},
-        {{ chart_points.values | tojson }},
+        {{ chart_points.data | tojson }},
         '#9b8ec4'
     );
     makeChart('chartVoice',
         {{ chart_voice.labels | tojson }},
-        {{ chart_voice.values | tojson }},
+        {{ chart_voice.data | tojson }},
         '#6a9ec4'
     );
     makeChart('chartMsgs',
         {{ chart_msgs.labels | tojson }},
-        {{ chart_msgs.values | tojson }},
+        {{ chart_msgs.data | tojson }},
         '#c49e8e'
     );
 </script>

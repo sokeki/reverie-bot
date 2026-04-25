@@ -948,3 +948,63 @@ body.login-page {
     padding: 0.1rem 0.35rem;
     color: var(--accent);
 }
+
+/* ── Charts ───────────────────────────────────────────────────────────────── */
+.charts-section {
+    margin-top: 2.5rem;
+}
+
+.charts-section h2 {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+}
+
+.chart-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+.chart-card h3 {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+/* ── Questions ────────────────────────────────────────────────────────────── */
+.questions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.question-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+
+.question-text {
+    flex: 1;
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.btn-delete-sm {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.65rem;
+}
