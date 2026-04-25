@@ -1063,3 +1063,230 @@ body.login-page {
     border-color: var(--accent);
     color: #fff;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Hamburger button ────────────────────────────────────────────────────── */
+.nav-toggle {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.25rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.nav-toggle svg {
+    display: block;
+    width: 22px;
+    height: 22px;
+}
+
+/* ── Responsive breakpoints ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+
+    /* Nav */
+    nav {
+        flex-wrap: wrap;
+        gap: 0;
+        padding: 0.75rem 1.25rem;
+        position: relative;
+    }
+
+    .nav-brand {
+        flex: 1;
+    }
+
+    .nav-toggle {
+        display: flex;
+        align-items: center;
+        order: 2;
+    }
+
+    .nav-links {
+        display: none;
+        flex-direction: column;
+        gap: 0;
+        width: 100%;
+        order: 4;
+        padding: 0.5rem 0 0.75rem;
+        border-top: 1px solid var(--border);
+        margin-top: 0.75rem;
+    }
+
+    .nav-links.open {
+        display: flex;
+    }
+
+    .nav-links a {
+        padding: 0.6rem 0;
+        font-size: 1rem;
+        border-bottom: none !important;
+    }
+
+    .nav-links a.active {
+        color: var(--accent);
+        border-bottom: none;
+    }
+
+    .nav-user {
+        order: 3;
+        margin-left: 0.5rem;
+    }
+
+    .username {
+        display: none;
+    }
+
+    /* Main */
+    main {
+        padding: 1.5rem 1rem;
+    }
+
+    /* Page header */
+    .page-header h1 {
+        font-size: 1.6rem;
+    }
+
+    /* Stats grid — 2 columns on mobile */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stat-value {
+        font-size: 1.4rem;
+    }
+
+    /* Info grid — single column */
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Charts — single column */
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Leaderboard controls — stack vertically */
+    .lb-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    /* Leaderboard table — hide less important columns */
+    .lb-table th:nth-child(3),
+    .lb-table td:nth-child(3),
+    .lb-table th:nth-child(5),
+    .lb-table td:nth-child(5) {
+        display: none;
+    }
+
+    .lb-table th,
+    .lb-table td {
+        padding: 0.7rem 0.75rem;
+        font-size: 0.9rem;
+    }
+
+    .lb-table th:nth-child(1),
+    .lb-table td:nth-child(1) {
+        padding-left: 0.75rem;
+        width: 2rem;
+    }
+
+    /* Commands — stack name and desc */
+    .cmd-card {
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .cmd-name {
+        min-width: unset;
+        white-space: normal;
+    }
+
+    /* Shop grid — single column */
+    .shop-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Settings form — full width inputs */
+    .field input[type="number"],
+    .field input[type="text"] {
+        max-width: 100%;
+    }
+
+    /* Member page stat cards */
+    .stats-grid[style*="160px"] {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* Toggle pills row wrap */
+    .charts-section-header {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    /* Login */
+    .login-title {
+        font-size: 2rem;
+    }
+
+    .login-container {
+        padding: 2rem 1.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+
+    /* Even smaller — single column stats */
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .page-header h1 {
+        font-size: 1.4rem;
+    }
+
+    /* Leaderboard — also hide messages column */
+    .lb-table th:nth-child(6),
+    .lb-table td:nth-child(6) {
+        display: none;
+    }
+}
+
+/* ── Questions page mobile ────────────────────────────────────────────────── */
+.questions-layout .add-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+}
+
+@media (max-width: 768px) {
+    .questions-layout .field-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .questions-layout .field-row label {
+        min-width: unset;
+    }
+
+    .questions-layout .field-row input {
+        width: 100%;
+    }
+
+    .question-row {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .question-text {
+        width: 100%;
+    }
+}

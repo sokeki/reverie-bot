@@ -24,7 +24,14 @@
 
     <nav>
         <a href="/" class="nav-brand">🌙 Reverie</a>
-        <div class="nav-links">
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+        </button>
+        <div class="nav-links" id="nav-links">
             <a href="/" {% if request.url.path=="/" %}class="active" {% endif %}>Overview</a>
             <a href="/leaderboard" {% if request.url.path=="/leaderboard" %}class="active" {% endif %}>Leaderboard</a>
             <a href="/shop" {% if request.url.path=="/shop" %}class="active" {% endif %}>Shop</a>
@@ -51,6 +58,16 @@
         {% block content %}{% endblock %}
     </main>
 
+    <script>
+        document.getElementById('nav-toggle').addEventListener('click', function () {
+            document.getElementById('nav-links').classList.toggle('open');
+        });
+        document.querySelectorAll('.nav-links a').forEach(function (a) {
+            a.addEventListener('click', function () {
+                document.getElementById('nav-links').classList.remove('open');
+            });
+        });
+    </script>
 </body>
 
 </html>
