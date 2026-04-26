@@ -217,11 +217,14 @@ async def avatar_proxy(url: str):
     """Proxy Discord avatar images to avoid CORB issues."""
     import httpx
     from fastapi.responses import Response
+
     if not url.startswith("https://cdn.discordapp.com/"):
         raise HTTPException(status_code=400)
     async with httpx.AsyncClient() as client:
         r = await client.get(url)
-    return Response(content=r.content, media_type=r.headers.get("content-type", "image/png"))
+    return Response(
+        content=r.content, media_type=r.headers.get("content-type", "image/png")
+    )
 
 
 @app.get("/logout")
@@ -358,33 +361,84 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
         doc["voice_fmt"] = f"{h}h {m}m" if h else f"{m}m"
 
     # Bar chart data (top 10 by each stat)
-    top_pts = await users_col.find({"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "points": 1}).sort("points", -1).limit(10).to_list(length=10)
-    top_voice = await users_col.find({"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "voice_minutes": 1}).sort("voice_minutes", -1).limit(10).to_list(length=10)
-    top_msgs = await users_col.find({"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "messages_sent": 1}).sort("messages_sent", -1).limit(10).to_list(length=10)
+    top_pts = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "points": 1}
+        )
+        .sort("points", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+    top_voice = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "voice_minutes": 1}
+        )
+        .sort("voice_minutes", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
+    top_msgs = (
+        await users_col.find(
+            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "messages_sent": 1}
+        )
+        .sort("messages_sent", -1)
+        .limit(10)
+        .to_list(length=10)
+    )
 
     def _lbl(d):
         name = d.get("username") or ""
-        if name.strip(): return name
+        if name.strip():
+            return name
         uid = d.get("user_id")
         return f"#{str(uid)[-4:]}" if uid else "?"
 
     # Server weekly activity
     weekly_pipeline = [
         {"$match": {"guild_id": GUILD_ID}},
-        {"$group": {"_id": "$week", "points": {"$sum": "$points"}, "voice_minutes": {"$sum": "$voice_minutes"}, "messages_sent": {"$sum": "$messages_sent"}}},
+        {
+            "$group": {
+                "_id": "$week",
+                "points": {"$sum": "$points"},
+                "voice_minutes": {"$sum": "$voice_minutes"},
+                "messages_sent": {"$sum": "$messages_sent"},
+            }
+        },
         {"$sort": {"_id": 1}},
         {"$limit": 12},
     ]
-    weekly_agg = await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
+    weekly_agg = (
+        await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
+    )
     # Compute server-wide deltas week-over-week
-    raw = [{"week": d["_id"], "points": d["points"], "voice_minutes": d["voice_minutes"], "messages_sent": d["messages_sent"]} for d in weekly_agg]
+    raw = [
+        {
+            "week": d["_id"],
+            "points": d["points"],
+            "voice_minutes": d["voice_minutes"],
+            "messages_sent": d["messages_sent"],
+        }
+        for d in weekly_agg
+    ]
+    # Skip first entry — no reference point for delta
     weekly = []
     for i, row in enumerate(raw):
         if i == 0:
-            weekly.append(row)
+            continue
         else:
             prev = raw[i - 1]
-            weekly.append({"week": row["week"], "points": max(0, row["points"] - prev["points"]), "voice_minutes": max(0, row["voice_minutes"] - prev["voice_minutes"]), "messages_sent": max(0, row["messages_sent"] - prev["messages_sent"])})
+            weekly.append(
+                {
+                    "week": row["week"],
+                    "points": max(0, row["points"] - prev["points"]),
+                    "voice_minutes": max(
+                        0, row["voice_minutes"] - prev["voice_minutes"]
+                    ),
+                    "messages_sent": max(
+                        0, row["messages_sent"] - prev["messages_sent"]
+                    ),
+                }
+            )
 
     return templates.TemplateResponse(
         "leaderboard.html",
@@ -627,6 +681,22 @@ async def activity_page(request: Request, user: dict = Depends(require_user)):
     )
     docs.reverse()
 
+    # Compute daily deltas (cumulative -> per-day activity)
+    # Skip first entry, no reference point
+    daily_chart = []
+    for i, doc in enumerate(docs):
+        if i == 0:
+            continue
+        prev = docs[i - 1]
+        daily_chart.append(
+            {
+                "date": doc.get("date", ""),
+                "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
+                "voice": max(0, doc.get("voice", 0) - prev.get("voice", 0)),
+                "messages": max(0, doc.get("messages", 0) - prev.get("messages", 0)),
+            }
+        )
+
     # Fall back to weekly_snapshots if no daily data yet
     # Aggregate per week across all users
     weekly = []
@@ -663,7 +733,7 @@ async def activity_page(request: Request, user: dict = Depends(require_user)):
             "request": request,
             "guild_name": GUILD_NAME,
             "user": user,
-            "daily": docs,
+            "daily": daily_chart,
             "weekly": weekly,
         },
     )
@@ -712,25 +782,40 @@ async def member_page(
     for doc in history:
         doc["_id"] = str(doc["_id"])
 
+    # Build daily delta history — skip first entry, no reference point
+    daily_chart = []
+    for i, doc in enumerate(history):
+        if i == 0:
+            continue
+        prev = history[i - 1]
+        daily_chart.append(
+            {
+                "date": doc.get("date", ""),
+                "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
+                "voice": max(0, doc.get("voice", 0) - prev.get("voice", 0)),
+                "messages": max(0, doc.get("messages", 0) - prev.get("messages", 0)),
+            }
+        )
+
     # Build weekly delta history for charting
-    # weekly_history is sorted by week asc; compute gains vs prior week
+    # Skip first entry — no reference point for delta
     weekly_chart = []
     for i, doc in enumerate(weekly_history):
         if i == 0:
-            weekly_chart.append({
-                "week": doc["week"],
-                "points": doc.get("points", 0),
-                "voice_minutes": doc.get("voice_minutes", 0),
-                "messages_sent": doc.get("messages_sent", 0),
-            })
-        else:
-            prev = weekly_history[i - 1]
-            weekly_chart.append({
+            continue
+        prev = weekly_history[i - 1]
+        weekly_chart.append(
+            {
                 "week": doc["week"],
                 "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
-                "voice_minutes": max(0, doc.get("voice_minutes", 0) - prev.get("voice_minutes", 0)),
-                "messages_sent": max(0, doc.get("messages_sent", 0) - prev.get("messages_sent", 0)),
-            })
+                "voice_minutes": max(
+                    0, doc.get("voice_minutes", 0) - prev.get("voice_minutes", 0)
+                ),
+                "messages_sent": max(
+                    0, doc.get("messages_sent", 0) - prev.get("messages_sent", 0)
+                ),
+            }
+        )
 
     # Always pass both — toggle in template
     return templates.TemplateResponse(
@@ -740,9 +825,9 @@ async def member_page(
             "guild_name": GUILD_NAME,
             "user": user,
             "member": member_doc,
-            "history": history,
+            "history": daily_chart,
             "weekly_history": weekly_chart,
-            "has_daily": len(history) > 0,
+            "has_daily": len(daily_chart) > 0,
             "has_weekly": len(weekly_chart) > 0,
         },
     )
