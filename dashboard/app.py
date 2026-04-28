@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 import httpx
 from urllib.parse import quote
 from fastapi import FastAPI, Request, HTTPException, Depends
@@ -688,9 +689,14 @@ async def activity_page(request: Request, user: dict = Depends(require_user)):
         if i == 0:
             continue
         prev = docs[i - 1]
+        _d = doc.get("date", "")
+        if _d:
+            _d = (datetime.strptime(_d, "%Y-%m-%d") - timedelta(days=1)).strftime(
+                "%Y-%m-%d"
+            )
         daily_chart.append(
             {
-                "date": doc.get("date", ""),
+                "date": _d,
                 "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
                 "voice": max(0, doc.get("voice", 0) - prev.get("voice", 0)),
                 "messages": max(0, doc.get("messages", 0) - prev.get("messages", 0)),
@@ -790,7 +796,14 @@ async def member_page(
         prev = history[i - 1]
         daily_chart.append(
             {
-                "date": doc.get("date", ""),
+                "date": (
+                    (
+                        datetime.strptime(doc.get("date", ""), "%Y-%m-%d")
+                        - timedelta(days=1)
+                    ).strftime("%Y-%m-%d")
+                    if doc.get("date")
+                    else ""
+                ),
                 "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
                 "voice": max(0, doc.get("voice", 0) - prev.get("voice", 0)),
                 "messages": max(0, doc.get("messages", 0) - prev.get("messages", 0)),
