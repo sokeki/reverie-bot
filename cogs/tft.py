@@ -334,6 +334,7 @@ class TFTTracker(commands.Cog):
         tag = tft.get("tag") or account.get("val_tag", "?")
 
         old_lp = tft.get("lp")
+        last_posted_lp = tft.get("last_posted_lp")  # LP value at time of last post
         known_ids = set(tft.get("last_match_ids", []))
         baselined = tft.get("baselined", False)
         last_msg_id = tft.get("last_message_id", "")
@@ -388,24 +389,55 @@ class TFTTracker(commands.Cog):
                 raw_lp = e.get("leaguePoints", 0)
                 new_lp = _lp_total(tier, div, raw_lp)
 
-        # Reset LP on new season
-        if not entries and old_lp is not None and old_lp > 0:
+        # Reset LP on new season — only if API returned a definitive empty response
+        # (not a transient failure — we check entries is a list, not None)
+        if isinstance(entries, list) and len(entries) == 0 and old_lp is not None and old_lp > 0:
+            # Extra guard: only reset if we've seen empty entries for 3+ consecutive polls
+            reset_count = tft.get("empty_entries_count", 0) + 1
             await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"tft.lp": None}},
+                {"$set": {"tft.empty_entries_count": reset_count}},
             )
-            print(f"[TFT] Season reset for {name}#{tag}, LP cleared")
+            if reset_count >= 3:
+                await self.bot.riot_accounts_col.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"tft.lp": None, "tft.empty_entries_count": 0}},
+                )
+                print(f"[TFT] Season reset for {name}#{tag}, LP cleared after {reset_count} empty polls")
+            return
+        # Clear the counter if entries are present
+        if entries:
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.empty_entries_count": 0}},
+            )
 
+        # If old_lp is None, we have no baseline — store current LP silently and skip posting
+        if old_lp is None and new_lp:
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.lp": new_lp, "tft.last_posted_lp": new_lp}},
+            )
+            print(f"[TFT] Baseline LP stored for {name}#{tag}: {new_lp}")
+            return
         old_lp_val = old_lp if old_lp is not None else 0
         lp_diff = new_lp - old_lp_val if new_lp else 0
         lp_changed = bool(new_lp and new_lp != old_lp_val)
 
         # ── Case 1: LP changed → post embed with pending placement ───────────
+        # Guard: skip if already posted for this exact LP value or match
+        if lp_changed and new_match_id and new_match_id in known_ids:
+            lp_changed = False
+        if lp_changed and last_posted_lp is not None and last_posted_lp == new_lp:
+            lp_changed = False  # already posted for this LP value, prevent duplicate on restart
         if lp_changed:
+            # Write LP and mark match as known BEFORE posting so a restart can't re-trigger
+            new_ids_lp = list((known_ids | ({new_match_id} if new_match_id else set())))[-20:]
             await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"tft.lp": new_lp}},
+                {"$set": {"tft.lp": new_lp, "tft.last_match_ids": new_ids_lp, "tft.last_posted_lp": new_lp}},
             )
+            known_ids = set(new_ids_lp)
             rank_str = _format_rank(tier, div, raw_lp) if tier else "Unranked"
             won = lp_diff > 0
             colour = 0x4FBD6E if won else 0x8B4A4A
