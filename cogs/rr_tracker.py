@@ -838,46 +838,43 @@ class RRTracker(commands.Cog):
             return ""
 
         rr_sign = lambda v: f"+{v}" if v >= 0 else str(v)
-        win = lambda a, b: "▸" if a > b else ("◂" if b > a else "—")
 
-        def row(label, va, vb, fmt_a, fmt_b=None):
-            fmt_b = fmt_b or fmt_a
-            wa = win(va, vb)
-            # left arrow on right side, right arrow on left side
-            la = f"{fmt_a(va)} {wa}" if wa == "▸" else fmt_a(va)
-            lb = f"{wa} {fmt_b(vb)}" if wa == "◂" else fmt_b(vb)
-            return f"`{la:<10}` **{label}** `{lb:>10}`"
+        def row(label, va, vb, fmt):
+            sa, sb = fmt(va), fmt(vb)
+            if va > vb:
+                return f"**{sa}** — {sb}  |  {label}"
+            elif vb > va:
+                return f"{sa} — **{sb}**  |  {label}"
+            else:
+                return f"{sa} — {sb}  |  {label}"
 
-        lines = [
-            f"**Rank**",
-            f"`{a['tier']} {a['rr']}RR` {'  ' + _streak_str(a['streak']) if _streak_str(a['streak']) else ''}",
-            f"`{b['tier']} {b['rr']}RR` {'  ' + _streak_str(b['streak']) if _streak_str(b['streak']) else ''}",
-            "",
+        a_streak = _streak_str(a["streak"])
+        b_streak = _streak_str(b["streak"])
+        a_val = f"{a['tier']}  {a['rr']} RR" + (f"\n{a_streak}" if a_streak else "")
+        b_val = f"{b['tier']}  {b['rr']} RR" + (f"\n{b_streak}" if b_streak else "")
+
+        colour = COLOUR_MAIN
+        embed = discord.Embed(
+            title=f"{a['name']}#{a['tag']}  vs  {b['name']}#{b['tag']}",
+            color=colour,
+        )
+        embed.add_field(name=f"{a['name']}#{a['tag']}", value=a_val, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        embed.add_field(name=f"{b['name']}#{b['tag']}", value=b_val, inline=True)
+        stats_lines = [
             row("wins", a["wins"], b["wins"], str),
             row("losses", a["losses"], b["losses"], str),
             row("RR", a["rr_gained"], b["rr_gained"], rr_sign),
             row("KDA", a["kda"], b["kda"], str),
             row("HS%", a["hs_pct"], b["hs_pct"], lambda v: f"{v}%"),
             row("ACS", a["avg_acs"], b["avg_acs"], str),
-            row("DMG", a["avg_dmg"], b["avg_dmg"], str),
+            row("DMG/game", a["avg_dmg"], b["avg_dmg"], str),
         ]
-
-        # Build two-column header
-        colour = COLOUR_MAIN
-        embed = discord.Embed(
-            title=f"{a['name']}#{a['tag']}  vs  {b['name']}#{b['tag']}",
-            color=colour,
-        )
         embed.add_field(
-            name=f"{a['name']}#{a['tag']}", value="\n".join(lines[:3]), inline=True
+            name="Last 10 games", value="\n".join(stats_lines), inline=False
         )
-        embed.add_field(name="\u200b", value="\u200b", inline=True)
-        b_streak = _streak_str(b["streak"])
-        b_value = f"`{b['tier']} {b['rr']}RR`" + (f"\n{b_streak}" if b_streak else "")
-        embed.add_field(name=f"{b['name']}#{b['tag']}", value=b_value, inline=True)
-        embed.add_field(name="Last 10 games", value="\n".join(lines[4:]), inline=False)
         embed.set_footer(
-            text=f"Last 10 competitive games  •  Reverie  •  {interaction.guild.name}"
+            text=f"Last 10 competitive games  \u2022  Reverie  \u2022  {interaction.guild.name}"
         )
         await interaction.followup.send(embed=embed)
 
