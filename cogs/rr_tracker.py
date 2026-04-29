@@ -932,7 +932,7 @@ class RRTracker(commands.Cog):
             name="Last 10 games", value="\n".join(stats_lines), inline=False
         )
         embed.set_footer(
-            text=f"Last 10 competitive games  \u2022  Reverie  \u2022  {interaction.guild.name}"
+            text=f"Last {a['games']} games  •  Reverie  •  {interaction.guild.name}"
         )
         await interaction.followup.send(embed=embed)
 
