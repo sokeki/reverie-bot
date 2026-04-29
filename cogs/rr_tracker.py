@@ -2117,7 +2117,7 @@ class RRTracker(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         accounts = await self.bot.riot_accounts_col.find(
-            {"guild_id": guild.id, "game": "val"}
+            {"guild_id": guild.id, "val_name": {"$exists": True}}
         ).to_list(length=100)
 
         if not accounts:
@@ -2128,9 +2128,9 @@ class RRTracker(commands.Cog):
 
         results = []
         for account in accounts:
-            name = account.get("username", "")
-            tag = account.get("tag", "")
-            region = account.get("region", "eu")
+            name = account.get("val_name", "")
+            tag = account.get("val_tag", "")
+            region = account.get("val_region", "eu")
             try:
                 history = await self._get_mmr_history(name, tag, region=region)
                 if not history:
