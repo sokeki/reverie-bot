@@ -679,27 +679,38 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Detect latest match
-        result = await self._detect_new_game(account)
-        if not result:
+        # Fetch latest match directly from MMR history — bypass "new game" check
+        val_region = VAL_REGION_MAP.get(account.get("val_region", "EUW"), "eu")
+        history = await self._get_mmr_history(name, tag, region=val_region)
+        if not history:
             await interaction.followup.send(
-                f"⚠️ No new match found for `{name}#{tag}` — API may be stale.",
-                ephemeral=True,
+                f"⚠️ Couldn't fetch MMR history for `{name}#{tag}`.", ephemeral=True
             )
             return
 
-        match_id, rr_change, rr, tier = result
+        latest_entry = history[0]
+        match_id = latest_entry.get("match_id")
+        rr_change = latest_entry.get("mmr_change_to_last_game", 0)
+        rr = latest_entry.get("ranking_in_tier", 0)
+        tier = latest_entry.get("currenttierpatched", "")
+
+        if not match_id:
+            await interaction.followup.send(
+                f"⚠️ No match ID in MMR history for `{name}#{tag}`.", ephemeral=True
+            )
+            return
 
         # Remove from recently_posted so _post_new_game won't be blocked
         post_key = f"{account.get('puuid', '')}:{match_id}"
         self._recently_posted.discard(post_key)
 
-        # Update last_match_id so it's treated as a new game
+        # Temporarily clear last_match_id so _post_new_game treats it as new
+        old_last_match_id = account.get("last_match_id")
         await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
-            {"$set": {"last_match_id": match_id}},
+            {"$set": {"last_match_id": None}},
         )
-        account["last_match_id"] = match_id
+        account["last_match_id"] = None
 
         await interaction.followup.send(
             f"✅ Force-posting latest match for `{name}#{tag}`...", ephemeral=True
@@ -717,6 +728,11 @@ class RRTracker(commands.Cog):
                 tier_from_history=tier,
             )
         except Exception as e:
+            # Restore last_match_id on failure
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"last_match_id": old_last_match_id}},
+            )
             await interaction.followup.send(f"❌ Error posting: {e}", ephemeral=True)
 
     # ── /rrtrackerstatus ─────────────────────────────────────────────────────
