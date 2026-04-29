@@ -722,7 +722,7 @@ class RRTracker(commands.Cog):
                 match_id,
                 channel,
                 guild,
-                match_data=None,
+                latest=None,
                 rr_change=rr_change,
                 rr=rr,
                 tier_from_history=tier,
