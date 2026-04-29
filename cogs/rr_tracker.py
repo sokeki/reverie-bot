@@ -777,6 +777,7 @@ class RRTracker(commands.Cog):
             total_hs = total_bs = total_ls = total_score = total_rounds = (
                 total_damage
             ) = 0
+            clutch_opps = clutch_wins = 0
             wins = losses = games_counted = 0
             game_results = (
                 []
@@ -827,6 +828,64 @@ class RRTracker(commands.Cog):
                 total_damage += player.get("damage_made", 0)
                 total_rounds += meta_rounds
                 games_counted += 1
+                # Clutch calculation from rounds data
+                rounds_data = match.get("rounds", [])
+                if isinstance(rounds_data, list):
+                    for rnd in rounds_data:
+                        rnd_kills = rnd.get("player_stats", [])
+                        # Flatten all kills in this round
+                        all_kills = []
+                        for ps in rnd_kills:
+                            if isinstance(ps, dict):
+                                all_kills.extend(ps.get("kill_events", []))
+                        # Find player's team
+                        rnd_winner = rnd.get("winning_team", "").lower()
+                        teammate_puuids = set()
+                        for ps in rnd_kills:
+                            if isinstance(ps, dict) and ps.get("player_puuid") != puuid:
+                                p_team = next(
+                                    (
+                                        p.get("team", "")
+                                        for p in (
+                                            raw_p
+                                            if isinstance(raw_p, list)
+                                            else raw_p.get("all_players", [])
+                                        )
+                                        if isinstance(p, dict)
+                                        and p.get("puuid") == ps.get("player_puuid")
+                                    ),
+                                    "",
+                                )
+                                if p_team.lower() == player_team:
+                                    teammate_puuids.add(ps.get("player_puuid"))
+                        if not teammate_puuids:
+                            continue
+                        all_teammate_died = all(
+                            any(k.get("victim_puuid") == tp for k in all_kills)
+                            for tp in teammate_puuids
+                        )
+                        if not all_teammate_died:
+                            continue
+                        player_death_time = min(
+                            (
+                                k.get("kill_time_in_round", 0)
+                                for k in all_kills
+                                if k.get("victim_puuid") == puuid
+                            ),
+                            default=float("inf"),
+                        )
+                        last_teammate_death = max(
+                            (
+                                k.get("kill_time_in_round", 0)
+                                for k in all_kills
+                                if k.get("victim_puuid") in teammate_puuids
+                            ),
+                            default=0,
+                        )
+                        if last_teammate_death < player_death_time:
+                            clutch_opps += 1
+                            if rnd_winner == player_team:
+                                clutch_wins += 1
 
             if games_counted == 0:
                 return None, f"No match data found for `{name}#{tag}` in cache."
@@ -861,6 +920,9 @@ class RRTracker(commands.Cog):
                 for e in mmr_history[:games_counted]
             )
 
+            clutch_pct = (
+                round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
+            )
             return {
                 "name": name,
                 "tag": tag,
@@ -874,6 +936,9 @@ class RRTracker(commands.Cog):
                 "hs_pct": hs_pct,
                 "avg_acs": avg_acs,
                 "avg_dmg": avg_dmg,
+                "clutch_pct": clutch_pct,
+                "clutch_wins": clutch_wins,
+                "clutch_opps": clutch_opps,
                 "games": games_counted,
             }, None
 
@@ -919,6 +984,25 @@ class RRTracker(commands.Cog):
         embed.add_field(name=f"{a['name']}#{a['tag']}", value=a_val, inline=True)
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         embed.add_field(name=f"{b['name']}#{b['tag']}", value=b_val, inline=True)
+        # Handle unequal game counts
+        ga, gb = a["games"], b["games"]
+        if ga != gb:
+            games_label = f"Last {ga} vs {gb} games"
+            footer_note = f"{a['name']}#{a['tag']}: {ga} games  •  {b['name']}#{b['tag']}: {gb} games"
+        else:
+            games_label = f"Last {ga} games"
+            footer_note = f"Last {ga} competitive games"
+
+        def row_note(label, va, vb, fmt, note_a="", note_b=""):
+            sa = fmt(va) + (f" ({note_a})" if note_a else "")
+            sb = fmt(vb) + (f" ({note_b})" if note_b else "")
+            if va > vb:
+                return f"**{sa}** — {sb}  |  {label}"
+            elif vb > va:
+                return f"{sa} — **{sb}**  |  {label}"
+            else:
+                return f"{sa} — {sb}  |  {label}"
+
         stats_lines = [
             row("wins", a["wins"], b["wins"], str),
             row("losses", a["losses"], b["losses"], str),
@@ -927,13 +1011,10 @@ class RRTracker(commands.Cog):
             row("HS%", a["hs_pct"], b["hs_pct"], lambda v: f"{v}%"),
             row("ACS", a["avg_acs"], b["avg_acs"], str),
             row("DMG/game", a["avg_dmg"], b["avg_dmg"], str),
+            row("Clutch%", a["clutch_pct"], b["clutch_pct"], lambda v: f"{v}%"),
         ]
-        embed.add_field(
-            name="Last 10 games", value="\n".join(stats_lines), inline=False
-        )
-        embed.set_footer(
-            text=f"Last {a['games']} games  •  Reverie  •  {interaction.guild.name}"
-        )
+        embed.add_field(name=games_label, value="\n".join(stats_lines), inline=False)
+        embed.set_footer(text=f"{footer_note}  •  Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
     @app_commands.command(
