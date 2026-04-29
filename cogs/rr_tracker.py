@@ -192,6 +192,20 @@ class RRTracker(commands.Cog):
         except Exception:
             return None
 
+    async def _tracked_accounts_ac(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Autocomplete: suggest tracked val accounts in this guild."""
+        accounts = await self.bot.riot_accounts_col.find(
+            {"guild_id": interaction.guild_id, "val_name": {"$exists": True}}
+        ).to_list(length=100)
+        choices = []
+        for acc in accounts:
+            label = f"{acc.get('val_name', '')}#{acc.get('val_tag', '')}"
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label, value=label))
+        return choices[:25]
+
     async def _get_matches(
         self, name: str, tag: str, count: int = 1, region: str = "eu"
     ) -> list:
@@ -485,6 +499,7 @@ class RRTracker(commands.Cog):
         name="unregisterriot", description="Remove a Riot account from server tracking"
     )
     @app_commands.describe(username="Riot ID including tag, e.g. Name#EUW")
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
     async def unregisterriot(self, interaction: discord.Interaction, username: str):
         if "#" not in username:
             await interaction.response.send_message(
@@ -595,6 +610,7 @@ class RRTracker(commands.Cog):
         description="[Admin] Test the Valorant API for a specific account",
     )
     @app_commands.describe(username="Valorant username e.g. Name#TAG")
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
     @app_commands.default_permissions(administrator=True)
     async def valtrackertest(self, interaction: discord.Interaction, username: str):
         await interaction.response.defer(ephemeral=True)
@@ -654,6 +670,218 @@ class RRTracker(commands.Cog):
     # ── /valstats ─────────────────────────────────────────────────────────────
 
     @app_commands.command(
+        name="valvs",
+        description="Head-to-head stats comparison between two tracked Valorant players",
+    )
+    @app_commands.describe(
+        player1="First player — Riot ID e.g. Name#EUW",
+        player2="Second player — Riot ID e.g. Name#EUW",
+        region="Server region (default EUW)",
+    )
+    @app_commands.autocomplete(
+        player1=_tracked_accounts_ac, player2=_tracked_accounts_ac
+    )
+    @app_commands.choices(
+        region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP]
+    )
+    async def valvs(
+        self,
+        interaction: discord.Interaction,
+        player1: str,
+        player2: str,
+        region: str = "EUW",
+    ):
+        await interaction.response.defer()
+        val_region = VAL_REGION_MAP.get(region, "eu")
+
+        async def _get_stats(username: str):
+            if "#" not in username:
+                return None, f"Invalid format for `{username}` — use Name#TAG"
+            name, tag = username.split("#", 1)
+
+            # Look up puuid from riot_accounts_col first, fall back to name/tag match in cache
+            account_doc = await self.bot.riot_accounts_col.find_one(
+                {
+                    "guild_id": interaction.guild_id,
+                    "val_name": {"$regex": f"^{name}$", "$options": "i"},
+                    "val_tag": {"$regex": f"^{tag}$", "$options": "i"},
+                }
+            )
+            puuid = account_doc.get("puuid") if account_doc else None
+            current_streak = account_doc.get("val_streak", 0) if account_doc else 0
+
+            # Fetch cached matches — find by puuid if known, else by name/tag scan
+            if puuid:
+                cached = (
+                    await self.bot.val_match_cache_col.find({"puuids": puuid})
+                    .sort("cached_at", -1)
+                    .limit(10)
+                    .to_list(length=10)
+                )
+            else:
+                # No puuid — can't look up from cache reliably
+                return (
+                    None,
+                    f"No tracked account found for `{name}#{tag}` in this server.",
+                )
+
+            if not cached:
+                return (
+                    None,
+                    f"No cached matches found for `{name}#{tag}` — play a game first!",
+                )
+
+            total_kills = total_deaths = total_assists = 0
+            total_hs = total_bs = total_ls = total_score = total_rounds = (
+                total_damage
+            ) = 0
+            wins = losses = games_counted = 0
+
+            for doc in cached:
+                match = doc.get("data", {})
+                meta_rounds = match.get("metadata", {}).get("rounds_played", 0)
+                raw_p = match.get("players", [])
+                all_p = (
+                    raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
+                )
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                # Win/loss
+                player_team = player.get("team", "").lower()
+                won = False
+                teams = match.get("teams", {})
+                if isinstance(teams, list):
+                    for t in teams:
+                        if (
+                            isinstance(t, dict)
+                            and t.get("team_id", "").lower() == player_team
+                        ):
+                            won = t.get("won", False)
+                elif isinstance(teams, dict):
+                    td = teams.get(player_team, {})
+                    won = td.get("has_won", False) if isinstance(td, dict) else False
+                wins += 1 if won else 0
+                losses += 0 if won else 1
+                s = player.get("stats", {})
+                total_kills += s.get("kills", 0)
+                total_deaths += s.get("deaths", 0)
+                total_assists += s.get("assists", 0)
+                total_hs += s.get("headshots", 0)
+                total_bs += s.get("bodyshots", 0)
+                total_ls += s.get("legshots", 0)
+                total_score += s.get("score", 0)
+                total_damage += player.get("damage_made", 0)
+                total_rounds += meta_rounds
+                games_counted += 1
+
+            if games_counted == 0:
+                return None, f"No match data found for `{name}#{tag}` in cache."
+
+            shots = total_hs + total_bs + total_ls
+            hs_pct = round(total_hs / shots * 100) if shots else 0
+            kda = round((total_kills + total_assists / 2) / max(total_deaths, 1), 2)
+            avg_acs = round(total_score / total_rounds) if total_rounds else 0
+            avg_dmg = round(total_damage / games_counted) if games_counted else 0
+
+            # Current rank + RR from account doc (most recent cached value)
+            tier = (
+                account_doc.get("val_tier", "Unranked") if account_doc else "Unranked"
+            )
+            rr = account_doc.get("val_rr", 0) if account_doc else 0
+            # RR gained: sum mmr_change from last 10 cached MMR history (lightweight)
+            mmr_history = await self._get_mmr_history(name, tag, region=val_region)
+            rr_gained = sum(
+                (e.get("mmr_change_to_last_game") or 0)
+                for e in mmr_history[:games_counted]
+            )
+
+            return {
+                "name": name,
+                "tag": tag,
+                "tier": tier,
+                "rr": rr,
+                "wins": wins,
+                "losses": losses,
+                "rr_gained": rr_gained,
+                "streak": current_streak,
+                "kda": kda,
+                "hs_pct": hs_pct,
+                "avg_acs": avg_acs,
+                "avg_dmg": avg_dmg,
+                "games": games_counted,
+            }, None
+
+        a, err_a = await _get_stats(player1)
+        b, err_b = await _get_stats(player2)
+        if err_a or err_b:
+            await interaction.followup.send(err_a or err_b, ephemeral=True)
+            return
+        if not a or not b:
+            await interaction.followup.send(
+                "Could not fetch stats for one or both players.", ephemeral=True
+            )
+            return
+
+        def _streak_str(s):
+            if s >= 2:
+                return f"🔥 {s}W streak"
+            if s <= -2:
+                return f"❄️ {abs(s)}L streak"
+            return ""
+
+        rr_sign = lambda v: f"+{v}" if v >= 0 else str(v)
+        win = lambda a, b: "▸" if a > b else ("◂" if b > a else "—")
+
+        def row(label, va, vb, fmt_a, fmt_b=None):
+            fmt_b = fmt_b or fmt_a
+            wa = win(va, vb)
+            # left arrow on right side, right arrow on left side
+            la = f"{fmt_a(va)} {wa}" if wa == "▸" else fmt_a(va)
+            lb = f"{wa} {fmt_b(vb)}" if wa == "◂" else fmt_b(vb)
+            return f"`{la:<10}` **{label}** `{lb:>10}`"
+
+        lines = [
+            f"**Rank**",
+            f"`{a['tier']} {a['rr']}RR` {'  ' + _streak_str(a['streak']) if _streak_str(a['streak']) else ''}",
+            f"`{b['tier']} {b['rr']}RR` {'  ' + _streak_str(b['streak']) if _streak_str(b['streak']) else ''}",
+            "",
+            row("wins", a["wins"], b["wins"], str),
+            row("losses", a["losses"], b["losses"], str),
+            row("RR", a["rr_gained"], b["rr_gained"], rr_sign),
+            row("KDA", a["kda"], b["kda"], str),
+            row("HS%", a["hs_pct"], b["hs_pct"], lambda v: f"{v}%"),
+            row("ACS", a["avg_acs"], b["avg_acs"], str),
+            row("DMG", a["avg_dmg"], b["avg_dmg"], str),
+        ]
+
+        # Build two-column header
+        colour = COLOUR_MAIN
+        embed = discord.Embed(
+            title=f"{a['name']}#{a['tag']}  vs  {b['name']}#{b['tag']}",
+            color=colour,
+        )
+        embed.add_field(
+            name=f"{a['name']}#{a['tag']}", value="\n".join(lines[:3]), inline=True
+        )
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+        b_streak = _streak_str(b["streak"])
+        b_value = f"`{b['tier']} {b['rr']}RR`" + (f"\n{b_streak}" if b_streak else "")
+        embed.add_field(name=f"{b['name']}#{b['tag']}", value=b_value, inline=True)
+        embed.add_field(name="Last 10 games", value="\n".join(lines[4:]), inline=False)
+        embed.set_footer(
+            text=f"Last 10 competitive games  •  Reverie  •  {interaction.guild.name}"
+        )
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
         name="valstats", description="Show Valorant stats for any player"
     )
     @app_commands.describe(
@@ -661,6 +889,7 @@ class RRTracker(commands.Cog):
         region="Server region",
         detail="Detailed stats view",
     )
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
     @app_commands.choices(
         region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP],
         detail=[
@@ -1213,6 +1442,7 @@ class RRTracker(commands.Cog):
         description="Check a player's shot accuracy across their last 10 competitive games",
     )
     @app_commands.describe(username="Valorant username and tag, e.g. Name#EUW")
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
     async def footshot(self, interaction: discord.Interaction, username: str):
         if "#" not in username:
             await interaction.response.send_message(
@@ -1343,6 +1573,7 @@ class RRTracker(commands.Cog):
         match_id="Match ID from the RR update footer",
         username="Valorant username and tag to use their latest game, e.g. Name#EUW",
     )
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
     async def scoreboard(
         self,
         interaction: discord.Interaction,
@@ -1904,7 +2135,7 @@ class RRTracker(commands.Cog):
             new_streak = current_streak - 1 if current_streak <= 0 else -1
         await self.bot.riot_accounts_col.update_one(
             {"_id": account["_id"]},
-            {"$set": {"val_streak": new_streak}},
+            {"$set": {"val_streak": new_streak, "val_tier": tier_name, "val_rr": rr}},
         )
         streak_str = None
         streak_break_msg = None
