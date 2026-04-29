@@ -710,20 +710,62 @@ class RRTracker(commands.Cog):
             puuid = account_doc.get("puuid") if account_doc else None
             current_streak = account_doc.get("val_streak", 0) if account_doc else 0
 
-            # Fetch cached matches — find by puuid if known, else by name/tag scan
+            # Fetch up to 20 cached matches
             if puuid:
                 cached = (
                     await self.bot.val_match_cache_col.find({"puuids": puuid})
                     .sort("cached_at", -1)
-                    .limit(10)
-                    .to_list(length=10)
+                    .limit(20)
+                    .to_list(length=20)
                 )
             else:
-                # No puuid — can't look up from cache reliably
                 return (
                     None,
                     f"No tracked account found for `{name}#{tag}` in this server.",
                 )
+
+            # Top up from API if cache has fewer than 20
+            cached_ids = {doc.get("match_id") for doc in cached}
+            if len(cached) < 20:
+                fresh = await self._get_matches(name, tag, count=20, region=val_region)
+                if isinstance(fresh, list):
+                    for match in fresh:
+                        mid = match.get("metadata", {}).get("matchid") or match.get(
+                            "metadata", {}
+                        ).get("match_id")
+                        if mid and mid not in cached_ids:
+                            raw_p = match.get("players", [])
+                            all_p = (
+                                raw_p
+                                if isinstance(raw_p, list)
+                                else raw_p.get("all_players", [])
+                            )
+                            all_puuids = [
+                                p.get("puuid")
+                                for p in all_p
+                                if isinstance(p, dict) and p.get("puuid")
+                            ]
+                            try:
+                                await self.bot.val_match_cache_col.update_one(
+                                    {"match_id": mid},
+                                    {
+                                        "$setOnInsert": {
+                                            "match_id": mid,
+                                            "puuid": puuid,
+                                            "puuids": all_puuids,
+                                            "data": match,
+                                            "cached_at": datetime.now(timezone.utc),
+                                            "has_rounds": True,
+                                        }
+                                    },
+                                    upsert=True,
+                                )
+                            except Exception:
+                                pass
+                            cached.append({"match_id": mid, "data": match})
+                            cached_ids.add(mid)
+                            if len(cached) >= 20:
+                                break
 
             if not cached:
                 return (
@@ -736,6 +778,9 @@ class RRTracker(commands.Cog):
                 total_damage
             ) = 0
             wins = losses = games_counted = 0
+            game_results = (
+                []
+            )  # True=win, False=loss, newest first (cache is sorted newest first)
 
             for doc in cached:
                 match = doc.get("data", {})
@@ -770,6 +815,7 @@ class RRTracker(commands.Cog):
                     won = td.get("has_won", False) if isinstance(td, dict) else False
                 wins += 1 if won else 0
                 losses += 0 if won else 1
+                game_results.append(won)
                 s = player.get("stats", {})
                 total_kills += s.get("kills", 0)
                 total_deaths += s.get("deaths", 0)
@@ -791,6 +837,18 @@ class RRTracker(commands.Cog):
             avg_acs = round(total_score / total_rounds) if total_rounds else 0
             avg_dmg = round(total_damage / games_counted) if games_counted else 0
 
+            # Compute streak from the same cached games (newest first in cache)
+            streak = 0
+            for result in game_results:
+                if streak == 0:
+                    streak = 1 if result else -1
+                elif result and streak > 0:
+                    streak += 1
+                elif not result and streak < 0:
+                    streak -= 1
+                else:
+                    break
+
             # Current rank + RR from account doc (most recent cached value)
             tier = (
                 account_doc.get("val_tier", "Unranked") if account_doc else "Unranked"
@@ -811,7 +869,7 @@ class RRTracker(commands.Cog):
                 "wins": wins,
                 "losses": losses,
                 "rr_gained": rr_gained,
-                "streak": current_streak,
+                "streak": streak,
                 "kda": kda,
                 "hs_pct": hs_pct,
                 "avg_acs": avg_acs,
