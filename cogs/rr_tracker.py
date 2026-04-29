@@ -2263,7 +2263,11 @@ class RRTracker(commands.Cog):
         result_str = "WIN" if won else "LOSS"
         embed_colour = COLOUR_MAIN if won else 0x8B4A4A
 
-        # ── Streak tracking ──────────────────────────────────────────────────
+        # ── Streak tracking — guard against double-update if poll loop fires twice ──
+        inner_post_key = f"{account.get('puuid', '')}:{match_id}"
+        if inner_post_key in self._recently_posted:
+            # Already processed this match for this account — skip streak update
+            return
         current_streak = account.get("val_streak", 0)
         if won:
             new_streak = current_streak + 1 if current_streak >= 0 else 1
@@ -2273,6 +2277,9 @@ class RRTracker(commands.Cog):
             {"_id": account["_id"]},
             {"$set": {"val_streak": new_streak, "val_tier": tier_name, "val_rr": rr}},
         )
+        self._recently_posted.add(inner_post_key)
+        if len(self._recently_posted) > 200:
+            self._recently_posted.pop()
         streak_str = None
         streak_break_msg = None
         if abs(new_streak) >= 2:
