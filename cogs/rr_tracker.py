@@ -1229,7 +1229,8 @@ class RRTracker(commands.Cog):
             async with session.get(url) as resp:
                 if resp.status != 200:
                     await interaction.followup.send(
-                        f"⚠️ Couldn't find **{username}** on EU servers.", ephemeral=True
+                        f"⚠️ Couldn't find **{username}** on EU servers.",
+                        ephemeral=True,
                     )
                     return
                 data = await resp.json()
@@ -1895,6 +1896,29 @@ class RRTracker(commands.Cog):
         result_str = "WIN" if won else "LOSS"
         embed_colour = COLOUR_MAIN if won else 0x8B4A4A
 
+        # ── Streak tracking ──────────────────────────────────────────────────
+        current_streak = account.get("val_streak", 0)
+        if won:
+            new_streak = current_streak + 1 if current_streak >= 0 else 1
+        else:
+            new_streak = current_streak - 1 if current_streak <= 0 else -1
+        await self.bot.riot_accounts_col.update_one(
+            {"_id": account["_id"]},
+            {"$set": {"val_streak": new_streak}},
+        )
+        streak_str = None
+        streak_break_msg = None
+        if abs(new_streak) >= 2:
+            if new_streak > 0:
+                streak_str = f"🔥 {new_streak} Win Streak"
+            else:
+                streak_str = f"❄️ {abs(new_streak)} Loss Streak"
+        # Streak broken — only message if the previous streak was 2+
+        elif won and current_streak <= -2:
+            streak_break_msg = f"🎉 **{name}#{tag}** finally broke the loss streak!"
+        elif not won and current_streak >= 2:
+            streak_break_msg = f"😔 **{name}#{tag}** lost the win streak.."
+
         session = await self._get_session()
         card_url = (
             f"https://media.valorant-api.com/playercards/{player_card_id}/smallart.png"
@@ -1925,9 +1949,13 @@ class RRTracker(commands.Cog):
         embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
         if agent_icon_url:
             embed.set_thumbnail(url=agent_icon_url)
+        if streak_str:
+            embed.add_field(name="Streak", value=f"**{streak_str}**", inline=True)
         embed.set_footer(text=f"{match_id}  •  Reverie  •  {guild.name}")
 
         await channel.send(embed=embed)
+        if streak_break_msg:
+            await channel.send(streak_break_msg)
 
         # Cache full match data for /valstats detail views
         if latest and match_id:
@@ -2077,6 +2105,66 @@ class RRTracker(commands.Cog):
     @daily_summary_task.before_loop
     async def before_daily(self):
         await self.bot.wait_until_ready()
+
+    # ── Streak backfill ───────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="valbackfillstreak",
+        description="Backfill win/loss streaks from match history for all tracked accounts (admin only)",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def valbackfillstreak(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        accounts = await self.bot.riot_accounts_col.find(
+            {"guild_id": guild.id, "game": "val"}
+        ).to_list(length=100)
+
+        if not accounts:
+            await interaction.followup.send(
+                "No tracked Valorant accounts found.", ephemeral=True
+            )
+            return
+
+        results = []
+        for account in accounts:
+            name = account.get("username", "")
+            tag = account.get("tag", "")
+            region = account.get("region", "eu")
+            try:
+                history = await self._get_mmr_history(name, tag, region=region)
+                if not history:
+                    results.append(f"⚠️ `{name}#{tag}` — no MMR history")
+                    continue
+                # MMR history is newest first — compute current streak
+                streak = 0
+                for entry in history:
+                    change = entry.get("mmr_change_to_last_game", 0) or 0
+                    won = change >= 0
+                    if streak == 0:
+                        streak = 1 if won else -1
+                    elif won and streak > 0:
+                        streak += 1
+                    elif not won and streak < 0:
+                        streak -= 1
+                    else:
+                        break  # streak ended
+                await self.bot.riot_accounts_col.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"val_streak": streak}},
+                )
+                if streak >= 2:
+                    label = f"🔥 {streak}W streak"
+                elif streak <= -2:
+                    label = f"❄️ {abs(streak)}L streak"
+                else:
+                    label = f"{streak:+d}"
+                results.append(f"✅ `{name}#{tag}` → {label}")
+            except Exception as e:
+                results.append(f"❌ `{name}#{tag}` — error: {e}")
+
+        msg = "**Streak backfill complete:**\n" + "\n".join(results)
+        await interaction.followup.send(msg, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
