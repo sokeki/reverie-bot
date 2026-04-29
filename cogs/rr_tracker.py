@@ -671,7 +671,7 @@ class RRTracker(commands.Cog):
 
         # Get the tracker channel
         settings = await self.bot.settings_col.find_one({"guild_id": guild.id}) or {}
-        channel_id = settings.get("val_tracker_channel")
+        channel_id = settings.get("rr_channel_id") if settings else None
         channel = guild.get_channel(channel_id) if channel_id else None
         if not channel:
             await interaction.followup.send(
