@@ -74,7 +74,7 @@
 <!-- CHARTS VIEW -->
 <div id="view-charts" style="display:none">
     <div class="charts-section" style="margin-top:0">
-        <h2 style="margin-bottom:1rem">📊 Top 10 Members</h2>
+        <h2>📊 Top 10 Members</h2>
         <div class="charts-grid">
             <div class="chart-card">
                 <h3>✨ Dream Points</h3>
@@ -90,30 +90,6 @@
             </div>
         </div>
     </div>
-
-    <div class="charts-section">
-        <div class="charts-section-header">
-            <h2>📅 Server Activity Over Time</h2>
-        </div>
-        {% if not weekly %}
-        <p style="color:var(--text-muted);font-size:0.85rem">No weekly snapshots yet — data appears after the first
-            weekly recap.</p>
-        {% endif %}
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>✨ Dream Points</h3>
-                <div style="height:180px;position:relative"><canvas id="actPoints"></canvas></div>
-            </div>
-            <div class="chart-card">
-                <h3>🎙️ Voice Minutes</h3>
-                <div style="height:180px;position:relative"><canvas id="actVoice"></canvas></div>
-            </div>
-            <div class="chart-card">
-                <h3>💬 Messages</h3>
-                <div style="height:180px;position:relative"><canvas id="actMsgs"></canvas></div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
@@ -124,70 +100,17 @@
     const _bvv = {{ bar_voice_values  | tojson }};
     const _bml = {{ bar_msgs_labels   | tojson }};
     const _bmv = {{ bar_msgs_values   | tojson }};
-    const BAR = {
-        points: { labels: _bpl, values: _bpv },
-        voice: { labels: _bvl, values: _bvv },
-        msgs: { labels: _bml, values: _bmv },
-    };
-    const _weekly = {{ weekly | tojson }};
-    const WEEKLY_ACT = {
-        labels: _weekly.map(d => d.week || ''),
-        points: _weekly.map(d => d.points || 0),
-        voice: _weekly.map(d => d.voice_minutes || 0),
-        messages: _weekly.map(d => d.messages_sent || 0),
-    };
-
-    let barChartsDrawn = false;
-    let actCharts = [];
+    var barChartsDrawn = false;
 
     function makeBar(id, labels, values, colour) {
-        const ctx = document.getElementById(id);
+        var ctx = document.getElementById(id);
         if (!ctx) return;
         new Chart(ctx, {
             type: 'bar',
-            data: { labels, datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }] },
+            data: { labels: labels, datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }] },
             options: {
-                indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } },
-                    y: { grid: { display: false }, ticks: { color: '#e8e0f0' } }
-                }
-            }
-        });
-    }
-
-    function makeLine(id, labels, data, colour) {
-        const ctx = document.getElementById(id);
-        if (!ctx) return null;
-        return new Chart(ctx, {
-            type: 'line',
-            data: { labels: labels, datasets: [{ data: data, borderColor: colour, backgroundColor: colour + '33', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointBackgroundColor: colour }] },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 6 } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true }
-                }
-            }
-        });
-    }
-
-    function makeActChart(id, labels, data, colour) {
-        var ctx = document.getElementById(id);
-        if (!ctx) return null;
-        var chartType = labels.length >= 2 ? 'line' : 'bar';
-        return new Chart(ctx, {
-            type: chartType,
-            data: { labels: labels, datasets: [{ data: data, borderColor: colour, backgroundColor: colour + '33', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointBackgroundColor: colour, borderRadius: 6 }] },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 6 } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true }
-                }
+                indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } }, y: { grid: { display: false }, ticks: { color: '#e8e0f0' } } }
             }
         });
     }
@@ -197,22 +120,13 @@
         document.getElementById('view-charts').style.display = view === 'charts' ? '' : 'none';
         document.getElementById('btn-table').classList.toggle('active', view === 'table');
         document.getElementById('btn-charts').classList.toggle('active', view === 'charts');
-
         if (view === 'charts' && !barChartsDrawn) {
             barChartsDrawn = true;
             requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
-                    makeBar('chartPoints', BAR.points.labels, BAR.points.values, '#9b8ec4');
-                    makeBar('chartVoice', BAR.voice.labels, BAR.voice.values, '#6a9ec4');
-                    makeBar('chartMsgs', BAR.msgs.labels, BAR.msgs.values, '#c49e8e');
-                    actCharts.forEach(function (ch) { ch.destroy(); });
-                    actCharts = [];
-                    var c1 = makeActChart('actPoints', WEEKLY_ACT.labels, WEEKLY_ACT.points, '#9b8ec4');
-                    var c2 = makeActChart('actVoice', WEEKLY_ACT.labels, WEEKLY_ACT.voice, '#6a9ec4');
-                    var c3 = makeActChart('actMsgs', WEEKLY_ACT.labels, WEEKLY_ACT.messages, '#c49e8e');
-                    if (c1) actCharts.push(c1);
-                    if (c2) actCharts.push(c2);
-                    if (c3) actCharts.push(c3);
+                    makeBar('chartPoints', _bpl, _bpv, '#9b8ec4');
+                    makeBar('chartVoice', _bvl, _bvv, '#6a9ec4');
+                    makeBar('chartMsgs', _bml, _bmv, '#c49e8e');
                 });
             });
         }

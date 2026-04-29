@@ -44,93 +44,106 @@
         </div>
         <div class="rule-row">
             <span class="rule-label">Points per voice block</span>
-            <span class="rule-value">{{ settings.points_per_voice_block }} pt per {{ settings.voice_block_minutes }}
-                min</span>
+            <span class="rule-value">{{ settings.points_per_voice_block }} pt per {{ settings.voice_block_minutes }} min</span>
         </div>
-        {% if user.is_admin %}
-        <a href="/settings" class="btn-sm">Edit settings →</a>
-        {% endif %}
+        {% if user.is_admin %}<a href="/settings" class="btn-sm">Edit settings →</a>{% endif %}
     </div>
-
     <div class="info-card">
         <h2>🎨 Embed Colours</h2>
         <div class="colour-row">
             <span class="colour-swatch" style="background:#{{ settings.colour_main }}">&nbsp;</span>
-            <span>Main</span>
-            <code>#{{ settings.colour_main }}</code>
+            <span>Main</span><code>#{{ settings.colour_main }}</code>
         </div>
         <div class="colour-row">
             <span class="colour-swatch" style="background:#{{ settings.colour_lb }}">&nbsp;</span>
-            <span>Leaderboard</span>
-            <code>#{{ settings.colour_lb }}</code>
+            <span>Leaderboard</span><code>#{{ settings.colour_lb }}</code>
         </div>
         <div class="colour-row">
             <span class="colour-swatch" style="background:#{{ settings.colour_confirm }}">&nbsp;</span>
-            <span>Confirm</span>
-            <code>#{{ settings.colour_confirm }}</code>
+            <span>Confirm</span><code>#{{ settings.colour_confirm }}</code>
         </div>
-        {% if user.is_admin %}
-        <a href="/settings" class="btn-sm">Edit colours →</a>
-        {% endif %}
+        {% if user.is_admin %}<a href="/settings" class="btn-sm">Edit colours →</a>{% endif %}
     </div>
 </div>
 
+{% if daily or weekly %}
 <div class="charts-section">
     <div class="charts-section-header">
-        <h2>📊 Top Members</h2>
-        <a href="/activity" class="btn-sm">Server activity →</a>
+        <h2>📈 Server Activity</h2>
+        {% if daily and weekly %}
+        <div class="toggle-pills">
+            <button class="toggle-pill active" id="btn-daily"  onclick="setActivityMode('daily')">Daily</button>
+            <button class="toggle-pill"        id="btn-weekly" onclick="setActivityMode('weekly')">Weekly</button>
+        </div>
+        {% elif daily %}
+        <span style="font-size:0.8rem;color:var(--text-muted)">Daily</span>
+        {% else %}
+        <span style="font-size:0.8rem;color:var(--text-muted)">Weekly — daily data available from tomorrow</span>
+        {% endif %}
     </div>
     <div class="charts-grid">
         <div class="chart-card">
             <h3>✨ Dream Points</h3>
-            <div style="height:220px;position:relative"><canvas id="chartPoints"></canvas></div>
+            <div style="height:180px;position:relative"><canvas id="actPoints"></canvas></div>
         </div>
         <div class="chart-card">
             <h3>🎙️ Voice Minutes</h3>
-            <div style="height:220px;position:relative"><canvas id="chartVoice"></canvas></div>
+            <div style="height:180px;position:relative"><canvas id="actVoice"></canvas></div>
         </div>
         <div class="chart-card">
-            <h3>💬 Messages Sent</h3>
-            <div style="height:220px;position:relative"><canvas id="chartMsgs"></canvas></div>
+            <h3>💬 Messages</h3>
+            <div style="height:180px;position:relative"><canvas id="actMsgs"></canvas></div>
         </div>
     </div>
 </div>
+{% endif %}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
-    const BAR_POINTS_LABELS = {{ bar_points_labels | tojson }};
-    const BAR_POINTS_VALUES = {{ bar_points_values | tojson }};
-    const BAR_VOICE_LABELS = {{ bar_voice_labels  | tojson }};
-    const BAR_VOICE_VALUES = {{ bar_voice_values  | tojson }};
-    const BAR_MSGS_LABELS = {{ bar_msgs_labels   | tojson }};
-    const BAR_MSGS_VALUES = {{ bar_msgs_values   | tojson }};
+    const _daily  = {{ daily  | tojson }};
+    const _weekly = {{ weekly | tojson }};
+    let actCharts = [];
 
-    function makeBar(id, labels, values, colour) {
-        const ctx = document.getElementById(id);
-        if (!ctx) return;
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [{ data: values, backgroundColor: colour + '99', borderColor: colour, borderWidth: 1, borderRadius: 4 }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' } },
-                    y: { grid: { display: false }, ticks: { color: '#e8e0f0' } }
-                }
-            }
+    function makeLine(id, labels, data, colour) {
+        var ctx = document.getElementById(id);
+        if (!ctx) return null;
+        return new Chart(ctx, {
+            type: 'line',
+            data: { labels: labels, datasets: [{ data: data, borderColor: colour, backgroundColor: colour + '22', fill: true, tension: 0.3, borderWidth: 2, pointRadius: 3, pointBackgroundColor: colour }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8', maxTicksLimit: 8 } }, y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#b0a8c8' }, beginAtZero: true } } }
         });
     }
 
-    window.addEventListener('load', () => {
-        makeBar('chartPoints', BAR_POINTS_LABELS, BAR_POINTS_VALUES, '#9b8ec4');
-        makeBar('chartVoice', BAR_VOICE_LABELS, BAR_VOICE_VALUES, '#6a9ec4');
-        makeBar('chartMsgs', BAR_MSGS_LABELS, BAR_MSGS_VALUES, '#c49e8e');
+    function drawActivity(mode) {
+        actCharts.forEach(function(ch) { ch.destroy(); });
+        actCharts = [];
+        var d = mode === 'daily' ? _daily : _weekly;
+        var lbl = mode === 'daily' ? d.map(function(x) { return x.date; }) : d.map(function(x) { return x.week; });
+        var pts = d.map(function(x) { return x.points || 0; });
+        var voi = mode === 'daily' ? d.map(function(x) { return x.voice || 0; }) : d.map(function(x) { return x.voice_minutes || 0; });
+        var msg = mode === 'daily' ? d.map(function(x) { return x.messages || 0; }) : d.map(function(x) { return x.messages_sent || 0; });
+        var c1 = makeLine('actPoints', lbl, pts, '#9b8ec4');
+        var c2 = makeLine('actVoice',  lbl, voi, '#6a9ec4');
+        var c3 = makeLine('actMsgs',   lbl, msg, '#c49e8e');
+        if (c1) actCharts.push(c1);
+        if (c2) actCharts.push(c2);
+        if (c3) actCharts.push(c3);
+    }
+
+    function setActivityMode(mode) {
+        document.getElementById('btn-daily').classList.toggle('active',  mode === 'daily');
+        document.getElementById('btn-weekly').classList.toggle('active', mode === 'weekly');
+        drawActivity(mode);
+    }
+
+    window.addEventListener('load', function() {
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+                if (_daily.length > 0) { drawActivity('daily'); }
+                else if (_weekly.length > 0) { drawActivity('weekly'); }
+            });
+        });
     });
 </script>
 {% endblock %}

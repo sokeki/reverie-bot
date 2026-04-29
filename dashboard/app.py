@@ -262,45 +262,71 @@ async def index(request: Request, user: dict = Depends(require_user)):
     total_voice = agg[0]["total_voice"] if agg else 0
     total_messages = agg[0]["total_messages"] if agg else 0
 
-    # Chart data — top 10 members for each stat
-    top_points_docs = (
-        await users_col.find(
-            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "points": 1}
-        )
-        .sort("points", -1)
-        .limit(10)
-        .to_list(length=10)
+    # Activity data for overview charts
+    daily_docs = (
+        await daily_snapshots_col.find({"guild_id": GUILD_ID, "type": "server"})
+        .sort("date", -1)
+        .limit(30)
+        .to_list(length=30)
     )
-    top_voice_docs = (
-        await users_col.find(
-            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "voice_minutes": 1}
+    daily_docs.reverse()
+    daily_chart = []
+    for i, doc in enumerate(daily_docs):
+        if i == 0:
+            continue
+        prev = daily_docs[i - 1]
+        _d = doc.get("date", "")
+        if _d:
+            _d = (datetime.strptime(_d, "%Y-%m-%d") - timedelta(days=1)).strftime(
+                "%Y-%m-%d"
+            )
+        daily_chart.append(
+            {
+                "date": _d,
+                "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
+                "voice": max(0, doc.get("voice", 0) - prev.get("voice", 0)),
+                "messages": max(0, doc.get("messages", 0) - prev.get("messages", 0)),
+            }
         )
-        .sort("voice_minutes", -1)
-        .limit(10)
-        .to_list(length=10)
-    )
-    top_msg_docs = (
-        await users_col.find(
-            {"guild_id": GUILD_ID}, {"username": 1, "user_id": 1, "messages_sent": 1}
-        )
-        .sort("messages_sent", -1)
-        .limit(10)
-        .to_list(length=10)
-    )
 
-    def _label(doc):
-        name = doc.get("username") or ""
-        if name.strip():
-            return name
-        uid = doc.get("user_id")
-        return f"#{str(uid)[-4:]}" if uid else "?"
-
-    bar_points_labels = [_label(d) for d in top_points_docs]
-    bar_points_values = [d.get("points", 0) for d in top_points_docs]
-    bar_voice_labels = [_label(d) for d in top_voice_docs]
-    bar_voice_values = [d.get("voice_minutes", 0) for d in top_voice_docs]
-    bar_msgs_labels = [_label(d) for d in top_msg_docs]
-    bar_msgs_values = [d.get("messages_sent", 0) for d in top_msg_docs]
+    weekly_pipeline = [
+        {"$match": {"guild_id": GUILD_ID}},
+        {
+            "$group": {
+                "_id": "$week",
+                "points": {"$sum": "$points"},
+                "voice_minutes": {"$sum": "$voice_minutes"},
+                "messages_sent": {"$sum": "$messages_sent"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+        {"$limit": 12},
+    ]
+    weekly_agg = (
+        await _db["weekly_snapshots"].aggregate(weekly_pipeline).to_list(length=12)
+    )
+    raw_weekly = [
+        {
+            "week": d["_id"],
+            "points": d["points"],
+            "voice_minutes": d["voice_minutes"],
+            "messages_sent": d["messages_sent"],
+        }
+        for d in weekly_agg
+    ]
+    weekly_chart = []
+    for i, row in enumerate(raw_weekly):
+        if i == 0:
+            continue
+        prev = raw_weekly[i - 1]
+        weekly_chart.append(
+            {
+                "week": row["week"],
+                "points": max(0, row["points"] - prev["points"]),
+                "voice_minutes": max(0, row["voice_minutes"] - prev["voice_minutes"]),
+                "messages_sent": max(0, row["messages_sent"] - prev["messages_sent"]),
+            }
+        )
 
     return templates.TemplateResponse(
         "index.html",
@@ -314,12 +340,8 @@ async def index(request: Request, user: dict = Depends(require_user)):
             "total_messages": total_messages,
             "total_items": total_items,
             "settings": settings,
-            "bar_points_labels": bar_points_labels,
-            "bar_points_values": bar_points_values,
-            "bar_voice_labels": bar_voice_labels,
-            "bar_voice_values": bar_voice_values,
-            "bar_msgs_labels": bar_msgs_labels,
-            "bar_msgs_values": bar_msgs_values,
+            "daily": daily_chart,
+            "weekly": weekly_chart,
         },
     )
 
@@ -666,83 +688,6 @@ async def questions_delete(
 
     await questions_col.delete_one({"_id": ObjectId(question_id)})
     return RedirectResponse("/questions?deleted=1", status_code=303)
-
-
-# ── Server activity chart ──────────────────────────────────────────────────────
-
-
-@app.get("/activity", response_class=HTMLResponse)
-async def activity_page(request: Request, user: dict = Depends(require_user)):
-    # Get last 30 daily server snapshots
-    docs = (
-        await daily_snapshots_col.find({"guild_id": GUILD_ID, "type": "server"})
-        .sort("date", -1)
-        .limit(30)
-        .to_list(length=30)
-    )
-    docs.reverse()
-
-    # Compute daily deltas (cumulative -> per-day activity)
-    # Skip first entry, no reference point
-    daily_chart = []
-    for i, doc in enumerate(docs):
-        if i == 0:
-            continue
-        prev = docs[i - 1]
-        _d = doc.get("date", "")
-        if _d:
-            _d = (datetime.strptime(_d, "%Y-%m-%d") - timedelta(days=1)).strftime(
-                "%Y-%m-%d"
-            )
-        daily_chart.append(
-            {
-                "date": _d,
-                "points": max(0, doc.get("points", 0) - prev.get("points", 0)),
-                "voice": max(0, doc.get("voice", 0) - prev.get("voice", 0)),
-                "messages": max(0, doc.get("messages", 0) - prev.get("messages", 0)),
-            }
-        )
-
-    # Fall back to weekly_snapshots if no daily data yet
-    # Aggregate per week across all users
-    weekly = []
-    if not docs:
-        pipeline = [
-            {"$match": {"guild_id": GUILD_ID}},
-            {
-                "$group": {
-                    "_id": "$week",
-                    "points": {"$sum": "$points"},
-                    "voice_minutes": {"$sum": "$voice_minutes"},
-                    "messages_sent": {"$sum": "$messages_sent"},
-                }
-            },
-            {"$sort": {"_id": 1}},
-            {"$limit": 12},
-        ]
-        weekly_agg = (
-            await _db["weekly_snapshots"].aggregate(pipeline).to_list(length=12)
-        )
-        weekly = [
-            {
-                "week": d["_id"],
-                "points": d["points"],
-                "voice_minutes": d["voice_minutes"],
-                "messages_sent": d["messages_sent"],
-            }
-            for d in weekly_agg
-        ]
-
-    return templates.TemplateResponse(
-        "activity.html",
-        {
-            "request": request,
-            "guild_name": GUILD_NAME,
-            "user": user,
-            "daily": daily_chart,
-            "weekly": weekly,
-        },
-    )
 
 
 # ── Per-member stats ───────────────────────────────────────────────────────────
