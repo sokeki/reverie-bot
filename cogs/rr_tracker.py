@@ -636,6 +636,70 @@ class RRTracker(commands.Cog):
         except Exception as e:
             await interaction.followup.send(f"**Exception:** {e}", ephemeral=True)
 
+    # ── /valforcepost ────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="valforcepost",
+        description="[Admin] Force-post the most recent match for a tracked account and update streak",
+    )
+    @app_commands.describe(username="Tracked account e.g. Name#TAG")
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
+    @app_commands.default_permissions(administrator=True)
+    async def valforcepost(self, interaction: discord.Interaction, username: str):
+        await interaction.response.defer(ephemeral=True)
+        if "#" not in username:
+            await interaction.followup.send("⚠️ Include the tag e.g. `Name#EUW`", ephemeral=True)
+            return
+
+        name, tag = username.split("#", 1)
+        guild = interaction.guild
+
+        account = await self.bot.riot_accounts_col.find_one({
+            "guild_id": guild.id,
+            "val_name": {"$regex": f"^{name}$", "$options": "i"},
+            "val_tag":  {"$regex": f"^{tag}$",  "$options": "i"},
+        })
+        if not account:
+            await interaction.followup.send(f"⚠️ No tracked account found for `{name}#{tag}`.", ephemeral=True)
+            return
+
+        # Get the tracker channel
+        settings = await self.bot.settings_col.find_one({"guild_id": guild.id}) or {}
+        channel_id = settings.get("val_tracker_channel")
+        channel = guild.get_channel(channel_id) if channel_id else None
+        if not channel:
+            await interaction.followup.send("⚠️ No tracker channel set.", ephemeral=True)
+            return
+
+        # Detect latest match
+        result = await self._detect_new_game(account)
+        if not result:
+            await interaction.followup.send(f"⚠️ No new match found for `{name}#{tag}` — API may be stale.", ephemeral=True)
+            return
+
+        match_id, rr_change, rr, tier = result
+
+        # Remove from recently_posted so _post_new_game won't be blocked
+        post_key = f"{account.get('puuid', '')}:{match_id}"
+        self._recently_posted.discard(post_key)
+
+        # Update last_match_id so it's treated as a new game
+        await self.bot.riot_accounts_col.update_one(
+            {"_id": account["_id"]},
+            {"$set": {"last_match_id": match_id}},
+        )
+        account["last_match_id"] = match_id
+
+        await interaction.followup.send(f"✅ Force-posting latest match for `{name}#{tag}`...", ephemeral=True)
+
+        try:
+            await self._post_new_game(
+                account, match_id, channel, guild,
+                match_data=None, rr_change=rr_change, rr=rr, tier_from_history=tier,
+            )
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error posting: {e}", ephemeral=True)
+
     # ── /rrtrackerstatus ─────────────────────────────────────────────────────
 
     @app_commands.command(
@@ -669,21 +733,14 @@ class RRTracker(commands.Cog):
 
     # ── /valstats ─────────────────────────────────────────────────────────────
 
-    @app_commands.command(
-        name="valvs",
-        description="Head-to-head stats comparison between two tracked Valorant players",
-    )
+    @app_commands.command(name="valvs", description="Head-to-head stats comparison between two tracked Valorant players")
     @app_commands.describe(
         player1="First player — Riot ID e.g. Name#EUW",
         player2="Second player — Riot ID e.g. Name#EUW",
         region="Server region (default EUW)",
     )
-    @app_commands.autocomplete(
-        player1=_tracked_accounts_ac, player2=_tracked_accounts_ac
-    )
-    @app_commands.choices(
-        region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP]
-    )
+    @app_commands.autocomplete(player1=_tracked_accounts_ac, player2=_tracked_accounts_ac)
+    @app_commands.choices(region=[app_commands.Choice(name=r, value=r) for r in VAL_REGION_MAP])
     async def valvs(
         self,
         interaction: discord.Interaction,
@@ -701,28 +758,20 @@ class RRTracker(commands.Cog):
 
             # Look up puuid from riot_accounts_col first, fall back to name/tag match in cache
             account_doc = await self.bot.riot_accounts_col.find_one(
-                {
-                    "guild_id": interaction.guild_id,
-                    "val_name": {"$regex": f"^{name}$", "$options": "i"},
-                    "val_tag": {"$regex": f"^{tag}$", "$options": "i"},
-                }
+                {"guild_id": interaction.guild_id,
+                 "val_name": {"$regex": f"^{name}$", "$options": "i"},
+                 "val_tag":  {"$regex": f"^{tag}$",  "$options": "i"}}
             )
             puuid = account_doc.get("puuid") if account_doc else None
             current_streak = account_doc.get("val_streak", 0) if account_doc else 0
 
             # Fetch up to 20 cached matches
             if puuid:
-                cached = (
-                    await self.bot.val_match_cache_col.find({"puuids": puuid})
-                    .sort("cached_at", -1)
-                    .limit(20)
-                    .to_list(length=20)
-                )
+                cached = await self.bot.val_match_cache_col.find(
+                    {"puuids": puuid}
+                ).sort("cached_at", -1).limit(20).to_list(length=20)
             else:
-                return (
-                    None,
-                    f"No tracked account found for `{name}#{tag}` in this server.",
-                )
+                return None, f"No tracked account found for `{name}#{tag}` in this server."
 
             # Top up from API if cache has fewer than 20
             cached_ids = {doc.get("match_id") for doc in cached}
@@ -730,34 +779,18 @@ class RRTracker(commands.Cog):
                 fresh = await self._get_matches(name, tag, count=20, region=val_region)
                 if isinstance(fresh, list):
                     for match in fresh:
-                        mid = match.get("metadata", {}).get("matchid") or match.get(
-                            "metadata", {}
-                        ).get("match_id")
+                        mid = (match.get("metadata", {}).get("matchid")
+                               or match.get("metadata", {}).get("match_id"))
                         if mid and mid not in cached_ids:
                             raw_p = match.get("players", [])
-                            all_p = (
-                                raw_p
-                                if isinstance(raw_p, list)
-                                else raw_p.get("all_players", [])
-                            )
-                            all_puuids = [
-                                p.get("puuid")
-                                for p in all_p
-                                if isinstance(p, dict) and p.get("puuid")
-                            ]
+                            all_p = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
+                            all_puuids = [p.get("puuid") for p in all_p if isinstance(p, dict) and p.get("puuid")]
                             try:
                                 await self.bot.val_match_cache_col.update_one(
                                     {"match_id": mid},
-                                    {
-                                        "$setOnInsert": {
-                                            "match_id": mid,
-                                            "puuid": puuid,
-                                            "puuids": all_puuids,
-                                            "data": match,
-                                            "cached_at": datetime.now(timezone.utc),
-                                            "has_rounds": True,
-                                        }
-                                    },
+                                    {"$setOnInsert": {"match_id": mid, "puuid": puuid, "puuids": all_puuids,
+                                                      "data": match, "cached_at": datetime.now(timezone.utc),
+                                                      "has_rounds": True}},
                                     upsert=True,
                                 )
                             except Exception:
@@ -768,34 +801,21 @@ class RRTracker(commands.Cog):
                                 break
 
             if not cached:
-                return (
-                    None,
-                    f"No cached matches found for `{name}#{tag}` — play a game first!",
-                )
+                return None, f"No cached matches found for `{name}#{tag}` — play a game first!"
 
             total_kills = total_deaths = total_assists = 0
-            total_hs = total_bs = total_ls = total_score = total_rounds = (
-                total_damage
-            ) = 0
+            total_hs = total_bs = total_ls = total_score = total_rounds = total_damage = 0
             clutch_opps = clutch_wins = 0
             wins = losses = games_counted = 0
-            game_results = (
-                []
-            )  # True=win, False=loss, newest first (cache is sorted newest first)
+            game_results = []  # True=win, False=loss, newest first (cache is sorted newest first)
 
             for doc in cached:
                 match = doc.get("data", {})
                 meta_rounds = match.get("metadata", {}).get("rounds_played", 0)
                 raw_p = match.get("players", [])
-                all_p = (
-                    raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
-                )
+                all_p = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
                 player = next(
-                    (
-                        p
-                        for p in all_p
-                        if isinstance(p, dict) and p.get("puuid") == puuid
-                    ),
+                    (p for p in all_p if isinstance(p, dict) and p.get("puuid") == puuid),
                     None,
                 )
                 if not player:
@@ -806,27 +826,24 @@ class RRTracker(commands.Cog):
                 teams = match.get("teams", {})
                 if isinstance(teams, list):
                     for t in teams:
-                        if (
-                            isinstance(t, dict)
-                            and t.get("team_id", "").lower() == player_team
-                        ):
+                        if isinstance(t, dict) and t.get("team_id", "").lower() == player_team:
                             won = t.get("won", False)
                 elif isinstance(teams, dict):
                     td = teams.get(player_team, {})
                     won = td.get("has_won", False) if isinstance(td, dict) else False
-                wins += 1 if won else 0
+                wins   += 1 if won else 0
                 losses += 0 if won else 1
                 game_results.append(won)
                 s = player.get("stats", {})
-                total_kills += s.get("kills", 0)
-                total_deaths += s.get("deaths", 0)
+                total_kills   += s.get("kills", 0)
+                total_deaths  += s.get("deaths", 0)
                 total_assists += s.get("assists", 0)
-                total_hs += s.get("headshots", 0)
-                total_bs += s.get("bodyshots", 0)
-                total_ls += s.get("legshots", 0)
-                total_score += s.get("score", 0)
-                total_damage += player.get("damage_made", 0)
-                total_rounds += meta_rounds
+                total_hs      += s.get("headshots", 0)
+                total_bs      += s.get("bodyshots", 0)
+                total_ls      += s.get("legshots", 0)
+                total_score   += s.get("score", 0)
+                total_damage  += player.get("damage_made", 0)
+                total_rounds  += meta_rounds
                 games_counted += 1
                 # Clutch calculation from rounds data
                 rounds_data = match.get("rounds", [])
@@ -843,19 +860,7 @@ class RRTracker(commands.Cog):
                         teammate_puuids = set()
                         for ps in rnd_kills:
                             if isinstance(ps, dict) and ps.get("player_puuid") != puuid:
-                                p_team = next(
-                                    (
-                                        p.get("team", "")
-                                        for p in (
-                                            raw_p
-                                            if isinstance(raw_p, list)
-                                            else raw_p.get("all_players", [])
-                                        )
-                                        if isinstance(p, dict)
-                                        and p.get("puuid") == ps.get("player_puuid")
-                                    ),
-                                    "",
-                                )
+                                p_team = next((p.get("team","") for p in (raw_p if isinstance(raw_p,list) else raw_p.get("all_players",[])) if isinstance(p,dict) and p.get("puuid")==ps.get("player_puuid")), "")
                                 if p_team.lower() == player_team:
                                     teammate_puuids.add(ps.get("player_puuid"))
                         if not teammate_puuids:
@@ -867,20 +872,12 @@ class RRTracker(commands.Cog):
                         if not all_teammate_died:
                             continue
                         player_death_time = min(
-                            (
-                                k.get("kill_time_in_round", 0)
-                                for k in all_kills
-                                if k.get("victim_puuid") == puuid
-                            ),
-                            default=float("inf"),
+                            (k.get("kill_time_in_round", 0) for k in all_kills if k.get("victim_puuid") == puuid),
+                            default=float("inf")
                         )
                         last_teammate_death = max(
-                            (
-                                k.get("kill_time_in_round", 0)
-                                for k in all_kills
-                                if k.get("victim_puuid") in teammate_puuids
-                            ),
-                            default=0,
+                            (k.get("kill_time_in_round", 0) for k in all_kills if k.get("victim_puuid") in teammate_puuids),
+                            default=0
                         )
                         if last_teammate_death < player_death_time:
                             clutch_opps += 1
@@ -890,9 +887,9 @@ class RRTracker(commands.Cog):
             if games_counted == 0:
                 return None, f"No match data found for `{name}#{tag}` in cache."
 
-            shots = total_hs + total_bs + total_ls
-            hs_pct = round(total_hs / shots * 100) if shots else 0
-            kda = round((total_kills + total_assists / 2) / max(total_deaths, 1), 2)
+            shots   = total_hs + total_bs + total_ls
+            hs_pct  = round(total_hs / shots * 100) if shots else 0
+            kda     = round((total_kills + total_assists / 2) / max(total_deaths, 1), 2)
             avg_acs = round(total_score / total_rounds) if total_rounds else 0
             avg_dmg = round(total_damage / games_counted) if games_counted else 0
 
@@ -909,33 +906,21 @@ class RRTracker(commands.Cog):
                     break
 
             # Current rank + RR from account doc (most recent cached value)
-            tier = (
-                account_doc.get("val_tier", "Unranked") if account_doc else "Unranked"
-            )
-            rr = account_doc.get("val_rr", 0) if account_doc else 0
+            tier = account_doc.get("val_tier", "Unranked") if account_doc else "Unranked"
+            rr   = account_doc.get("val_rr", 0) if account_doc else 0
             # RR gained: sum mmr_change from last 10 cached MMR history (lightweight)
             mmr_history = await self._get_mmr_history(name, tag, region=val_region)
-            rr_gained = sum(
-                (e.get("mmr_change_to_last_game") or 0)
-                for e in mmr_history[:games_counted]
-            )
+            rr_gained = sum((e.get("mmr_change_to_last_game") or 0) for e in mmr_history[:games_counted])
 
-            clutch_pct = (
-                round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
-            )
+            clutch_pct = round(clutch_wins / clutch_opps * 100) if clutch_opps > 0 else 0
             return {
-                "name": name,
-                "tag": tag,
-                "tier": tier,
-                "rr": rr,
-                "wins": wins,
-                "losses": losses,
+                "name": name, "tag": tag,
+                "tier": tier, "rr": rr,
+                "wins": wins, "losses": losses,
                 "rr_gained": rr_gained,
                 "streak": streak,
-                "kda": kda,
-                "hs_pct": hs_pct,
-                "avg_acs": avg_acs,
-                "avg_dmg": avg_dmg,
+                "kda": kda, "hs_pct": hs_pct,
+                "avg_acs": avg_acs, "avg_dmg": avg_dmg,
                 "clutch_pct": clutch_pct,
                 "clutch_wins": clutch_wins,
                 "clutch_opps": clutch_opps,
@@ -948,31 +933,24 @@ class RRTracker(commands.Cog):
             await interaction.followup.send(err_a or err_b, ephemeral=True)
             return
         if not a or not b:
-            await interaction.followup.send(
-                "Could not fetch stats for one or both players.", ephemeral=True
-            )
+            await interaction.followup.send("Could not fetch stats for one or both players.", ephemeral=True)
             return
 
         def _streak_str(s):
-            if s >= 2:
-                return f"🔥 {s}W streak"
-            if s <= -2:
-                return f"❄️ {abs(s)}L streak"
+            if s >= 2:   return f"🔥 {s}W streak"
+            if s <= -2:  return f"❄️ {abs(s)}L streak"
             return ""
 
         rr_sign = lambda v: f"+{v}" if v >= 0 else str(v)
 
         def row(label, va, vb, fmt):
             sa, sb = fmt(va), fmt(vb)
-            if va > vb:
-                return f"**{sa}** — {sb}  |  {label}"
-            elif vb > va:
-                return f"{sa} — **{sb}**  |  {label}"
-            else:
-                return f"{sa} — {sb}  |  {label}"
+            if va > vb:   return f"**{sa}** — {sb}  |  {label}"
+            elif vb > va: return f"{sa} — **{sb}**  |  {label}"
+            else:         return f"{sa} — {sb}  |  {label}"
 
-        a_streak = _streak_str(a["streak"])
-        b_streak = _streak_str(b["streak"])
+        a_streak = _streak_str(a['streak'])
+        b_streak = _streak_str(b['streak'])
         a_val = f"{a['tier']}  {a['rr']} RR" + (f"\n{a_streak}" if a_streak else "")
         b_val = f"{b['tier']}  {b['rr']} RR" + (f"\n{b_streak}" if b_streak else "")
 
@@ -985,7 +963,7 @@ class RRTracker(commands.Cog):
         embed.add_field(name="\u200b", value="\u200b", inline=True)
         embed.add_field(name=f"{b['name']}#{b['tag']}", value=b_val, inline=True)
         # Handle unequal game counts
-        ga, gb = a["games"], b["games"]
+        ga, gb = a['games'], b['games']
         if ga != gb:
             games_label = f"Last {ga} vs {gb} games"
             footer_note = f"{a['name']}#{a['tag']}: {ga} games  •  {b['name']}#{b['tag']}: {gb} games"
@@ -996,22 +974,19 @@ class RRTracker(commands.Cog):
         def row_note(label, va, vb, fmt, note_a="", note_b=""):
             sa = fmt(va) + (f" ({note_a})" if note_a else "")
             sb = fmt(vb) + (f" ({note_b})" if note_b else "")
-            if va > vb:
-                return f"**{sa}** — {sb}  |  {label}"
-            elif vb > va:
-                return f"{sa} — **{sb}**  |  {label}"
-            else:
-                return f"{sa} — {sb}  |  {label}"
+            if va > vb:   return f"**{sa}** — {sb}  |  {label}"
+            elif vb > va: return f"{sa} — **{sb}**  |  {label}"
+            else:         return f"{sa} — {sb}  |  {label}"
 
         stats_lines = [
-            row("wins", a["wins"], b["wins"], str),
-            row("losses", a["losses"], b["losses"], str),
-            row("RR", a["rr_gained"], b["rr_gained"], rr_sign),
-            row("KDA", a["kda"], b["kda"], str),
-            row("HS%", a["hs_pct"], b["hs_pct"], lambda v: f"{v}%"),
-            row("ACS", a["avg_acs"], b["avg_acs"], str),
-            row("DMG/game", a["avg_dmg"], b["avg_dmg"], str),
-            row("Clutch%", a["clutch_pct"], b["clutch_pct"], lambda v: f"{v}%"),
+            row("wins",      a['wins'],      b['wins'],      str),
+            row("losses",    a['losses'],    b['losses'],    str),
+            row("RR",        a['rr_gained'], b['rr_gained'], rr_sign),
+            row("KDA",       a['kda'],       b['kda'],       str),
+            row("HS%",       a['hs_pct'],    b['hs_pct'],    lambda v: f"{v}%"),
+            row("ACS",       a['avg_acs'],   b['avg_acs'],   str),
+            row("DMG/game",  a['avg_dmg'],   b['avg_dmg'],   str),
+            row("Clutch%",   a['clutch_pct'],b['clutch_pct'],lambda v: f"{v}%"),
         ]
         embed.add_field(name=games_label, value="\n".join(stats_lines), inline=False)
         embed.set_footer(text=f"{footer_note}  •  Reverie  •  {interaction.guild.name}")
@@ -1595,8 +1570,7 @@ class RRTracker(commands.Cog):
             async with session.get(url) as resp:
                 if resp.status != 200:
                     await interaction.followup.send(
-                        f"⚠️ Couldn't find **{username}** on EU servers.",
-                        ephemeral=True,
+                        f"⚠️ Couldn't find **{username}** on EU servers.", ephemeral=True
                     )
                     return
                 data = await resp.json()
@@ -2488,9 +2462,7 @@ class RRTracker(commands.Cog):
         ).to_list(length=100)
 
         if not accounts:
-            await interaction.followup.send(
-                "No tracked Valorant accounts found.", ephemeral=True
-            )
+            await interaction.followup.send("No tracked Valorant accounts found.", ephemeral=True)
             return
 
         results = []
