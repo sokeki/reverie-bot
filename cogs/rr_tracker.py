@@ -355,18 +355,9 @@ class RRTracker(commands.Cog):
         return full
 
     async def _trim_match_cache(self, puuid: str) -> None:
-        """Keep only the last 20 cached matches per player."""
-        docs = (
-            await self.bot.val_match_cache_col.find(
-                {"$or": [{"puuid": puuid}, {"puuids": puuid}]}
-            )
-            .sort("cached_at", -1)
-            .skip(20)
-            .to_list(length=1000)
-        )
-        if docs:
-            ids = [d["_id"] for d in docs]
-            await self.bot.val_match_cache_col.delete_many({"_id": {"$in": ids}})
+        """No-op: deleting docs here removes match data for other tracked players.
+        Limit is applied at query time with .limit(20) instead."""
+        pass
 
     # ── /registerriot ─────────────────────────────────────────────────────────
 
@@ -1315,6 +1306,22 @@ class RRTracker(commands.Cog):
                 (p for p in all_p if isinstance(p, dict) and p.get("puuid") == puuid),
                 None,
             )
+            if not player and not puuid:
+                # fallback: match by name/tag
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict)
+                        and (p.get("name") or p.get("gameName", "")).lower()
+                        == name.lower()
+                        and (p.get("tag") or p.get("tagLine", "")).lower()
+                        == tag.lower()
+                    ),
+                    None,
+                )
+                if player and player.get("puuid"):
+                    puuid = player["puuid"]
             if not player:
                 continue
             s = player.get("stats", {})
@@ -2320,6 +2327,25 @@ class RRTracker(commands.Cog):
                 None,
             )
             if player:
+                # Refresh stored name/tag in case player renamed
+                current_name = player.get("name") or player.get("gameName", "")
+                current_tag = player.get("tag") or player.get("tagLine", "")
+                if current_name and current_tag:
+                    stored_name = account.get("val_name", "")
+                    stored_tag = account.get("val_tag", "")
+                    if current_name != stored_name or current_tag != stored_tag:
+                        print(
+                            f"[Val Tracker] Name change: {stored_name}#{stored_tag} -> {current_name}#{current_tag}"
+                        )
+                        await self.bot.riot_accounts_col.update_one(
+                            {"_id": account["_id"]},
+                            {
+                                "$set": {
+                                    "val_name": current_name,
+                                    "val_tag": current_tag,
+                                }
+                            },
+                        )
                 kills = player["stats"]["kills"]
                 deaths = player["stats"]["deaths"]
                 assists = player["stats"]["assists"]
