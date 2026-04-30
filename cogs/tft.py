@@ -70,13 +70,18 @@ class RiotAPI:
             self.session = aiohttp.ClientSession(headers={"X-Riot-Token": RIOT_API_KEY})
         return self.session
 
+    server_errors: int = 0  # consecutive 5xx errors this cycle
+
     async def _get(self, url: str, params: dict = None) -> dict | list | None:
         session = await self._get_session()
         try:
             async with session.get(url, params=params) as resp:
                 if resp.status == 200:
+                    self.server_errors = 0
                     return await resp.json()
                 print(f"[TFT] API {resp.status} for {url}")
+                if resp.status in (503, 504, 502):
+                    self.server_errors += 1
                 return None
         except Exception:
             return None
@@ -311,7 +316,13 @@ class TFTTracker(commands.Cog):
                 {"guild_id": guild.id}
             ).to_list(length=100)
 
+            self.riot.server_errors = 0  # reset counter at start of guild cycle
             for account in accounts:
+                if self.riot.server_errors >= 3:
+                    print(
+                        f"[TFT] Too many server errors ({self.riot.server_errors}), skipping rest of cycle"
+                    )
+                    break
                 try:
                     await self._check_account(account, channel)
                 except Exception as e:
@@ -391,7 +402,12 @@ class TFTTracker(commands.Cog):
 
         # Reset LP on new season — only if API returned a definitive empty response
         # (not a transient failure — we check entries is a list, not None)
-        if isinstance(entries, list) and len(entries) == 0 and old_lp is not None and old_lp > 0:
+        if (
+            isinstance(entries, list)
+            and len(entries) == 0
+            and old_lp is not None
+            and old_lp > 0
+        ):
             # Extra guard: only reset if we've seen empty entries for 3+ consecutive polls
             reset_count = tft.get("empty_entries_count", 0) + 1
             await self.bot.riot_accounts_col.update_one(
@@ -403,7 +419,9 @@ class TFTTracker(commands.Cog):
                     {"_id": account["_id"]},
                     {"$set": {"tft.lp": None, "tft.empty_entries_count": 0}},
                 )
-                print(f"[TFT] Season reset for {name}#{tag}, LP cleared after {reset_count} empty polls")
+                print(
+                    f"[TFT] Season reset for {name}#{tag}, LP cleared after {reset_count} empty polls"
+                )
             return
         # Clear the counter if entries are present
         if entries:
@@ -429,13 +447,23 @@ class TFTTracker(commands.Cog):
         if lp_changed and new_match_id and new_match_id in known_ids:
             lp_changed = False
         if lp_changed and last_posted_lp is not None and last_posted_lp == new_lp:
-            lp_changed = False  # already posted for this LP value, prevent duplicate on restart
+            lp_changed = (
+                False  # already posted for this LP value, prevent duplicate on restart
+            )
         if lp_changed:
             # Write LP and mark match as known BEFORE posting so a restart can't re-trigger
-            new_ids_lp = list((known_ids | ({new_match_id} if new_match_id else set())))[-20:]
+            new_ids_lp = list(
+                (known_ids | ({new_match_id} if new_match_id else set()))
+            )[-20:]
             await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"tft.lp": new_lp, "tft.last_match_ids": new_ids_lp, "tft.last_posted_lp": new_lp}},
+                {
+                    "$set": {
+                        "tft.lp": new_lp,
+                        "tft.last_match_ids": new_ids_lp,
+                        "tft.last_posted_lp": new_lp,
+                    }
+                },
             )
             known_ids = set(new_ids_lp)
             rank_str = _format_rank(tier, div, raw_lp) if tier else "Unranked"
