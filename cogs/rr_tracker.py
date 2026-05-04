@@ -631,61 +631,82 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Ensure cache is populated for all tracked accounts
+        # Ensure cache is fully populated for all tracked accounts
         for acc in accounts:
             puuid = acc.get("puuid") or acc.get("riot_puuid")
             if not puuid:
                 continue
-            cached_count = await self.bot.val_match_cache_col.count_documents(
-                {"puuids": puuid}
-            )
-            if cached_count < 20:
-                name = acc.get("val_name", "")
-                tag = acc.get("val_tag", "")
-                region = VAL_REGION_MAP.get(acc.get("val_region", "EUW"), "eu")
-                fresh = await self._get_matches(name, tag, count=20, region=region)
-                if isinstance(fresh, list):
-                    cached_ids = {
-                        doc.get("match_id")
-                        for doc in await self.bot.val_match_cache_col.find(
-                            {"puuids": puuid}, {"match_id": 1}
-                        ).to_list(length=100)
-                    }
-                    for match in fresh:
-                        mid = match.get("metadata", {}).get("matchid") or match.get(
-                            "metadata", {}
-                        ).get("match_id")
-                        if mid and mid not in cached_ids:
-                            raw_p = match.get("players", [])
-                            all_p = (
-                                raw_p
-                                if isinstance(raw_p, list)
-                                else raw_p.get("all_players", [])
-                            )
-                            all_puuids = [
-                                p.get("puuid")
-                                for p in all_p
-                                if isinstance(p, dict) and p.get("puuid")
-                            ]
-                            try:
-                                from datetime import timezone as _tz
+            name = acc.get("val_name", "")
+            tag = acc.get("val_tag", "")
+            region = VAL_REGION_MAP.get(acc.get("val_region", "EUW"), "eu")
 
-                                await self.bot.val_match_cache_col.update_one(
-                                    {"match_id": mid},
-                                    {
-                                        "$setOnInsert": {
-                                            "match_id": mid,
-                                            "puuid": puuid,
-                                            "puuids": all_puuids,
-                                            "data": match,
-                                            "cached_at": datetime.now(_tz.utc),
-                                            "has_rounds": True,
-                                        }
-                                    },
-                                    upsert=True,
-                                )
-                            except Exception:
-                                pass
+            # Find cached match IDs for this player — both complete and incomplete
+            existing_docs = await self.bot.val_match_cache_col.find(
+                {"puuids": puuid}, {"match_id": 1, "has_rounds": 1}
+            ).to_list(length=100)
+            complete_ids = {d["match_id"] for d in existing_docs if d.get("has_rounds")}
+            incomplete_ids = {
+                d["match_id"] for d in existing_docs if not d.get("has_rounds")
+            }
+            all_cached_ids = complete_ids | incomplete_ids
+
+            # Top up if fewer than 20 complete matches, or if there are incomplete ones
+            needs_refresh = len(complete_ids) < 20 or len(incomplete_ids) > 0
+            if not needs_refresh:
+                continue
+
+            fresh = await self._get_matches(name, tag, count=20, region=region)
+            if not isinstance(fresh, list):
+                continue
+
+            for match in fresh:
+                mid = match.get("metadata", {}).get("matchid") or match.get(
+                    "metadata", {}
+                ).get("match_id")
+                if not mid:
+                    continue
+                raw_p = match.get("players", [])
+                all_p = (
+                    raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
+                )
+                all_puuids = [
+                    p.get("puuid")
+                    for p in all_p
+                    if isinstance(p, dict) and p.get("puuid")
+                ]
+                has_rounds = bool(match.get("rounds"))
+                try:
+                    if mid in incomplete_ids:
+                        # Re-fetch and overwrite incomplete cache entry
+                        await self.bot.val_match_cache_col.update_one(
+                            {"match_id": mid},
+                            {
+                                "$set": {
+                                    "data": match,
+                                    "puuids": all_puuids,
+                                    "has_rounds": has_rounds,
+                                    "cached_at": datetime.now(timezone.utc),
+                                }
+                            },
+                        )
+                    elif mid not in all_cached_ids:
+                        # New match — insert
+                        await self.bot.val_match_cache_col.update_one(
+                            {"match_id": mid},
+                            {
+                                "$setOnInsert": {
+                                    "match_id": mid,
+                                    "puuid": puuid,
+                                    "puuids": all_puuids,
+                                    "data": match,
+                                    "cached_at": datetime.now(timezone.utc),
+                                    "has_rounds": has_rounds,
+                                }
+                            },
+                            upsert=True,
+                        )
+                except Exception:
+                    pass
 
         # Fetch all cached matches containing at least 2 tracked puuids
         all_cached = await self.bot.val_match_cache_col.find(
@@ -706,29 +727,15 @@ class RRTracker(commands.Cog):
             raw_p = match.get("players", [])
             all_p = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
 
+            winning_team = _winning_team(match).lower()
             puuid_team = {}
-            puuid_won = {}
-            teams = match.get("teams", {})
             for p in all_p:
                 if not isinstance(p, dict):
                     continue
                 puuid = p.get("puuid")
                 if not puuid:
                     continue
-                team = p.get("team", "").lower()
-                puuid_team[puuid] = team
-                if isinstance(teams, dict):
-                    td = teams.get(team, {})
-                    won = td.get("has_won", False) if isinstance(td, dict) else False
-                elif isinstance(teams, list):
-                    won = any(
-                        t.get("won") and t.get("team_id", "").lower() == team
-                        for t in teams
-                        if isinstance(t, dict)
-                    )
-                else:
-                    won = False
-                puuid_won[puuid] = won
+                puuid_team[puuid] = p.get("team", "").lower()
 
             for p1, p2 in combinations(puuids_in_match, 2):
                 if puuid_team.get(p1) != puuid_team.get(p2):
@@ -736,9 +743,10 @@ class RRTracker(commands.Cog):
                 pair = tuple(sorted([p1, p2]))
                 if pair not in duo_stats:
                     duo_stats[pair] = {"wins": 0, "losses": 0}
-                if puuid_won.get(p1, False):
+                team = puuid_team.get(p1, "")
+                if team and team == winning_team:
                     duo_stats[pair]["wins"] += 1
-                else:
+                elif winning_team:  # only count if we know the winner
                     duo_stats[pair]["losses"] += 1
 
         if not duo_stats:
