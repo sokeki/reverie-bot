@@ -598,9 +598,18 @@ class RRTracker(commands.Cog):
 
     @app_commands.command(
         name="valduos",
-        description="Duo leaderboard for tracked players — games played and winrate views",
+        description="Duo leaderboard for tracked players, or look up a specific pair",
     )
-    async def valduos(self, interaction: discord.Interaction):
+    @app_commands.describe(
+        player1="Optional: first player to look up (e.g. Name#TAG)",
+        player2="Optional: second player to look up (e.g. Name#TAG)",
+    )
+    @app_commands.autocomplete(
+        player1=_tracked_accounts_ac, player2=_tracked_accounts_ac
+    )
+    async def valduos(
+        self, interaction: discord.Interaction, player1: str = None, player2: str = None
+    ):
         await interaction.response.defer()
         guild = interaction.guild
 
@@ -617,18 +626,241 @@ class RRTracker(commands.Cog):
 
         # Build puuid -> name mapping
         puuid_to_name = {}
+        name_to_puuid = {}
         for acc in accounts:
             puuid = acc.get("puuid") or acc.get("riot_puuid")
             if puuid:
-                puuid_to_name[puuid] = (
-                    f"{acc.get('val_name', '?')}#{acc.get('val_tag', '?')}"
-                )
+                label = f"{acc.get('val_name', '?')}#{acc.get('val_tag', '?')}"
+                puuid_to_name[puuid] = label
+                name_to_puuid[label.lower()] = puuid
 
         tracked_puuids = set(puuid_to_name.keys())
         if len(tracked_puuids) < 2:
             await interaction.followup.send(
                 "*Not enough tracked accounts with puuids.*", ephemeral=True
             )
+            return
+
+        # ── Single player duo leaderboard ────────────────────────────────────
+        if player1 and not player2:
+            p1_puuid = name_to_puuid.get(player1.lower())
+            if not p1_puuid:
+                await interaction.followup.send(
+                    f"*`{player1}` not found in tracked accounts.*", ephemeral=True
+                )
+                return
+
+            cached = await self.bot.val_match_cache_col.find(
+                {"puuids": p1_puuid},
+                {"match_id": 1, "puuids": 1, "data.players": 1, "data.teams": 1},
+            ).to_list(length=500)
+
+            solo_duo_stats: dict[str, dict] = {}
+            for doc in cached:
+                match = doc.get("data", {})
+                raw_p = match.get("players", [])
+                if isinstance(raw_p, list):
+                    all_p = raw_p
+                else:
+                    all_p = raw_p.get("all_players", [])
+                    if not all_p:
+                        all_p = [
+                            dict(p, team="Red")
+                            for p in raw_p.get("red", [])
+                            if isinstance(p, dict)
+                        ]
+                        all_p += [
+                            dict(p, team="Blue")
+                            for p in raw_p.get("blue", [])
+                            if isinstance(p, dict)
+                        ]
+
+                winning_team = _winning_team(match).lower()
+                if not winning_team:
+                    continue
+
+                puuid_team = {
+                    p.get("puuid"): p.get("team", "").lower()
+                    for p in all_p
+                    if isinstance(p, dict) and p.get("puuid")
+                }
+                p1_team = puuid_team.get(p1_puuid)
+                if not p1_team:
+                    continue
+
+                for other_puuid in doc.get("puuids", []):
+                    if other_puuid == p1_puuid or other_puuid not in tracked_puuids:
+                        continue
+                    t2 = puuid_team.get(other_puuid)
+                    if not t2 or t2 != p1_team:
+                        continue
+                    if other_puuid not in solo_duo_stats:
+                        solo_duo_stats[other_puuid] = {"wins": 0, "losses": 0}
+                    if p1_team == winning_team:
+                        solo_duo_stats[other_puuid]["wins"] += 1
+                    else:
+                        solo_duo_stats[other_puuid]["losses"] += 1
+
+            if not solo_duo_stats:
+                await interaction.followup.send(
+                    f"*No duo data found for **{player1}** with other tracked players.*",
+                    ephemeral=True,
+                )
+                return
+
+            medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+            def _build_solo_lines(sorted_pairs):
+                lines = []
+                for i, (puuid, stats) in enumerate(sorted_pairs):
+                    games = stats["wins"] + stats["losses"]
+                    wr = round(stats["wins"] / games * 100) if games else 0
+                    name = puuid_to_name.get(puuid, "Unknown")
+                    medal = medals.get(i, f"`#{i+1}`")
+                    lines.append(
+                        f"{medal} **{name}**\n{stats['wins']}W {stats['losses']}L ({wr}%)  |  {games} games"
+                    )
+                return "\n\n".join(lines)
+
+            by_games = sorted(
+                solo_duo_stats.items(),
+                key=lambda kv: kv[1]["wins"] + kv[1]["losses"],
+                reverse=True,
+            )[:10]
+            by_wr = sorted(
+                solo_duo_stats.items(),
+                key=lambda kv: (
+                    (
+                        kv[1]["wins"] / (kv[1]["wins"] + kv[1]["losses"])
+                        if (kv[1]["wins"] + kv[1]["losses"])
+                        else 0
+                    ),
+                    kv[1]["wins"] + kv[1]["losses"],
+                ),
+                reverse=True,
+            )[:10]
+
+            desc_games = _build_solo_lines(by_games)
+            desc_wr = _build_solo_lines(by_wr)
+            footer = f"Tracked matches only  •  Reverie  •  {guild.name}"
+
+            def _make_solo_embed(desc, title_suffix):
+                e = discord.Embed(
+                    title=f"🤝 {player1}'s Duo Leaderboard — {title_suffix}",
+                    description=desc,
+                    color=COLOUR_LB,
+                )
+                e.set_footer(text=footer)
+                return e
+
+            class SoloDuoView(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=120)
+
+                @discord.ui.button(
+                    label="Most Games", style=discord.ButtonStyle.primary, disabled=True
+                )
+                async def games_btn(
+                    self,
+                    btn_interaction: discord.Interaction,
+                    button: discord.ui.Button,
+                ):
+                    self.games_btn.disabled = True
+                    self.wr_btn.disabled = False
+                    await btn_interaction.response.edit_message(
+                        embed=_make_solo_embed(desc_games, "Most Games"), view=self
+                    )
+
+                @discord.ui.button(
+                    label="Best Winrate", style=discord.ButtonStyle.secondary
+                )
+                async def wr_btn(
+                    self,
+                    btn_interaction: discord.Interaction,
+                    button: discord.ui.Button,
+                ):
+                    self.games_btn.disabled = False
+                    self.wr_btn.disabled = True
+                    await btn_interaction.response.edit_message(
+                        embed=_make_solo_embed(desc_wr, "Best Winrate"), view=self
+                    )
+
+            await interaction.followup.send(
+                embed=_make_solo_embed(desc_games, "Most Games"), view=SoloDuoView()
+            )
+            return
+
+        # ── Specific duo lookup ───────────────────────────────────────────────
+        if player1 and player2:
+            p1_puuid = name_to_puuid.get(player1.lower())
+            p2_puuid = name_to_puuid.get(player2.lower())
+            if not p1_puuid or not p2_puuid:
+                missing = player1 if not p1_puuid else player2
+                await interaction.followup.send(
+                    f"*`{missing}` not found in tracked accounts.*", ephemeral=True
+                )
+                return
+
+            pair_key = tuple(sorted([p1_puuid, p2_puuid]))
+            cached = await self.bot.val_match_cache_col.find(
+                {"puuids": {"$all": list(pair_key)}},
+                {"match_id": 1, "puuids": 1, "data.players": 1, "data.teams": 1},
+            ).to_list(length=500)
+
+            wins = losses = 0
+            for doc in cached:
+                match = doc.get("data", {})
+                raw_p = match.get("players", [])
+                if isinstance(raw_p, list):
+                    all_p = raw_p
+                else:
+                    all_p = raw_p.get("all_players", [])
+                    if not all_p:
+                        all_p = [
+                            dict(p, team="Red")
+                            for p in raw_p.get("red", [])
+                            if isinstance(p, dict)
+                        ]
+                        all_p += [
+                            dict(p, team="Blue")
+                            for p in raw_p.get("blue", [])
+                            if isinstance(p, dict)
+                        ]
+
+                winning_team = _winning_team(match).lower()
+                if not winning_team:
+                    continue
+
+                puuid_team = {
+                    p.get("puuid"): p.get("team", "").lower()
+                    for p in all_p
+                    if isinstance(p, dict) and p.get("puuid")
+                }
+                t1 = puuid_team.get(p1_puuid)
+                t2 = puuid_team.get(p2_puuid)
+                if not t1 or not t2 or t1 != t2:
+                    continue
+                if t1 == winning_team:
+                    wins += 1
+                else:
+                    losses += 1
+
+            games = wins + losses
+            if games == 0:
+                await interaction.followup.send(
+                    f"*No games found with **{player1}** & **{player2}** on the same team.*",
+                    ephemeral=True,
+                )
+                return
+
+            wr = round(wins / games * 100)
+            embed = discord.Embed(
+                title=f"🤝 {player1} & {player2}",
+                description=f"**{wins}W {losses}L** ({wr}% winrate)  |  {games} games together",
+                color=COLOUR_LB,
+            )
+            embed.set_footer(text=f"Tracked matches only  •  Reverie  •  {guild.name}")
+            await interaction.followup.send(embed=embed)
             return
 
         # Fetch only needed fields — skip rounds/kills which are huge
