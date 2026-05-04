@@ -728,6 +728,8 @@ class RRTracker(commands.Cog):
             all_p = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
 
             winning_team = _winning_team(match).lower()
+            if not winning_team:
+                continue  # skip matches where we can't determine winner
             puuid_team = {}
             for p in all_p:
                 if not isinstance(p, dict):
@@ -738,15 +740,16 @@ class RRTracker(commands.Cog):
                 puuid_team[puuid] = p.get("team", "").lower()
 
             for p1, p2 in combinations(puuids_in_match, 2):
-                if puuid_team.get(p1) != puuid_team.get(p2):
-                    continue
+                t1 = puuid_team.get(p1)
+                t2 = puuid_team.get(p2)
+                if not t1 or not t2 or t1 != t2:
+                    continue  # skip if teams unknown or different
                 pair = tuple(sorted([p1, p2]))
                 if pair not in duo_stats:
                     duo_stats[pair] = {"wins": 0, "losses": 0}
-                team = puuid_team.get(p1, "")
-                if team and team == winning_team:
+                if t1 == winning_team:
                     duo_stats[pair]["wins"] += 1
-                elif winning_team:  # only count if we know the winner
+                elif winning_team:
                     duo_stats[pair]["losses"] += 1
 
         if not duo_stats:
