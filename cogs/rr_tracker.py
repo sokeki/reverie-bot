@@ -631,83 +631,6 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Ensure cache is fully populated for all tracked accounts
-        for acc in accounts:
-            puuid = acc.get("puuid") or acc.get("riot_puuid")
-            if not puuid:
-                continue
-            name = acc.get("val_name", "")
-            tag = acc.get("val_tag", "")
-            region = VAL_REGION_MAP.get(acc.get("val_region", "EUW"), "eu")
-
-            # Find cached match IDs for this player — both complete and incomplete
-            existing_docs = await self.bot.val_match_cache_col.find(
-                {"puuids": puuid}, {"match_id": 1, "has_rounds": 1}
-            ).to_list(length=100)
-            complete_ids = {d["match_id"] for d in existing_docs if d.get("has_rounds")}
-            incomplete_ids = {
-                d["match_id"] for d in existing_docs if not d.get("has_rounds")
-            }
-            all_cached_ids = complete_ids | incomplete_ids
-
-            # Top up if fewer than 20 complete matches, or if there are incomplete ones
-            needs_refresh = len(complete_ids) < 20 or len(incomplete_ids) > 0
-            if not needs_refresh:
-                continue
-
-            fresh = await self._get_matches(name, tag, count=20, region=region)
-            if not isinstance(fresh, list):
-                continue
-
-            for match in fresh:
-                mid = match.get("metadata", {}).get("matchid") or match.get(
-                    "metadata", {}
-                ).get("match_id")
-                if not mid:
-                    continue
-                raw_p = match.get("players", [])
-                all_p = (
-                    raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
-                )
-                all_puuids = [
-                    p.get("puuid")
-                    for p in all_p
-                    if isinstance(p, dict) and p.get("puuid")
-                ]
-                has_rounds = bool(match.get("rounds"))
-                try:
-                    if mid in incomplete_ids:
-                        # Re-fetch and overwrite incomplete cache entry
-                        await self.bot.val_match_cache_col.update_one(
-                            {"match_id": mid},
-                            {
-                                "$set": {
-                                    "data": match,
-                                    "puuids": all_puuids,
-                                    "has_rounds": has_rounds,
-                                    "cached_at": datetime.now(timezone.utc),
-                                }
-                            },
-                        )
-                    elif mid not in all_cached_ids:
-                        # New match — insert
-                        await self.bot.val_match_cache_col.update_one(
-                            {"match_id": mid},
-                            {
-                                "$setOnInsert": {
-                                    "match_id": mid,
-                                    "puuid": puuid,
-                                    "puuids": all_puuids,
-                                    "data": match,
-                                    "cached_at": datetime.now(timezone.utc),
-                                    "has_rounds": has_rounds,
-                                }
-                            },
-                            upsert=True,
-                        )
-                except Exception:
-                    pass
-
         # Fetch all cached matches containing at least 2 tracked puuids
         all_cached = await self.bot.val_match_cache_col.find(
             {"puuids": {"$in": list(tracked_puuids)}}
@@ -725,7 +648,22 @@ class RRTracker(commands.Cog):
                 continue
 
             raw_p = match.get("players", [])
-            all_p = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
+            if isinstance(raw_p, list):
+                all_p = raw_p
+            else:
+                all_p = raw_p.get("all_players", [])
+                if not all_p:
+                    # Fall back to red/blue arrays, injecting team field
+                    all_p = [
+                        dict(p, team="Red")
+                        for p in raw_p.get("red", [])
+                        if isinstance(p, dict)
+                    ]
+                    all_p += [
+                        dict(p, team="Blue")
+                        for p in raw_p.get("blue", [])
+                        if isinstance(p, dict)
+                    ]
 
             winning_team = _winning_team(match).lower()
             if not winning_team:
