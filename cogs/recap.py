@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -131,6 +132,7 @@ class Recap(commands.Cog):
     @weekly_recap_task.before_loop
     async def before_recap(self):
         await self.bot.wait_until_ready()
+        await asyncio.sleep(10)  # Let DB connections and caches settle
 
     # ── Snapshot helpers ──────────────────────────────────────────────────────
 
