@@ -631,10 +631,11 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Fetch all cached matches containing at least 2 tracked puuids
+        # Fetch only needed fields — skip rounds/kills which are huge
         all_cached = await self.bot.val_match_cache_col.find(
-            {"puuids": {"$in": list(tracked_puuids)}}
-        ).to_list(length=2000)
+            {"puuids": {"$in": list(tracked_puuids)}},
+            {"match_id": 1, "puuids": 1, "data.players": 1, "data.teams": 1},
+        ).to_list(length=500)
 
         # Build duo stats
         from itertools import combinations
