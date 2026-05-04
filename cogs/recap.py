@@ -6,7 +6,6 @@ from datetime import datetime, timezone, timedelta
 from config import COLOUR_LB
 from utils.ranks import get_rank
 
-
 GUILD_ID = 0  # set from env on startup
 
 
@@ -100,26 +99,32 @@ class Recap(commands.Cog):
 
     # ── Background task ───────────────────────────────────────────────────────
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(minutes=5)
     async def weekly_recap_task(self):
         now = datetime.now(timezone.utc)
-        # Fire on Monday (weekday 0) at midnight UTC
-        # Use a 5 minute window to be robust against Heroku clock drift
-        if now.weekday() != 0:
+        # The recap is due once per week — find the most recent Sunday 23:00 UTC
+        # (midnight BST). We look for Sunday+23h as the trigger point.
+        # Simplest approach: find the most recent occurrence of Sunday at 23:00 UTC
+        # and check if we've already posted since then.
+        days_since_sunday = (now.weekday() + 1) % 7  # Sun=0, Mon=1 ... Sat=6
+        last_sunday = (now - timedelta(days=days_since_sunday)).replace(
+            hour=23, minute=0, second=0, microsecond=0
+        )
+        # If we haven't reached last Sunday 23:00 yet, not due
+        if now < last_sunday:
             return
-        if now.hour != 0 or now.minute >= 5:
-            return
+        due_date = last_sunday.strftime("%Y-%m-%d")
 
-        # Use last_recap_date to ensure we only post once per week
-        today = now.strftime("%Y-%m-%d")
         for guild in self.bot.guilds:
             settings = await self.bot.settings_col.find_one({"guild_id": guild.id})
-            if settings and settings.get("last_recap_date") == today:
+            last_ran = (settings or {}).get("last_recap_date")
+            if last_ran == due_date:
                 continue
+            print(f"[Recap] Task firing for {guild.name}, due_date={due_date}")
             await self._post_recap(guild)
             await self.bot.settings_col.update_one(
                 {"guild_id": guild.id},
-                {"$set": {"last_recap_date": today}},
+                {"$set": {"last_recap_date": due_date}},
                 upsert=True,
             )
 
@@ -213,7 +218,11 @@ class Recap(commands.Cog):
             return False
 
         deltas = await self._get_weekly_deltas(guild.id, week_override=week_override)
+        print(
+            f"[Recap] Posting for {guild.name}, comp_week will be computed shortly, deltas: {len(deltas)}"
+        )
         if not deltas:
+            print(f"[Recap] No deltas found, skipping")
             return False
 
         def _name(uid: int) -> str:
@@ -285,11 +294,15 @@ class Recap(commands.Cog):
                 name="💬 Most Messages Sent", value="\n".join(lines), inline=False
             )
 
-        # Comp roll stats — use same week key as valorant.py (most recent Sunday)
+        # Comp roll stats — use the same week key as the activity deltas (last week's Sunday)
         now_utc = datetime.now(timezone.utc)
-        comp_week = week_override or (
-            now_utc - timedelta(days=(now_utc.weekday() + 1) % 7)
-        ).strftime("%Y-%m-%d")
+        if week_override:
+            comp_week = week_override
+        else:
+            # Go back to last Sunday (same as last_week in _get_weekly_deltas)
+            comp_week = (
+                now_utc - timedelta(days=(now_utc.weekday() + 1) % 7 + 7)
+            ).strftime("%Y-%m-%d")
         ROLE_LABELS = {
             "Duelist": "🎯 Happiest five stack player",
             "Initiator": "🔍 Initiator victim",
@@ -321,6 +334,9 @@ class Recap(commands.Cog):
                 name = m.display_name if m else f"Dreamer {top['user_id']}"
                 comp_lines.append(f"{label}: **{name}** ({top_count}x)")
 
+        print(
+            f"[Recap] comp_week={comp_week}, comp_lines={len(comp_lines)}: {comp_lines}"
+        )
         if comp_lines:
             embed.add_field(
                 name="🎲 Comp Roll Awards",
