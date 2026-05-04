@@ -695,10 +695,17 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Sort by games played then winrate
+        # Sort by winrate then games played
         ranked = sorted(
             duo_stats.items(),
-            key=lambda kv: (kv[1]["wins"] + kv[1]["losses"], kv[1]["wins"]),
+            key=lambda kv: (
+                (
+                    kv[1]["wins"] / (kv[1]["wins"] + kv[1]["losses"])
+                    if (kv[1]["wins"] + kv[1]["losses"])
+                    else 0
+                ),
+                kv[1]["wins"] + kv[1]["losses"],
+            ),
             reverse=True,
         )[:10]
 
