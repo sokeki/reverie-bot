@@ -598,7 +598,7 @@ class RRTracker(commands.Cog):
 
     @app_commands.command(
         name="valduos",
-        description="Duo winrate leaderboard for tracked players based on cached matches",
+        description="Duo leaderboard for tracked players — games played and winrate views",
     )
     async def valduos(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -631,12 +631,70 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Fetch all cached matches that contain at least 2 tracked puuids
+        # Ensure cache is populated for all tracked accounts
+        for acc in accounts:
+            puuid = acc.get("puuid") or acc.get("riot_puuid")
+            if not puuid:
+                continue
+            cached_count = await self.bot.val_match_cache_col.count_documents(
+                {"puuids": puuid}
+            )
+            if cached_count < 20:
+                name = acc.get("val_name", "")
+                tag = acc.get("val_tag", "")
+                region = VAL_REGION_MAP.get(acc.get("val_region", "EUW"), "eu")
+                fresh = await self._get_matches(name, tag, count=20, region=region)
+                if isinstance(fresh, list):
+                    cached_ids = {
+                        doc.get("match_id")
+                        for doc in await self.bot.val_match_cache_col.find(
+                            {"puuids": puuid}, {"match_id": 1}
+                        ).to_list(length=100)
+                    }
+                    for match in fresh:
+                        mid = match.get("metadata", {}).get("matchid") or match.get(
+                            "metadata", {}
+                        ).get("match_id")
+                        if mid and mid not in cached_ids:
+                            raw_p = match.get("players", [])
+                            all_p = (
+                                raw_p
+                                if isinstance(raw_p, list)
+                                else raw_p.get("all_players", [])
+                            )
+                            all_puuids = [
+                                p.get("puuid")
+                                for p in all_p
+                                if isinstance(p, dict) and p.get("puuid")
+                            ]
+                            try:
+                                from datetime import timezone as _tz
+
+                                await self.bot.val_match_cache_col.update_one(
+                                    {"match_id": mid},
+                                    {
+                                        "$setOnInsert": {
+                                            "match_id": mid,
+                                            "puuid": puuid,
+                                            "puuids": all_puuids,
+                                            "data": match,
+                                            "cached_at": datetime.now(_tz.utc),
+                                            "has_rounds": True,
+                                        }
+                                    },
+                                    upsert=True,
+                                )
+                            except Exception:
+                                pass
+
+        # Fetch all cached matches containing at least 2 tracked puuids
         all_cached = await self.bot.val_match_cache_col.find(
             {"puuids": {"$in": list(tracked_puuids)}}
-        ).to_list(length=500)
+        ).to_list(length=2000)
 
-        # For each match, find all pairs of tracked players and record win/loss
+        # Build duo stats
+        from itertools import combinations
+
         duo_stats: dict[tuple, dict] = {}
 
         for doc in all_cached:
@@ -648,7 +706,6 @@ class RRTracker(commands.Cog):
             raw_p = match.get("players", [])
             all_p = raw_p if isinstance(raw_p, list) else raw_p.get("all_players", [])
 
-            # Build puuid -> team mapping
             puuid_team = {}
             puuid_won = {}
             teams = match.get("teams", {})
@@ -660,7 +717,6 @@ class RRTracker(commands.Cog):
                     continue
                 team = p.get("team", "").lower()
                 puuid_team[puuid] = team
-                # Determine if this player won
                 if isinstance(teams, dict):
                     td = teams.get(team, {})
                     won = td.get("has_won", False) if isinstance(td, dict) else False
@@ -674,13 +730,9 @@ class RRTracker(commands.Cog):
                     won = False
                 puuid_won[puuid] = won
 
-            # Find pairs of tracked players on the same team
-            from itertools import combinations
-
             for p1, p2 in combinations(puuids_in_match, 2):
                 if puuid_team.get(p1) != puuid_team.get(p2):
-                    continue  # different teams
-                # Canonical pair key (sorted for consistency)
+                    continue
                 pair = tuple(sorted([p1, p2]))
                 if pair not in duo_stats:
                     duo_stats[pair] = {"wins": 0, "losses": 0}
@@ -695,8 +747,27 @@ class RRTracker(commands.Cog):
             )
             return
 
-        # Sort by winrate then games played
-        ranked = sorted(
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+
+        def _build_lines(sorted_pairs):
+            lines = []
+            for i, ((p1, p2), stats) in enumerate(sorted_pairs):
+                games = stats["wins"] + stats["losses"]
+                wr = round(stats["wins"] / games * 100) if games else 0
+                name1 = puuid_to_name.get(p1, "Unknown")
+                name2 = puuid_to_name.get(p2, "Unknown")
+                medal = medals.get(i, f"`#{i+1}`")
+                lines.append(
+                    f"{medal} **{name1}** & **{name2}**\n{stats['wins']}W {stats['losses']}L ({wr}%)  |  {games} games"
+                )
+            return "\n\n".join(lines)
+
+        by_games = sorted(
+            duo_stats.items(),
+            key=lambda kv: kv[1]["wins"] + kv[1]["losses"],
+            reverse=True,
+        )[:10]
+        by_wr = sorted(
             duo_stats.items(),
             key=lambda kv: (
                 (
@@ -709,25 +780,55 @@ class RRTracker(commands.Cog):
             reverse=True,
         )[:10]
 
-        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
-        lines = []
-        for i, ((p1, p2), stats) in enumerate(ranked):
-            games = stats["wins"] + stats["losses"]
-            wr = round(stats["wins"] / games * 100) if games else 0
-            name1 = puuid_to_name.get(p1, "Unknown")
-            name2 = puuid_to_name.get(p2, "Unknown")
-            medal = medals.get(i, f"`#{i+1}`")
-            lines.append(
-                f"{medal} **{name1}** & **{name2}**\n{stats['wins']}W {stats['losses']}L ({wr}%)  |  {games} games"
-            )
+        desc_games = _build_lines(by_games)
+        desc_wr = _build_lines(by_wr)
 
-        embed = discord.Embed(
-            title="🤝 Duo Leaderboard",
-            description="\n\n".join(lines),
-            color=COLOUR_LB,
+        def _make_embed(desc, title_suffix, footer):
+            e = discord.Embed(
+                title=f"🤝 Duo Leaderboard — {title_suffix}",
+                description=desc,
+                color=COLOUR_LB,
+            )
+            e.set_footer(text=footer)
+            return e
+
+        footer = f"Tracked matches only  •  Reverie  •  {guild.name}"
+
+        class DuoView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=120)
+                self.page = 0
+
+            @discord.ui.button(
+                label="Most Games", style=discord.ButtonStyle.primary, disabled=True
+            )
+            async def games_btn(
+                self, btn_interaction: discord.Interaction, button: discord.ui.Button
+            ):
+                self.page = 0
+                self.games_btn.disabled = True
+                self.wr_btn.disabled = False
+                await btn_interaction.response.edit_message(
+                    embed=_make_embed(desc_games, "Most Games", footer), view=self
+                )
+
+            @discord.ui.button(
+                label="Best Winrate", style=discord.ButtonStyle.secondary
+            )
+            async def wr_btn(
+                self, btn_interaction: discord.Interaction, button: discord.ui.Button
+            ):
+                self.page = 1
+                self.games_btn.disabled = False
+                self.wr_btn.disabled = True
+                await btn_interaction.response.edit_message(
+                    embed=_make_embed(desc_wr, "Best Winrate", footer), view=self
+                )
+
+        view = DuoView()
+        await interaction.followup.send(
+            embed=_make_embed(desc_games, "Most Games", footer), view=view
         )
-        embed.set_footer(text=f"Tracked matches only  •  Reverie  •  {guild.name}")
-        await interaction.followup.send(embed=embed)
 
     # ── /rrtrackertest ───────────────────────────────────────────────────────
 
