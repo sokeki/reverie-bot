@@ -3075,6 +3075,7 @@ class RRTracker(commands.Cog):
     @cache_repair_task.before_loop
     async def before_cache_repair(self):
         await self.bot.wait_until_ready()
+        await asyncio.sleep(15)  # Let API session initialise
 
     # ── /valclutches ─────────────────────────────────────────────────────────
 
