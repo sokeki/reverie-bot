@@ -144,10 +144,12 @@ class RRTracker(commands.Cog):
         )  # guard against duplicate posts — stores 'puuid:match_id'
         self.poll_task.start()
         self.daily_summary_task.start()
+        self.cache_repair_task.start()
 
     def cog_unload(self):
         self.poll_task.cancel()
         self.daily_summary_task.cancel()
+        self.cache_repair_task.cancel()
         if self.session:
             self.bot.loop.create_task(self.session.close())
 
@@ -3014,6 +3016,64 @@ class RRTracker(commands.Cog):
 
     @daily_summary_task.before_loop
     async def before_daily(self):
+        await self.bot.wait_until_ready()
+
+    # ── Cache repair task ─────────────────────────────────────────────────────
+
+    @tasks.loop(hours=6)
+    async def cache_repair_task(self):
+        """Re-fetch and complete any incomplete cached match docs."""
+        incomplete = await self.bot.val_match_cache_col.find(
+            {"has_rounds": False}, {"match_id": 1, "puuid": 1, "puuids": 1}
+        ).to_list(length=50)
+
+        if not incomplete:
+            return
+
+        print(f"[Val Cache] Repairing {len(incomplete)} incomplete match docs")
+        repaired = 0
+        for doc in incomplete:
+            match_id = doc.get("match_id")
+            if not match_id:
+                continue
+            try:
+                session = await self._get_session()
+                url = f"{API_BASE}/valorant/v3/match/eu/{match_id}"
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        continue
+                    data = (await resp.json()).get("data", {})
+                if not data or not data.get("rounds"):
+                    continue
+                raw_p = data.get("players", {})
+                all_p = (
+                    raw_p.get("all_players", []) if isinstance(raw_p, dict) else raw_p
+                )
+                all_puuids = [
+                    p.get("puuid")
+                    for p in all_p
+                    if isinstance(p, dict) and p.get("puuid")
+                ]
+                await self.bot.val_match_cache_col.update_one(
+                    {"match_id": match_id},
+                    {
+                        "$set": {
+                            "data": data,
+                            "puuids": all_puuids,
+                            "has_rounds": True,
+                            "cached_at": datetime.now(timezone.utc),
+                        }
+                    },
+                )
+                repaired += 1
+                await asyncio.sleep(1)  # be gentle with the API
+            except Exception as e:
+                print(f"[Val Cache] Failed to repair {match_id}: {e}")
+
+        print(f"[Val Cache] Repaired {repaired}/{len(incomplete)} docs")
+
+    @cache_repair_task.before_loop
+    async def before_cache_repair(self):
         await self.bot.wait_until_ready()
 
     # ── /valclutches ─────────────────────────────────────────────────────────
