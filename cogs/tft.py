@@ -95,9 +95,14 @@ class RiotAPI:
         result = await self._get(url)
         return result if isinstance(result, list) else []
 
-    async def get_match_ids(self, routing: str, puuid: str, count: int = 5) -> list:
+    async def get_match_ids(
+        self, routing: str, puuid: str, count: int = 5, start_time: int = 0
+    ) -> list:
         url = f"https://{routing}.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids"
-        result = await self._get(url, params={"count": count})
+        params: dict = {"count": count}
+        if start_time:
+            params["start"] = start_time
+        result = await self._get(url, params=params)
         return result if isinstance(result, list) else []
 
     async def get_match(self, routing: str, match_id: str) -> dict | None:
@@ -142,6 +147,7 @@ class TFTTracker(commands.Cog):
         self.bot = bot
         self.riot = RiotAPI()
         self._companions: dict[int, str] = {}  # item_ID -> icon URL
+        self._rebaselined: set[str] = set()  # puuids rebaselined this session
         self.poll_task.start()
 
     def cog_unload(self):
@@ -354,16 +360,30 @@ class TFTTracker(commands.Cog):
             f"[TFT] {name}#{tag} — known_ids:{len(known_ids)} baselined:{baselined} lgs:{last_game_start}"
         )
 
-        # Re-baseline if known_ids is too small — prevents spam of old matches
-        if baselined and len(known_ids) < 10:
-            match_ids = await self.riot.get_match_ids(routing, puuid, count=50)
-            if match_ids:
-                all_ids = list(known_ids | set(match_ids))[-50:]
+        # Re-baseline if last_match_ids is too small (only if not done recently)
+        last_rebaseline = tft.get("last_rebaseline", 0)
+        now_ts = datetime.now(timezone.utc).timestamp()
+        needs_rebaseline = (
+            len(known_ids) < 20 and (now_ts - last_rebaseline) > 21600
+        )  # 6 hours
+        if baselined and needs_rebaseline and puuid not in self._rebaselined:
+            self._rebaselined.add(puuid)
+            await asyncio.sleep(3)
+            fresh_ids = await self.riot.get_match_ids(routing, puuid, count=20)
+            if fresh_ids:
+                all_ids = list(known_ids | set(fresh_ids))[-50:]
                 await self.bot.riot_accounts_col.update_one(
                     {"_id": account["_id"]},
-                    {"$set": {"tft.last_match_ids": all_ids}},
+                    {
+                        "$set": {
+                            "tft.last_match_ids": all_ids,
+                            "tft.last_rebaseline": now_ts,
+                        }
+                    },
                 )
-                print(f"[TFT] Re-baselined {name}#{tag} with {len(all_ids)} match IDs")
+                print(
+                    f"[TFT] Re-baselined {name}#{tag}: {len(known_ids)} -> {len(all_ids)} IDs"
+                )
             return
 
         # ── Baseline on first run ─────────────────────────────────────────────
@@ -388,7 +408,9 @@ class TFTTracker(commands.Cog):
             return
 
         # ── Phase 1: check for new matches ────────────────────────────────────
-        match_ids = await self.riot.get_match_ids(routing, puuid, count=50)
+        match_ids = await self.riot.get_match_ids(
+            routing, puuid, count=20, start_time=last_game_start
+        )
         new_match_id = None
         new_match_data = None
         skipped_ids = (
