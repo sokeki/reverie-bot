@@ -319,7 +319,9 @@ class TFTTracker(commands.Cog):
             self.riot.server_errors = 0  # reset counter at start of guild cycle
             for account in accounts:
                 if self.riot.server_errors >= 3:
-                    print(f"[TFT] Too many server errors ({self.riot.server_errors}), skipping rest of cycle")
+                    print(
+                        f"[TFT] Too many server errors ({self.riot.server_errors}), skipping rest of cycle"
+                    )
                     break
                 try:
                     await self._check_account(account, channel)
@@ -347,6 +349,10 @@ class TFTTracker(commands.Cog):
         known_ids = set(tft.get("last_match_ids", []))
         baselined = tft.get("baselined", False)
         last_msg_id = tft.get("last_message_id", "")
+        last_game_start = tft.get("last_game_start", 0)
+        print(
+            f"[TFT] {name}#{tag} — known_ids:{len(known_ids)} baselined:{baselined} last_game_start:{last_game_start}"
+        )
 
         # ── Baseline on first run ─────────────────────────────────────────────
         if not baselined:
@@ -370,17 +376,39 @@ class TFTTracker(commands.Cog):
             return
 
         # ── Phase 1: check for new matches ────────────────────────────────────
-        match_ids = await self.riot.get_match_ids(routing, puuid, count=5)
+        match_ids = await self.riot.get_match_ids(routing, puuid, count=20)
         new_match_id = None
         new_match_data = None
+        skipped_ids = (
+            set()
+        )  # new IDs we've seen but aren't posting (too old / non-ranked)
+        found_known = any(mid in known_ids for mid in match_ids)
+
+        if not found_known and len(match_ids) > 0:
+            # All IDs are new — bot was offline for many games
+            # Only post the most recent, mark the rest as known silently
+            for mid in match_ids[1:]:
+                skipped_ids.add(mid)
+            match_ids = match_ids[:1]
+
         for mid in match_ids:
             if mid in known_ids:
                 continue
+            print(
+                f"[TFT] New candidate: {mid[:16]}... for {name}#{tag} (known:{len(known_ids)})"
+            )
             match = await self.riot.get_match(routing, mid)
             if not match:
                 continue
+            # Skip matches older than the last known game start
+            game_start = match.get("info", {}).get("game_datetime", 0) // 1000
+            if last_game_start and game_start and game_start <= last_game_start:
+                known_ids.add(mid)
+                skipped_ids.add(mid)
+                continue
             if match["info"].get("queue_id") != 1100:
                 known_ids.add(mid)
+                skipped_ids.add(mid)
                 continue
             new_match_id = mid
             new_match_data = match
@@ -400,7 +428,12 @@ class TFTTracker(commands.Cog):
 
         # Reset LP on new season — only if API returned a definitive empty response
         # (not a transient failure — we check entries is a list, not None)
-        if isinstance(entries, list) and len(entries) == 0 and old_lp is not None and old_lp > 0:
+        if (
+            isinstance(entries, list)
+            and len(entries) == 0
+            and old_lp is not None
+            and old_lp > 0
+        ):
             # Extra guard: only reset if we've seen empty entries for 3+ consecutive polls
             reset_count = tft.get("empty_entries_count", 0) + 1
             await self.bot.riot_accounts_col.update_one(
@@ -412,7 +445,9 @@ class TFTTracker(commands.Cog):
                     {"_id": account["_id"]},
                     {"$set": {"tft.lp": None, "tft.empty_entries_count": 0}},
                 )
-                print(f"[TFT] Season reset for {name}#{tag}, LP cleared after {reset_count} empty polls")
+                print(
+                    f"[TFT] Season reset for {name}#{tag}, LP cleared after {reset_count} empty polls"
+                )
             return
         # Clear the counter if entries are present
         if entries:
@@ -438,13 +473,23 @@ class TFTTracker(commands.Cog):
         if lp_changed and new_match_id and new_match_id in known_ids:
             lp_changed = False
         if lp_changed and last_posted_lp is not None and last_posted_lp == new_lp:
-            lp_changed = False  # already posted for this LP value, prevent duplicate on restart
+            lp_changed = (
+                False  # already posted for this LP value, prevent duplicate on restart
+            )
         if lp_changed:
             # Write LP and mark match as known BEFORE posting so a restart can't re-trigger
-            new_ids_lp = list((known_ids | ({new_match_id} if new_match_id else set())))[-20:]
+            new_ids_lp = list(
+                (known_ids | ({new_match_id} if new_match_id else set()))
+            )[-20:]
             await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
-                {"$set": {"tft.lp": new_lp, "tft.last_match_ids": new_ids_lp, "tft.last_posted_lp": new_lp}},
+                {
+                    "$set": {
+                        "tft.lp": new_lp,
+                        "tft.last_match_ids": new_ids_lp,
+                        "tft.last_posted_lp": new_lp,
+                    }
+                },
             )
             known_ids = set(new_ids_lp)
             rank_str = _format_rank(tier, div, raw_lp) if tier else "Unranked"
@@ -526,11 +571,23 @@ class TFTTracker(commands.Cog):
                 print(f"[TFT] New match embed for {name}#{tag}: #{placement}")
 
             try:
-                await self.bot.riot_accounts_col.update_one(
-                    {"_id": account["_id"]},
-                    {"$set": {"tft.last_match_ids": new_ids, "tft.last_message_id": ""}},
+                all_new_ids = list((known_ids | {new_match_id} | skipped_ids))[-20:]
+                game_start = (
+                    new_match_data.get("info", {}).get("game_datetime", 0) // 1000
                 )
-                print(f"[TFT] Saved match {new_match_id[:8]}... for {name}#{tag}")
+                update_fields = {
+                    "tft.last_match_ids": all_new_ids,
+                    "tft.last_message_id": "",
+                }
+                if game_start:
+                    update_fields["last_game_start"] = game_start
+                result = await self.bot.riot_accounts_col.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": update_fields},
+                )
+                print(
+                    f"[TFT] Saved {new_match_id[:12]}... for {name}#{tag} — matched:{result.matched_count} modified:{result.modified_count} ids_count:{len(all_new_ids)}"
+                )
             except Exception as e:
                 print(f"[TFT] ERROR saving match IDs for {name}#{tag}: {e}")
             return
