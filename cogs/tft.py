@@ -351,8 +351,20 @@ class TFTTracker(commands.Cog):
         last_msg_id = tft.get("last_message_id", "")
         last_game_start = tft.get("last_game_start", 0)
         print(
-            f"[TFT] {name}#{tag} — known_ids:{len(known_ids)} baselined:{baselined} last_game_start:{last_game_start}"
+            f"[TFT] {name}#{tag} — known_ids:{len(known_ids)} baselined:{baselined} lgs:{last_game_start}"
         )
+
+        # Re-baseline if known_ids is too small — prevents spam of old matches
+        if baselined and len(known_ids) < 10:
+            match_ids = await self.riot.get_match_ids(routing, puuid, count=50)
+            if match_ids:
+                all_ids = list(known_ids | set(match_ids))[-50:]
+                await self.bot.riot_accounts_col.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"tft.last_match_ids": all_ids}},
+                )
+                print(f"[TFT] Re-baselined {name}#{tag} with {len(all_ids)} match IDs")
+            return
 
         # ── Baseline on first run ─────────────────────────────────────────────
         if not baselined:
@@ -376,20 +388,12 @@ class TFTTracker(commands.Cog):
             return
 
         # ── Phase 1: check for new matches ────────────────────────────────────
-        match_ids = await self.riot.get_match_ids(routing, puuid, count=20)
+        match_ids = await self.riot.get_match_ids(routing, puuid, count=50)
         new_match_id = None
         new_match_data = None
         skipped_ids = (
             set()
         )  # new IDs we've seen but aren't posting (too old / non-ranked)
-        found_known = any(mid in known_ids for mid in match_ids)
-
-        if not found_known and len(match_ids) > 0:
-            # All IDs are new — bot was offline for many games
-            # Only post the most recent, mark the rest as known silently
-            for mid in match_ids[1:]:
-                skipped_ids.add(mid)
-            match_ids = match_ids[:1]
 
         for mid in match_ids:
             if mid in known_ids:
@@ -400,11 +404,14 @@ class TFTTracker(commands.Cog):
             match = await self.riot.get_match(routing, mid)
             if not match:
                 continue
-            # Skip matches older than the last known game start
-            game_start = match.get("info", {}).get("game_datetime", 0) // 1000
-            if last_game_start and game_start and game_start <= last_game_start:
+            # Skip matches older than last known posted game
+            game_dt = (match.get("info", {}).get("game_datetime", 0) or 0) // 1000
+            if last_game_start and game_dt and game_dt <= last_game_start:
                 known_ids.add(mid)
                 skipped_ids.add(mid)
+                print(
+                    f"[TFT] Skipping old match {mid[:16]}... dt:{game_dt} lgs:{last_game_start}"
+                )
                 continue
             if match["info"].get("queue_id") != 1100:
                 known_ids.add(mid)
@@ -480,7 +487,7 @@ class TFTTracker(commands.Cog):
             # Write LP and mark match as known BEFORE posting so a restart can't re-trigger
             new_ids_lp = list(
                 (known_ids | ({new_match_id} if new_match_id else set()))
-            )[-20:]
+            )[-50:]
             await self.bot.riot_accounts_col.update_one(
                 {"_id": account["_id"]},
                 {
@@ -526,7 +533,7 @@ class TFTTracker(commands.Cog):
             tactician_id = player.get("companion", {}).get("item_ID", 0)
             icon_url = await self._get_companion_icon(tactician_id)
 
-            new_ids = list((known_ids | {new_match_id}))[-20:]
+            new_ids = list((known_ids | {new_match_id}))[-50:]
 
             if last_msg_id:
                 # Edit existing LP embed with placement data
@@ -571,16 +578,16 @@ class TFTTracker(commands.Cog):
                 print(f"[TFT] New match embed for {name}#{tag}: #{placement}")
 
             try:
-                all_new_ids = list((known_ids | {new_match_id} | skipped_ids))[-20:]
-                game_start = (
-                    new_match_data.get("info", {}).get("game_datetime", 0) // 1000
-                )
+                all_new_ids = list((known_ids | {new_match_id} | skipped_ids))[-50:]
+                game_dt = (
+                    new_match_data.get("info", {}).get("game_datetime", 0) or 0
+                ) // 1000
                 update_fields = {
                     "tft.last_match_ids": all_new_ids,
                     "tft.last_message_id": "",
                 }
-                if game_start:
-                    update_fields["last_game_start"] = game_start
+                if game_dt:
+                    update_fields["tft.last_game_start"] = game_dt
                 result = await self.bot.riot_accounts_col.update_one(
                     {"_id": account["_id"]},
                     {"$set": update_fields},
