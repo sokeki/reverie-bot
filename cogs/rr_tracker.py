@@ -3024,7 +3024,8 @@ class RRTracker(commands.Cog):
     async def cache_repair_task(self):
         """Re-fetch and complete any incomplete cached match docs."""
         incomplete = await self.bot.val_match_cache_col.find(
-            {"has_rounds": False}, {"match_id": 1, "puuid": 1, "puuids": 1}
+            {"$or": [{"has_rounds": False}, {"has_rounds": {"$exists": False}}]},
+            {"match_id": 1, "puuid": 1, "puuids": 1},
         ).to_list(length=50)
 
         if not incomplete:
@@ -3038,9 +3039,10 @@ class RRTracker(commands.Cog):
                 continue
             try:
                 session = await self._get_session()
-                url = f"{API_BASE}/valorant/v3/match/eu/{match_id}"
+                url = f"{API_BASE}/valorant/v2/match/{match_id}"
                 async with session.get(url) as resp:
                     if resp.status != 200:
+                        print(f"[Val Cache] {resp.status} for {match_id}")
                         continue
                     data = (await resp.json()).get("data", {})
                 if not data or not data.get("rounds"):
