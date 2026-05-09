@@ -3198,7 +3198,7 @@ class RRTracker(commands.Cog):
                 {"data.players": 1, "data.metadata": 1, "cached_at": 1},
             )
             .sort("cached_at", 1)
-            .to_list(length=20)
+            .to_list(length=100)
         )
 
         if len(cached) < 4:
@@ -3288,6 +3288,48 @@ class RRTracker(commands.Cog):
             text=f"Oldest {old_s['games']} vs newest {new_s['games']} cached games  •  Reverie  •  {guild.name}"
         )
         await interaction.followup.send(embed=embed)
+
+    # ── /valcache ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="valcache",
+        description="Show how many matches are cached for each tracked account",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def valcache(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+
+        accounts = await self.bot.riot_accounts_col.find(
+            {"guild_id": guild.id, "val_name": {"$exists": True}}
+        ).to_list(length=100)
+
+        if not accounts:
+            await interaction.followup.send(
+                "No tracked accounts found.", ephemeral=True
+            )
+            return
+
+        total_docs = await self.bot.val_match_cache_col.count_documents({})
+        lines = [f"**Total cache docs:** {total_docs}", ""]
+
+        for acc in accounts:
+            puuid = acc.get("puuid") or acc.get("riot_puuid")
+            name = f"{acc.get('val_name', '?')}#{acc.get('val_tag', '?')}"
+            if not puuid:
+                lines.append(f"`{name}` — no puuid")
+                continue
+            total = await self.bot.val_match_cache_col.count_documents(
+                {"puuids": puuid}
+            )
+            complete = await self.bot.val_match_cache_col.count_documents(
+                {"puuids": puuid, "has_rounds": True}
+            )
+            incomplete = total - complete
+            flag = f" ⚠️ {incomplete} incomplete" if incomplete else ""
+            lines.append(f"`{name}` — **{total}** cached ({complete} complete){flag}")
+
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     # ── Streak backfill ───────────────────────────────────────────────────────
 
