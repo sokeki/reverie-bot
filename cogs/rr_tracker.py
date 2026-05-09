@@ -3016,6 +3016,279 @@ class RRTracker(commands.Cog):
     async def before_daily(self):
         await self.bot.wait_until_ready()
 
+    # ── /valclutches ─────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="valclutches",
+        description="Clutch leaderboard for all tracked players based on cached matches",
+    )
+    async def valclutches(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        guild = interaction.guild
+
+        accounts = await self.bot.riot_accounts_col.find(
+            {"guild_id": guild.id, "val_name": {"$exists": True}}
+        ).to_list(length=100)
+        if not accounts:
+            await interaction.followup.send(
+                "*No tracked accounts found.*", ephemeral=True
+            )
+            return
+
+        puuid_to_name = {}
+        for acc in accounts:
+            puuid = acc.get("puuid") or acc.get("riot_puuid")
+            if puuid:
+                puuid_to_name[puuid] = (
+                    f"{acc.get('val_name', '?')}#{acc.get('val_tag', '?')}"
+                )
+
+        tracked_puuids = set(puuid_to_name.keys())
+        clutch_stats = {p: {"wins": 0, "opps": 0} for p in tracked_puuids}
+
+        # Process in batches to avoid memory spikes from large rounds arrays
+        cursor = self.bot.val_match_cache_col.find(
+            {"puuids": {"$in": list(tracked_puuids)}, "has_rounds": True},
+            {"puuids": 1, "data.players": 1, "data.rounds": 1},
+        ).batch_size(25)
+
+        async for doc in cursor:
+            match = doc.get("data", {})
+            raw_p = match.get("players", [])
+            if isinstance(raw_p, list):
+                all_p = raw_p
+            else:
+                all_p = raw_p.get("all_players", [])
+                if not all_p:
+                    all_p = [
+                        dict(p, team="Red")
+                        for p in raw_p.get("red", [])
+                        if isinstance(p, dict)
+                    ]
+                    all_p += [
+                        dict(p, team="Blue")
+                        for p in raw_p.get("blue", [])
+                        if isinstance(p, dict)
+                    ]
+
+            puuid_team = {
+                p.get("puuid"): p.get("team", "").lower()
+                for p in all_p
+                if isinstance(p, dict) and p.get("puuid")
+            }
+            rounds_data = match.get("rounds", [])
+            if not isinstance(rounds_data, list):
+                continue
+
+            for rnd in rounds_data:
+                rnd_winner = rnd.get("winning_team", "").lower()
+                player_stats_list = rnd.get("player_stats", [])
+                all_kills = []
+                for ps in player_stats_list:
+                    if isinstance(ps, dict):
+                        all_kills.extend(ps.get("kill_events", []))
+
+                for puuid in tracked_puuids:
+                    team = puuid_team.get(puuid)
+                    if not team:
+                        continue
+                    teammates = {
+                        p for p, t in puuid_team.items() if t == team and p != puuid
+                    }
+                    if not teammates:
+                        continue
+                    all_teammates_dead = all(
+                        any(k.get("victim_puuid") == tp for k in all_kills)
+                        for tp in teammates
+                    )
+                    if not all_teammates_dead:
+                        continue
+                    player_death_time = min(
+                        (
+                            k.get("kill_time_in_round", 0)
+                            for k in all_kills
+                            if k.get("victim_puuid") == puuid
+                        ),
+                        default=float("inf"),
+                    )
+                    last_teammate_death = max(
+                        (
+                            k.get("kill_time_in_round", 0)
+                            for k in all_kills
+                            if k.get("victim_puuid") in teammates
+                        ),
+                        default=0,
+                    )
+                    if last_teammate_death < player_death_time:
+                        clutch_stats[puuid]["opps"] += 1
+                        if rnd_winner == team:
+                            clutch_stats[puuid]["wins"] += 1
+
+        ranked = [(p, s) for p, s in clutch_stats.items() if s["opps"] > 0]
+        ranked.sort(
+            key=lambda x: (x[1]["wins"] / x[1]["opps"], x[1]["opps"]), reverse=True
+        )
+
+        if not ranked:
+            await interaction.followup.send(
+                "*No clutch data found — need matches with rounds data.*",
+                ephemeral=True,
+            )
+            return
+
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        lines = []
+        for i, (puuid, stats) in enumerate(ranked[:10]):
+            pct = round(stats["wins"] / stats["opps"] * 100)
+            medal = medals.get(i, f"`#{i+1}`")
+            lines.append(
+                f"{medal} **{puuid_to_name[puuid]}**  {pct}%  ({stats['wins']}/{stats['opps']})"
+            )
+
+        embed = discord.Embed(
+            title="🫀 Clutch Leaderboard",
+            description="\n".join(lines),
+            color=COLOUR_LB,
+        )
+        embed.set_footer(text=f"Tracked matches only  •  Reverie  •  {guild.name}")
+        await interaction.followup.send(embed=embed)
+
+    # ── /valtrend ─────────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="valtrend",
+        description="Performance trend — compares recent games vs older cached games",
+    )
+    @app_commands.describe(username="Riot ID e.g. Name#TAG")
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
+    async def valtrend(self, interaction: discord.Interaction, username: str):
+        await interaction.response.defer()
+        guild = interaction.guild
+
+        if "#" not in username:
+            await interaction.followup.send("Use Name#TAG format.", ephemeral=True)
+            return
+        name, tag = username.split("#", 1)
+        acc = await self.bot.riot_accounts_col.find_one(
+            {
+                "guild_id": guild.id,
+                "val_name": {"$regex": f"^{name}$", "$options": "i"},
+                "val_tag": {"$regex": f"^{tag}$", "$options": "i"},
+            }
+        )
+
+        if not acc:
+            await interaction.followup.send(
+                f"*`{name}#{tag}` not found in tracked accounts.*", ephemeral=True
+            )
+            return
+
+        name = acc.get("val_name", "")
+        tag = acc.get("val_tag", "")
+        puuid = acc.get("puuid") or acc.get("riot_puuid")
+        if not puuid:
+            await interaction.followup.send(
+                "*No puuid found for this account.*", ephemeral=True
+            )
+            return
+
+        cached = (
+            await self.bot.val_match_cache_col.find(
+                {"puuids": puuid},
+                {"data.players": 1, "data.metadata": 1, "cached_at": 1},
+            )
+            .sort("cached_at", 1)
+            .to_list(length=20)
+        )
+
+        if len(cached) < 4:
+            await interaction.followup.send(
+                f"*Need at least 4 cached matches for a trend — only {len(cached)} found.*",
+                ephemeral=True,
+            )
+            return
+
+        def _extract(docs):
+            kills = deaths = assists = score = rounds = damage = games = 0
+            for doc in docs:
+                match = doc.get("data", {})
+                meta_rounds = match.get("metadata", {}).get("rounds_played", 0)
+                raw_p = match.get("players", [])
+                if isinstance(raw_p, list):
+                    all_p = raw_p
+                else:
+                    all_p = raw_p.get("all_players", [])
+                    if not all_p:
+                        all_p = [
+                            dict(p, team="Red")
+                            for p in raw_p.get("red", [])
+                            if isinstance(p, dict)
+                        ]
+                        all_p += [
+                            dict(p, team="Blue")
+                            for p in raw_p.get("blue", [])
+                            if isinstance(p, dict)
+                        ]
+                player = next(
+                    (
+                        p
+                        for p in all_p
+                        if isinstance(p, dict) and p.get("puuid") == puuid
+                    ),
+                    None,
+                )
+                if not player:
+                    continue
+                s = player.get("stats", {})
+                kills += s.get("kills", 0)
+                deaths += s.get("deaths", 0)
+                assists += s.get("assists", 0)
+                score += s.get("score", 0)
+                damage += player.get("damage_made", 0)
+                rounds += meta_rounds
+                games += 1
+            if not games:
+                return None
+            return {
+                "kda": round((kills + assists / 2) / max(deaths, 1), 2),
+                "acs": round(score / rounds) if rounds else 0,
+                "dmg": round(damage / games),
+                "games": games,
+            }
+
+        half = len(cached) // 2
+        old_s = _extract(cached[:half])
+        new_s = _extract(cached[half:])
+
+        if not old_s or not new_s:
+            await interaction.followup.send(
+                "*Couldn't extract stats from cached matches.*", ephemeral=True
+            )
+            return
+
+        def arrow(n, o):
+            return "📈" if n > o else ("📉" if n < o else "➡️")
+
+        def diff(n, o):
+            d = round(n - o, 2)
+            return f"+{d}" if d > 0 else str(d)
+
+        lines = [
+            f"**KDA**   {old_s['kda']} → **{new_s['kda']}**  {arrow(new_s['kda'], old_s['kda'])} `{diff(new_s['kda'], old_s['kda'])}`",
+            f"**ACS**   {old_s['acs']} → **{new_s['acs']}**  {arrow(new_s['acs'], old_s['acs'])} `{diff(new_s['acs'], old_s['acs'])}`",
+            f"**DMG**   {old_s['dmg']} → **{new_s['dmg']}**  {arrow(new_s['dmg'], old_s['dmg'])} `{diff(new_s['dmg'], old_s['dmg'])}`",
+        ]
+
+        embed = discord.Embed(
+            title=f"📊 Performance Trend — {name}#{tag}",
+            description="\n".join(lines),
+            color=COLOUR_LB,
+        )
+        embed.set_footer(
+            text=f"Oldest {old_s['games']} vs newest {new_s['games']} cached games  •  Reverie  •  {guild.name}"
+        )
+        await interaction.followup.send(embed=embed)
+
     # ── Streak backfill ───────────────────────────────────────────────────────
 
     @app_commands.command(
