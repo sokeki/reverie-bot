@@ -2694,13 +2694,19 @@ class RRTracker(commands.Cog):
         # Live MMR for current tier/rr display
         print(f"[Val Tracker] Fetching MMR for {name}#{tag}...")
         mmr = await self._get_mmr(name, tag, val_region)
+        mmr_from_api = False
         if mmr and mmr != "rate_limited":
             tier_name = mmr["current"]["tier"]["name"]
             rr = mmr["current"]["rr"]
+            mmr_from_api = True
             print(f"[Val Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
         else:
-            tier_name = tier_from_history or "Unrated"
-            print(f"[Val Tracker] MMR failed for {name}#{tag}, using history fallback")
+            # Use last known rank from DB + apply rr_change to estimate current RR
+            tier_name = account.get("val_tier") or tier_from_history or "Unrated"
+            last_rr = account.get("val_rr") or 0
+            rr = max(0, min(100, last_rr + rr_change)) if rr_change else last_rr
+            reason = "rate limited" if mmr == "rate_limited" else "failed"
+            print(f"[Val Tracker] MMR {reason} for {name}#{tag}, estimated from last known: {tier_name} {rr}RR (was {last_rr}, change {rr_change:+d})")
 
         # Use pre-fetched match data if available
         if latest is None:
@@ -2803,7 +2809,8 @@ class RRTracker(commands.Cog):
                 score_str = f"{rounds_won}-{rounds_lost}"
 
         is_placement = (
-            tier_name in ("Unrated", "Unranked", "") or rr == 0 and rr_change == 0
+            tier_name in ("Unrated", "Unranked", "")
+            and rr_change == 0
         )
         result_str = "WIN" if won else "LOSS"
         embed_colour = COLOUR_MAIN if won else 0x8B4A4A
@@ -2849,7 +2856,7 @@ class RRTracker(commands.Cog):
             embed.set_author(name=f"{name}#{tag}", icon_url=card_url)
         else:
             embed.set_author(name=f"{name}#{tag}")
-        rank_display = "**Placement**" if is_placement else f"**{tier_name}**\n{rr} RR"
+        rank_display = "**Placement**" if is_placement else f"**{tier_name}**\n{rr} RR" + ("" if mmr_from_api else " *(est.)*")
         change_display = "*-*" if is_placement else f"**{_rr_arrow(rr_change)}**"
         embed.add_field(name="Rank", value=rank_display, inline=True)
         embed.add_field(name="Change", value=change_display, inline=True)
