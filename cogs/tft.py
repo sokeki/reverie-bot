@@ -80,6 +80,10 @@ class RiotAPI:
                     self.server_errors = 0
                     return await resp.json()
                 print(f"[TFT] API {resp.status} for {url}")
+                if resp.status == 400:
+                    # 400 means the request itself is malformed — usually a bad/legacy PUUID.
+                    # Return a sentinel so the caller can flag the account and stop retrying.
+                    return {"__bad_request__": True}
                 if resp.status in (503, 504, 502):
                     self.server_errors += 1
                 return None
@@ -90,19 +94,25 @@ class RiotAPI:
         url = f"https://{routing}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{name}/{tag}"
         return await self._get(url)
 
-    async def get_league_entries(self, region: str, puuid: str) -> list:
+    async def get_league_entries(self, region: str, puuid: str) -> list | None:
+        """Returns list on success, None on network error, 'bad_request' string on 400."""
         url = f"https://{region}.api.riotgames.com/tft/league/v1/by-puuid/{puuid}"
         result = await self._get(url)
+        if isinstance(result, dict) and result.get("__bad_request__"):
+            return "bad_request"
         return result if isinstance(result, list) else []
 
     async def get_match_ids(
         self, routing: str, puuid: str, count: int = 5, start_time: int = 0
-    ) -> list:
+    ) -> list | None:
+        """Returns list on success, None on network error, 'bad_request' string on 400."""
         url = f"https://{routing}.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids"
         params: dict = {"count": count}
         if start_time:
             params["start"] = start_time
         result = await self._get(url, params=params)
+        if isinstance(result, dict) and result.get("__bad_request__"):
+            return "bad_request"
         return result if isinstance(result, list) else []
 
     async def get_match(self, routing: str, match_id: str) -> dict | None:
@@ -350,6 +360,10 @@ class TFTTracker(commands.Cog):
         name = tft.get("name") or account.get("val_name", "?")
         tag = tft.get("tag") or account.get("val_tag", "?")
 
+        # Skip accounts that have a known-bad PUUID — no point retrying
+        if tft.get("invalid_puuid"):
+            return
+
         old_lp = tft.get("lp")
         last_posted_lp = tft.get("last_posted_lp")  # LP value at time of last post
         known_ids = set(tft.get("last_match_ids", []))
@@ -386,7 +400,26 @@ class TFTTracker(commands.Cog):
         # ── Baseline on first run ─────────────────────────────────────────────
         if not baselined:
             match_ids = await self.riot.get_match_ids(routing, puuid, count=10)
+            if match_ids == "bad_request":
+                await self.bot.riot_accounts_col.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"tft.invalid_puuid": True}},
+                )
+                print(
+                    f"[TFT] ⚠️  Bad PUUID for {name}#{tag} — marking invalid. "
+                    f"Use /unregisterriot and re-add the account to fix."
+                )
+                return
             entries = await self.riot.get_league_entries(region, puuid)
+            if entries == "bad_request":
+                await self.bot.riot_accounts_col.update_one(
+                    {"_id": account["_id"]},
+                    {"$set": {"tft.invalid_puuid": True}},
+                )
+                print(
+                    f"[TFT] ⚠️  Bad PUUID for {name}#{tag} (league entries) — marking invalid."
+                )
+                return
             new_lp = 0
             for e in entries:
                 if e.get("queueType") == "RANKED_TFT":
@@ -408,6 +441,15 @@ class TFTTracker(commands.Cog):
         match_ids = await self.riot.get_match_ids(
             routing, puuid, count=20, start_time=last_game_start
         )
+        if match_ids == "bad_request":
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.invalid_puuid": True}},
+            )
+            print(
+                f"[TFT] ⚠️  Bad PUUID for {name}#{tag} — marking invalid and skipping."
+            )
+            return
         new_match_id = None
         new_match_data = None
         skipped_ids = (
@@ -439,6 +481,13 @@ class TFTTracker(commands.Cog):
 
         # ── Phase 2: check for LP change ─────────────────────────────────────
         entries = await self.riot.get_league_entries(region, puuid)
+        if entries == "bad_request":
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.invalid_puuid": True}},
+            )
+            print(f"[TFT] ⚠️  Bad PUUID for {name}#{tag} (Phase 2) — marking invalid.")
+            return
         new_lp = 0
         tier = div = ""
         raw_lp = 0
