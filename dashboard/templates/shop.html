@@ -31,13 +31,14 @@
 {% for cat in categories %}
 <div class="cat-panel {% if loop.first %}active{% endif %}" id="cat-{{ loop.index }}">
 
-    {% if not cat['items'] %}
-    <div class="empty-state">
-        <p>No {{ cat['label'] | lower }} in the shop yet.</p>
-    </div>
-    {% else %}
     <div class="shop-grid">
+        {% if not cat['items'] %}
+        <div class="empty-state" style="grid-column:1/-1">
+            <p>No {{ cat['label'] | lower }} in the shop yet.</p>
+        </div>
+        {% else %}
         {% for item in cat['items'] %}
+
         <div class="shop-card" id="card-{{ item._id }}">
             <div class="shop-type">{{ item.type_label }}</div>
 
@@ -109,6 +110,7 @@
             {% endif %}
         </div>
         {% endfor %}
+        {% endif %}
 
         {% if user.is_admin %}
         <div class="shop-card add-card">
@@ -166,7 +168,6 @@
         </div>
         {% endif %}
     </div>
-    {% endif %}
 </div>
 {% endfor %}
 
