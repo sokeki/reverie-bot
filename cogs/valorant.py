@@ -75,12 +75,19 @@ MAX_WEIGHT = 95  # total stacked weight cap
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _weighted_choice(available: list[str], pref_role: str, pref_pct: int) -> str:
-    if pref_role not in available:
-        return random.choice(available)
-    others = [r for r in available if r != pref_role]
-    other_w = (100 - pref_pct) / len(others) if others else 0
-    weights = [pref_pct if r == pref_role else other_w for r in available]
+def _multi_weighted_choice(available: list[str], role_weights: dict[str, float]) -> str:
+    """
+    Draw a role from available using a per-role weight map.
+    Roles not in role_weights share the remaining probability evenly.
+    role_weights values should sum to ≤ 95 (out of 100).
+    """
+    total_specified = sum(
+        role_weights.get(r, 0) for r in available if r in role_weights
+    )
+    unweighted = [r for r in available if r not in role_weights]
+    leftover = max(0, 100 - total_specified)
+    unweighted_share = leftover / len(unweighted) if unweighted else 0
+    weights = [role_weights.get(r, unweighted_share) for r in available]
     return random.choices(available, weights=weights, k=1)[0]
 
 
@@ -441,7 +448,7 @@ class Valorant(commands.Cog):
         )  # role -> [(player, agent)]
         locked_agents: dict[int, str] = {}
         banned_roles: dict[int, str] = {}
-        weighted_players: dict[int, tuple[str, int]] = {}
+        weighted_players: dict[int, dict[str, float]] = {}
         cursed_players: dict[int, tuple[str, int]] = {}
         swap_players: set[int] = set()
         item_notes: list[str] = []
@@ -476,13 +483,27 @@ class Valorant(commands.Cog):
                 elif itype == "comp_reroll":
                     pass  # post-roll effect only
 
-            # Stacked weights (own)
+            # Stacked weights (own) — build per-role weight map, total capped at MAX_WEIGHT
             weights_list = all_weights.get(player.id, [])
             if weights_list:
-                total = min(sum(w["weight"] for w in weights_list), MAX_WEIGHT)
-                role = weights_list[0]["value"]
-                weighted_players[player.id] = (role, total)
-                item_notes.append(f"⚖️ {player.mention} weighted **{role}** ({total}%)")
+                role_weight_map: dict[str, float] = {}
+                for w in weights_list:
+                    role = w.get("role") or w.get("value", "")
+                    if role in ALL_ROLES:
+                        role_weight_map[role] = (
+                            role_weight_map.get(role, 0) + w["weight"]
+                        )
+                # Cap: if total exceeds MAX_WEIGHT, scale all down proportionally
+                total_w = sum(role_weight_map.values())
+                if total_w > MAX_WEIGHT:
+                    scale = MAX_WEIGHT / total_w
+                    role_weight_map = {r: v * scale for r, v in role_weight_map.items()}
+                    total_w = MAX_WEIGHT
+                weighted_players[player.id] = role_weight_map
+                parts = ", ".join(
+                    f"**{r}** {int(v)}%" for r, v in role_weight_map.items()
+                )
+                item_notes.append(f"⚖️ {player.mention} weighted: {parts}")
 
         # Resolve role lock conflicts — one random winner per contested role, rest refunded
         locked_roles: dict[str, discord.Member] = {}
@@ -613,16 +634,25 @@ class Valorant(commands.Cog):
                 avail = [r for r in remaining if r not in taken]
             if not avail:
                 continue
-            role, pct = cursed_players.get(player.id) or weighted_players.get(player.id)
-            weight_applied = role in avail
-            chosen = _weighted_choice(avail, role, pct)
+
+            if player.id in cursed_players:
+                # Curse: single role + pct tuple
+                c_role, c_pct = cursed_players[player.id]
+                # Build single-role weight map for the multi helper
+                role_map = {c_role: c_pct}
+                chosen = _multi_weighted_choice(avail, role_map)
+            else:
+                role_map = weighted_players[player.id]
+                # Check if any preferred role is still available
+                preferred_available = [r for r in role_map if r in avail]
+                chosen = _multi_weighted_choice(avail, role_map)
+                if not preferred_available:
+                    item_notes.append(
+                        f"⚖️ {player.mention}'s weight couldn't apply — all preferred roles already taken"
+                    )
+
             assignments[chosen] = player
             taken.add(chosen)
-            # If weight couldn't apply because the preferred role was already taken, note it
-            if not weight_applied and player.id in weighted_players:
-                item_notes.append(
-                    f"⚖️ {player.mention}'s weight on **{role}** didn't apply — **{role}** was already taken"
-                )
 
         # Unweighted — greedy by fewest eligible
         eligible_list = []
@@ -975,43 +1005,131 @@ class Valorant(commands.Cog):
             return
 
         if chosen_type == "comp_weight":
-            # Find shop item for weight details
             inv_item = next((i for i in items if i["type"] == "comp_weight"), None)
             shop_item = await self.bot.items_col.find_one(
                 {"guild_id": interaction.guild_id, "name": inv_item["name"]}
                 if inv_item
                 else {"guild_id": interaction.guild_id, "type": "comp_weight"}
             )
-            w_role = (shop_item or {}).get("weight_role", "?")
             w_pct = int((shop_item or {}).get("weight_pct", 10))
             item_name = inv_item["name"] if inv_item else ""
+            owned_count = sum(1 for i in items if i["type"] == "comp_weight")
 
-            # Check current total
             user_doc = await self.bot.users_col.find_one(
                 {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
             )
             cur = (user_doc or {}).get("active_comp_weights", [])
-            cur_total = min(sum(w["weight"] for w in cur), MAX_WEIGHT)
-            new_total = min(cur_total + w_pct, MAX_WEIGHT)
+            cur_total = sum(w["weight"] for w in cur)
 
-            await self.bot.users_col.update_one(
-                {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
-                {
-                    "$push": {
-                        "active_comp_weights": {
-                            "value": w_role,
-                            "weight": w_pct,
-                            "item_name": item_name,
-                        }
-                    }
-                },
-                upsert=True,
+            if cur_total >= MAX_WEIGHT:
+                embed = await pre_roll_view._build_status_embed()
+                await interaction.response.edit_message(
+                    content=f"⚖️ Already at max weight ({cur_total}% / {MAX_WEIGHT}%).",
+                    embed=embed,
+                    view=pre_roll_view,
+                )
+                return
+
+            # Step 1: pick which role to weight toward
+            role_select = discord.ui.Select(
+                placeholder="Which role do you want to weight toward?",
+                options=[
+                    discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                    for r in ALL_ROLES
+                ],
             )
-            embed = await pre_roll_view._build_status_embed()
+
+            async def on_weight_role(sel: discord.Interaction):
+                chosen_role = role_select.values[0]
+                # How much is already allocated to this specific role?
+                role_cur = sum(
+                    w["weight"]
+                    for w in cur
+                    if (w.get("role") or w.get("value", "")) == chosen_role
+                )
+                remaining_cap = MAX_WEIGHT - cur_total
+                max_usable = min(owned_count, remaining_cap // w_pct if w_pct else 1)
+
+                if max_usable <= 0:
+                    embed = await pre_roll_view._build_status_embed()
+                    await sel.response.edit_message(
+                        content=f"⚖️ Total weight pool is full ({cur_total}% / {MAX_WEIGHT}%).",
+                        embed=embed,
+                        view=pre_roll_view,
+                    )
+                    return
+
+                # Step 2: pick quantity
+                qty_options = [
+                    discord.SelectOption(
+                        label=f"×{n}  →  +{n * w_pct}% {chosen_role}  (pool total: {min(cur_total + n * w_pct, MAX_WEIGHT)}%)",
+                        value=str(n),
+                    )
+                    for n in range(1, max_usable + 1)
+                ]
+                qty_select = discord.ui.Select(
+                    placeholder=f"How many? (own {owned_count}, each +{w_pct}%  •  {remaining_cap}% pool remaining)",
+                    options=qty_options,
+                )
+
+                async def on_qty(as_: discord.Interaction):
+                    n = int(qty_select.values[0])
+                    for _ in range(n):
+                        await self.bot.users_col.update_one(
+                            {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                            {
+                                "$push": {
+                                    "active_comp_weights": {
+                                        "role": chosen_role,
+                                        "weight": w_pct,
+                                        "item_name": item_name,
+                                    }
+                                }
+                            },
+                            upsert=True,
+                        )
+                    new_total = min(cur_total + n * w_pct, MAX_WEIGHT)
+                    embed = await pre_roll_view._build_status_embed()
+                    await as_.response.edit_message(
+                        content=f"⚖️ Stacked ×{n}! **{chosen_role}** +{n * w_pct}% (pool now {new_total}% / {MAX_WEIGHT}%).",
+                        embed=embed,
+                        view=pre_roll_view,
+                    )
+
+                qty_select.callback = on_qty
+                v2 = discord.ui.View(timeout=60)
+                v2.add_item(qty_select)
+                v2.add_item(_back_btn())
+                cur_breakdown = (
+                    ", ".join(
+                        f"{r}: {sum(w['weight'] for w in cur if (w.get('role') or w.get('value','')) == r)}%"
+                        for r in ALL_ROLES
+                        if any((w.get("role") or w.get("value", "")) == r for w in cur)
+                    )
+                    or "none"
+                )
+                await sel.response.edit_message(
+                    content=f"⚖️ Adding weight toward **{chosen_role}** (+{w_pct}% each, {remaining_cap}% pool left).\nCurrent weights: {cur_breakdown}\nHow many?",
+                    embed=None,
+                    view=v2,
+                )
+
+            role_select.callback = on_weight_role
+            v = discord.ui.View(timeout=60)
+            v.add_item(role_select)
+            v.add_item(_back_btn())
+            cur_breakdown = (
+                ", ".join(
+                    f"{r}: {sum(w['weight'] for w in cur if (w.get('role') or w.get('value','')) == r)}%"
+                    for r in ALL_ROLES
+                    if any((w.get("role") or w.get("value", "")) == r for w in cur)
+                )
+                or "none"
+            )
             await interaction.response.edit_message(
-                content=f"⚖️ Weight stacked! **{w_role}** now at **{new_total}%** total.",
-                embed=embed,
-                view=pre_roll_view,
+                content=f"⚖️ Each **{item_name}** adds **+{w_pct}%** to any role (pool: {cur_total}% / {MAX_WEIGHT}% used).\nCurrent: {cur_breakdown}\nWhich role?",
+                embed=None,
+                view=v,
             )
             return
 
@@ -1419,34 +1537,105 @@ class Valorant(commands.Cog):
                 if inv_item
                 else {"guild_id": interaction.guild_id, "type": "comp_weight"}
             )
-            w_role = (shop_item or {}).get("weight_role", "?")
             w_pct = int((shop_item or {}).get("weight_pct", 10))
             item_name = inv_item["name"] if inv_item else ""
+            owned_count = sum(1 for i in items if i["type"] == "comp_weight")
 
             user_doc = await self.bot.users_col.find_one(
                 {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
             )
             cur = (user_doc or {}).get("active_comp_weights", [])
-            cur_total = min(sum(w["weight"] for w in cur), MAX_WEIGHT)
-            new_total = min(cur_total + w_pct, MAX_WEIGHT)
+            cur_total = sum(w["weight"] for w in cur)
 
-            await self.bot.users_col.update_one(
-                {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
-                {
-                    "$push": {
-                        "active_comp_weights": {
-                            "value": w_role,
-                            "weight": w_pct,
-                            "item_name": item_name,
-                        }
-                    }
-                },
-                upsert=True,
+            if cur_total >= MAX_WEIGHT:
+                await interaction.response.edit_message(
+                    content=f"⚖️ Total weight pool is full ({cur_total}% / {MAX_WEIGHT}%).",
+                    embed=None,
+                    view=None,
+                )
+                return
+
+            role_select = discord.ui.Select(
+                placeholder="Which role do you want to weight toward?",
+                options=[
+                    discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                    for r in ALL_ROLES
+                ],
             )
+
+            async def on_weight_role(sel: discord.Interaction):
+                chosen_role = role_select.values[0]
+                remaining_cap = MAX_WEIGHT - cur_total
+                max_usable = min(owned_count, remaining_cap // w_pct if w_pct else 1)
+                if max_usable <= 0:
+                    await sel.response.edit_message(
+                        content=f"⚖️ Pool full ({cur_total}% / {MAX_WEIGHT}%).",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                qty_options = [
+                    discord.SelectOption(
+                        label=f"×{n}  →  +{n * w_pct}% {chosen_role}  (pool total: {min(cur_total + n * w_pct, MAX_WEIGHT)}%)",
+                        value=str(n),
+                    )
+                    for n in range(1, max_usable + 1)
+                ]
+                qty_select = discord.ui.Select(
+                    placeholder=f"How many? ({remaining_cap}% pool remaining, each +{w_pct}%)",
+                    options=qty_options,
+                )
+
+                async def on_qty(as_: discord.Interaction):
+                    n = int(qty_select.values[0])
+                    for _ in range(n):
+                        await self.bot.users_col.update_one(
+                            {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                            {
+                                "$push": {
+                                    "active_comp_weights": {
+                                        "role": chosen_role,
+                                        "weight": w_pct,
+                                        "item_name": item_name,
+                                    }
+                                }
+                            },
+                            upsert=True,
+                        )
+                    new_total = min(cur_total + n * w_pct, MAX_WEIGHT)
+                    await as_.response.edit_message(
+                        content=f"⚖️ Stacked ×{n}! **{chosen_role}** +{n * w_pct}% (pool now {new_total}% / {MAX_WEIGHT}%).",
+                        embed=None,
+                        view=None,
+                    )
+
+                qty_select.callback = on_qty
+                v2 = discord.ui.View(timeout=60)
+                v2.add_item(qty_select)
+                v2.add_item(_back_btn())
+                await sel.response.edit_message(
+                    content=f"⚖️ How many toward **{chosen_role}**?",
+                    embed=None,
+                    view=v2,
+                )
+
+            role_select.callback = on_weight_role
+            cur_breakdown = (
+                ", ".join(
+                    f"{r}: {sum(w['weight'] for w in cur if (w.get('role') or w.get('value','')) == r)}%"
+                    for r in ALL_ROLES
+                    if any((w.get("role") or w.get("value", "")) == r for w in cur)
+                )
+                or "none"
+            )
+            v = discord.ui.View(timeout=60)
+            v.add_item(role_select)
+            v.add_item(_back_btn())
             await interaction.response.edit_message(
-                content=f"⚖️ Stacked! **{w_role}** now at **{new_total}%** total. Use more to keep stacking.",
+                content=f"⚖️ Each **{item_name}** adds **+{w_pct}%** to any role (pool: {cur_total}% / {MAX_WEIGHT}% used).\nCurrent: {cur_breakdown}\nWhich role?",
                 embed=None,
-                view=None,
+                view=v,
             )
             return
 

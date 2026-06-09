@@ -710,7 +710,6 @@ def _preview_comp_weight(
     item: dict, balance: int, already_owned: bool
 ) -> discord.Embed:
     desc = item.get("description") or "no description"
-    weight_role = item.get("weight_role", "?")
     weight_pct = item.get("weight_pct", "?")
     roles_str = "  ".join(f"{_VAL_ROLE_EMOJIS[r]} **{r}**" for r in _VAL_ROLES)
     embed = discord.Embed(
@@ -719,11 +718,10 @@ def _preview_comp_weight(
             f"*{desc}*\n\n"
             f"**Type:** {TYPE_LABEL['comp_weight']}\n"
             f"**Cost:** ✨ {item['cost']:,} dream pts\n\n"
-            f"Activate with `/useitem` before a `/randomcomp`. During the roll, "
-            f"your role assignment uses weighted probability — giving you a "
-            f"**{weight_pct}% chance** of landing **{weight_role}** instead of a pure random draw.\n\n"
-            f"The remaining {100 - int(weight_pct) if str(weight_pct).isdigit() else '?'}% is split evenly across the other roles.\n\n"
-            f"**Stackable** — use multiple to increase the total weight (capped at 95%).\n\n"
+            f"Activate via the pre-roll screen or `/useitem`. You'll pick which role to weight toward "
+            f"at activation time. Each use adds **+{weight_pct}%** to your chosen role's probability.\n\n"
+            f"**Shared pool:** all your weights across all roles share a 95% cap — so 30% Duelist + 40% "
+            f"Initiator = 70% used, 25% left to distribute. Stack multiple items to build up toward any role.\n\n"
             f"**Roles:**\n{roles_str}\n\n"
             f"⚠️ Consumed on use. Can own multiple.\n\n"
             f"{_afford_line(item, balance, already_owned, consumable=True)}"

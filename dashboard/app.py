@@ -594,14 +594,11 @@ async def shop_add(request: Request, user: dict = Depends(require_admin)):
         doc["role_colour"] = matched["colour_hex"] if matched else None
 
     if item_type == "comp_weight":
-        weight_role = form.get("weight_role", "").strip()
         weight_pct_str = form.get("weight_pct", "").strip()
-        if not weight_role or not weight_pct_str:
+        if not weight_pct_str:
             return RedirectResponse(
-                "/shop?error=weight_role+and+weight_pct+required+for+Comp+Weight",
-                status_code=303,
+                "/shop?error=weight_pct+required+for+Comp+Weight", status_code=303
             )
-        doc["weight_role"] = weight_role
         doc["weight_pct"] = int(weight_pct_str)
 
     if item_type == "comp_curse":

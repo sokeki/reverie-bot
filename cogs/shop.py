@@ -392,8 +392,7 @@ class Shop(commands.Cog):
         item_type="Type of item",
         description="Short description shown in the shop",
         role="The role to grant (for role items only)",
-        weight_role="For Comp: Weight — which role to favour (Duelist/Initiator/Controller/Sentinel)",
-        weight_pct="For Comp: Weight — percentage chance (1-99) of landing that role",
+        weight_pct="For Comp: Weight — percentage per item (1-99). Role is chosen by the player when they use it.",
         curse_role="For Comp: Curse — which role to push the target toward",
         curse_pct="For Comp: Curse — percentage chance (1-99) of target landing that role",
     )
@@ -420,27 +419,18 @@ class Shop(commands.Cog):
         item_type: app_commands.Choice[str],
         description: str = "no description",
         role: discord.Role = None,
-        weight_role: str = None,
         weight_pct: int = None,
         curse_role: str = None,
         curse_pct: int = None,
     ):
         if item_type.value == "role" and role is None:
             await interaction.response.send_message(
-                "⚠️ You must provide a role when adding a role item.",
-                ephemeral=True,
+                "⚠️ You must provide a role when adding a role item.", ephemeral=True
             )
             return
 
         VALID_WEIGHT_ROLES = {"Duelist", "Initiator", "Controller", "Sentinel"}
         if item_type.value == "comp_weight":
-            if not weight_role or weight_role not in VALID_WEIGHT_ROLES:
-                await interaction.response.send_message(
-                    f"⚠️ `weight_role` is required for Comp: Weight items. "
-                    f"Must be one of: {', '.join(VALID_WEIGHT_ROLES)}",
-                    ephemeral=True,
-                )
-                return
             if weight_pct is None or not (1 <= weight_pct <= 99):
                 await interaction.response.send_message(
                     "⚠️ `weight_pct` is required for Comp: Weight items and must be between 1 and 99.",
@@ -469,7 +459,6 @@ class Shop(commands.Cog):
                 f"{role.colour.value:06X}" if role.colour.value else None
             )
         if item_type.value == "comp_weight":
-            doc["weight_role"] = weight_role
             doc["weight_pct"] = weight_pct
 
         if item_type.value == "comp_curse":
