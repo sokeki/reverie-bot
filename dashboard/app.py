@@ -496,6 +496,8 @@ SHOP_CATEGORIES = [
             "comp_role_swap",
             "comp_weight",
             "comp_curse",
+            "comp_reduce",
+            "comp_curse_reduce",
         },
     ),
 ]
@@ -511,6 +513,8 @@ ITEM_TYPE_LABEL = {
     "comp_role_swap": "🔀 Role Swap",
     "comp_weight": "⚖️ Role Weight",
     "comp_curse": "💀 Role Curse",
+    "comp_reduce": "⬇️ Role Reduction",
+    "comp_curse_reduce": "🪄 Curse Reduction",
 }
 
 
@@ -602,15 +606,24 @@ async def shop_add(request: Request, user: dict = Depends(require_admin)):
         doc["weight_pct"] = int(weight_pct_str)
 
     if item_type == "comp_curse":
-        curse_role = form.get("curse_role", "").strip()
         curse_pct_str = form.get("curse_pct", "").strip()
-        if not curse_role or not curse_pct_str:
+        if not curse_pct_str:
             return RedirectResponse(
-                "/shop?error=curse_role+and+curse_pct+required+for+Comp+Curse",
-                status_code=303,
+                "/shop?error=curse_pct+required+for+Comp+Curse", status_code=303
             )
-        doc["curse_role"] = curse_role
         doc["curse_pct"] = int(curse_pct_str)
+    if item_type == "comp_reduce":
+        r = form.get("reduce_pct", "").strip()
+        if not r:
+            return RedirectResponse("/shop?error=reduce_pct+required", status_code=303)
+        doc["reduce_pct"] = int(r)
+    if item_type == "comp_curse_reduce":
+        r = form.get("curse_reduce_pct", "").strip()
+        if not r:
+            return RedirectResponse(
+                "/shop?error=curse_reduce_pct+required", status_code=303
+            )
+        doc["curse_reduce_pct"] = int(r)
 
     await items_col.insert_one(doc)
     # Signal the bot to refresh the persistent shop embed

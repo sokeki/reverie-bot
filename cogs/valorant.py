@@ -58,6 +58,8 @@ COMP_TYPES = {
     "comp_role_swap",
     "comp_weight",
     "comp_curse",
+    "comp_reduce",
+    "comp_curse_reduce",
 }
 
 LABEL_MAP = {
@@ -68,26 +70,31 @@ LABEL_MAP = {
     "comp_role_swap": "🔀 Role Swap",
     "comp_weight": "⚖️ Role Weight",
     "comp_curse": "💀 Role Curse",
+    "comp_reduce": "⬇️ Role Reduction",
+    "comp_curse_reduce": "🪄 Curse Reduction",
 }
 
-MAX_WEIGHT = 95  # total stacked weight cap
+MAX_WEIGHT = 100  # total stacked weight cap — at 100% unweighted roles have 0 chance
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _multi_weighted_choice(available: list[str], role_weights: dict[str, float]) -> str:
+def _multi_weighted_choice(available: list[str], role_deltas: dict[str, float]) -> str:
     """
-    Draw a role from available using a per-role weight map.
-    Roles not in role_weights share the remaining probability evenly.
-    role_weights values should sum to ≤ 95 (out of 100).
+    Draw a role from available using a delta map.
+    Each role starts at equal baseline (100 / len(available)).
+    Positive deltas boost probability, negative deltas reduce it.
+    Result is floored at 0 per role then renormalised.
     """
-    total_specified = sum(
-        role_weights.get(r, 0) for r in available if r in role_weights
-    )
-    unweighted = [r for r in available if r not in role_weights]
-    leftover = max(0, 100 - total_specified)
-    unweighted_share = leftover / len(unweighted) if unweighted else 0
-    weights = [role_weights.get(r, unweighted_share) for r in available]
+    n = len(available)
+    if n == 0:
+        raise ValueError("available is empty")
+    baseline = 100.0 / n
+    raw = {r: max(0.0, baseline + role_deltas.get(r, 0.0)) for r in available}
+    total = sum(raw.values())
+    if total <= 0:
+        return random.choice(available)
+    weights = [raw[r] / total for r in available]
     return random.choices(available, weights=weights, k=1)[0]
 
 
@@ -421,9 +428,11 @@ class Valorant(commands.Cog):
         guild_id = interaction.guild_id
 
         # ── Fetch all active items ────────────────────────────────────────────
-        active_items: dict[int, dict] = {}  # user_id -> active_comp_item
-        all_weights: dict[int, list] = {}  # user_id -> active_comp_weights list
-        all_curses: dict[int, list] = {}  # invoker_id -> active_comp_curses list
+        active_items: dict[int, dict] = {}
+        all_weights: dict[int, list] = {}
+        all_curses: dict[int, list] = {}
+        all_reductions: dict[int, list] = {}  # own role reductions
+        all_curse_reds: dict[int, list] = {}  # curse-reductions aimed at others
 
         for player in players:
             doc = await self.bot.users_col.find_one(
@@ -437,6 +446,10 @@ class Valorant(commands.Cog):
                 all_weights[player.id] = doc["active_comp_weights"]
             if doc.get("active_comp_curses"):
                 all_curses[player.id] = doc["active_comp_curses"]
+            if doc.get("active_comp_reductions"):
+                all_reductions[player.id] = doc["active_comp_reductions"]
+            if doc.get("active_comp_curse_reds"):
+                all_curse_reds[player.id] = doc["active_comp_curse_reds"]
 
         # ── Resolve items with conflict detection ─────────────────────────────
         # Collect all lock attempts first, then resolve conflicts before finalising
@@ -449,7 +462,7 @@ class Valorant(commands.Cog):
         locked_agents: dict[int, str] = {}
         banned_roles: dict[int, str] = {}
         weighted_players: dict[int, dict[str, float]] = {}
-        cursed_players: dict[int, tuple[str, int]] = {}
+        # cursed_players declared after curse resolution below
         swap_players: set[int] = set()
         item_notes: list[str] = []
         refunded_players: list[str] = []  # notes for items returned due to conflict
@@ -483,27 +496,31 @@ class Valorant(commands.Cog):
                 elif itype == "comp_reroll":
                     pass  # post-roll effect only
 
-            # Stacked weights (own) — build per-role weight map, total capped at MAX_WEIGHT
+            # Stacked weights (own) — build per-role delta map (+boost, -reduce), cap at 100%
             weights_list = all_weights.get(player.id, [])
-            if weights_list:
-                role_weight_map: dict[str, float] = {}
+            reductions_list = all_reductions.get(player.id, [])
+            if weights_list or reductions_list:
+                role_delta: dict[str, float] = {}
                 for w in weights_list:
-                    role = w.get("role") or w.get("value", "")
-                    if role in ALL_ROLES:
-                        role_weight_map[role] = (
-                            role_weight_map.get(role, 0) + w["weight"]
-                        )
-                # Cap: if total exceeds MAX_WEIGHT, scale all down proportionally
-                total_w = sum(role_weight_map.values())
-                if total_w > MAX_WEIGHT:
-                    scale = MAX_WEIGHT / total_w
-                    role_weight_map = {r: v * scale for r, v in role_weight_map.items()}
-                    total_w = MAX_WEIGHT
-                weighted_players[player.id] = role_weight_map
-                parts = ", ".join(
-                    f"**{r}** {int(v)}%" for r, v in role_weight_map.items()
-                )
-                item_notes.append(f"⚖️ {player.mention} weighted: {parts}")
+                    r = w.get("role") or w.get("value", "")
+                    if r in ALL_ROLES:
+                        role_delta[r] = role_delta.get(r, 0) + w["weight"]
+                for rd in reductions_list:
+                    r = rd.get("role") or rd.get("value", "")
+                    if r in ALL_ROLES:
+                        role_delta[r] = role_delta.get(r, 0) - rd["weight"]
+                # Cap positive totals at MAX_WEIGHT
+                pos_total = sum(v for v in role_delta.values() if v > 0)
+                if pos_total > MAX_WEIGHT:
+                    scale = MAX_WEIGHT / pos_total
+                    role_delta = {
+                        r: v * scale if v > 0 else v for r, v in role_delta.items()
+                    }
+                weighted_players[player.id] = role_delta
+                parts = []
+                for r, v in role_delta.items():
+                    parts.append(f"**{r}** {'+'if v>=0 else ''}{int(v)}%")
+                item_notes.append(f"⚖️ {player.mention}: {', '.join(parts)}")
 
         # Resolve role lock conflicts — one random winner per contested role, rest refunded
         locked_roles: dict[str, discord.Member] = {}
@@ -589,23 +606,60 @@ class Valorant(commands.Cog):
         if refunded_players:
             item_notes.extend(refunded_players)
 
-        # Apply curses (from invoker's active_comp_curses aimed at players in this comp)
+        cursed_players: dict[int, dict[str, float]] = {}  # target_id -> {role: delta}
+
+        # Apply curses (positive) — stack additively per target per role
         for invoker_id, curses in all_curses.items():
+            invoker = next((p for p in players if p.id == invoker_id), None)
             for curse in curses:
                 tid = curse.get("target_id")
                 target = next((p for p in players if p.id == tid), None)
                 if not target:
                     continue
-                c_role = curse.get("value", "")
+                c_role = curse.get("role") or curse.get("value", "")
                 c_pct = int(curse.get("weight", 50))
-                if c_role in ALL_ROLES:
-                    # Curse overrides weight if stronger
-                    cursed_players[target.id] = (c_role, c_pct)
-                    invoker = next((p for p in players if p.id == invoker_id), None)
-                    if invoker:
-                        item_notes.append(
-                            f"💀 {invoker.mention} cursed {target.mention} → **{c_role}** ({c_pct}%)"
-                        )
+                if c_role not in ALL_ROLES:
+                    continue
+                if target.id not in cursed_players:
+                    cursed_players[target.id] = {}
+                cursed_players[target.id][c_role] = (
+                    cursed_players[target.id].get(c_role, 0) + c_pct
+                )
+                if invoker:
+                    item_notes.append(
+                        f"💀 {invoker.mention} cursed {target.mention} → **{c_role}** (+{c_pct}%)"
+                    )
+
+        # Apply curse-reductions (negative) — stack additively per target per role
+        for invoker_id, creds in all_curse_reds.items():
+            invoker = next((p for p in players if p.id == invoker_id), None)
+            for cred in creds:
+                tid = cred.get("target_id")
+                target = next((p for p in players if p.id == tid), None)
+                if not target:
+                    continue
+                c_role = cred.get("role") or cred.get("value", "")
+                c_pct = int(cred.get("weight", 30))
+                if c_role not in ALL_ROLES:
+                    continue
+                if target.id not in cursed_players:
+                    cursed_players[target.id] = {}
+                cursed_players[target.id][c_role] = (
+                    cursed_players[target.id].get(c_role, 0) - c_pct
+                )
+                if invoker:
+                    item_notes.append(
+                        f"🪄 {invoker.mention} reduced {target.mention}'s **{c_role}** (-{c_pct}%)"
+                    )
+
+        # Cap positive curse totals at MAX_WEIGHT per target
+        for tid, cmap in cursed_players.items():
+            pos_total = sum(v for v in cmap.values() if v > 0)
+            if pos_total > MAX_WEIGHT:
+                scale = MAX_WEIGHT / pos_total
+                cursed_players[tid] = {
+                    r: v * scale if v > 0 else v for r, v in cmap.items()
+                }
 
         # ── Assign roles ──────────────────────────────────────────────────────
         unassigned = [
@@ -618,7 +672,7 @@ class Valorant(commands.Cog):
         assignments: dict[str, discord.Member] = dict(locked_roles)
         taken: set[str] = set(locked_roles.keys())
 
-        # Biased players (weight/curse) go first so their probability applies to a full pool
+        # Biased = anyone with a weight/reduction/curse/curse-reduction
         biased = [
             p for p in unassigned if p.id in weighted_players or p.id in cursed_players
         ]
@@ -636,10 +690,7 @@ class Valorant(commands.Cog):
                 continue
 
             if player.id in cursed_players:
-                # Curse: single role + pct tuple
-                c_role, c_pct = cursed_players[player.id]
-                # Build single-role weight map for the multi helper
-                role_map = {c_role: c_pct}
+                role_map = cursed_players[player.id]
                 chosen = _multi_weighted_choice(avail, role_map)
             else:
                 role_map = weighted_players[player.id]
@@ -729,6 +780,20 @@ class Valorant(commands.Cog):
                 for c in all_curses[player.id]:
                     pulls.append({"type": "comp_curse", "name": c.get("item_name", "")})
                 unsets["active_comp_curses"] = ""
+
+            if player.id in all_reductions:
+                for rd in all_reductions[player.id]:
+                    pulls.append(
+                        {"type": "comp_reduce", "name": rd.get("item_name", "")}
+                    )
+                unsets["active_comp_reductions"] = ""
+
+            if player.id in all_curse_reds:
+                for cr in all_curse_reds[player.id]:
+                    pulls.append(
+                        {"type": "comp_curse_reduce", "name": cr.get("item_name", "")}
+                    )
+                unsets["active_comp_curse_reds"] = ""
 
             if pulls:
                 for pull in pulls:
@@ -1140,17 +1205,13 @@ class Valorant(commands.Cog):
                 if inv_item
                 else {"guild_id": interaction.guild_id, "type": "comp_curse"}
             )
-            c_role = (shop_item or {}).get("curse_role", "?")
-            c_pct = int((shop_item or {}).get("curse_pct", 70))
+            c_pct = int((shop_item or {}).get("curse_pct", 30))
             item_name = inv_item["name"] if inv_item else ""
+            owned_count = sum(1 for i in items if i["type"] == "comp_curse")
 
-            # Pick a target from the comp players (excluding yourself)
+            # Step 1: pick target
             target_opts = [
-                discord.SelectOption(
-                    label=p.display_name,
-                    value=str(p.id),
-                    emoji=ROLE_EMOJIS.get("Duelist", "•"),
-                )
+                discord.SelectOption(label=p.display_name, value=str(p.id))
                 for p in pre_roll_view.players
                 if p.id != interaction.user.id
             ]
@@ -1160,40 +1221,366 @@ class Valorant(commands.Cog):
                 )
                 return
 
-            ts = discord.ui.Select(
+            target_select = discord.ui.Select(
                 placeholder="Who do you want to curse?", options=target_opts
             )
 
-            async def on_target(sel: discord.Interaction):
-                target_id = int(ts.values[0])
-                await self.bot.users_col.update_one(
-                    {"user_id": sel.user.id, "guild_id": sel.guild_id},
-                    {
-                        "$push": {
-                            "active_comp_curses": {
-                                "target_id": target_id,
-                                "value": c_role,
-                                "weight": c_pct,
-                                "item_name": item_name,
-                            }
-                        }
-                    },
-                    upsert=True,
+            async def on_curse_target(sel: discord.Interaction):
+                target_id = int(target_select.values[0])
+                target_member = discord.utils.get(pre_roll_view.players, id=target_id)
+
+                # Fetch current curses aimed at this target
+                user_doc2 = await self.bot.users_col.find_one(
+                    {"user_id": sel.user.id, "guild_id": sel.guild_id}
                 )
-                embed = await pre_roll_view._build_status_embed()
-                target = discord.utils.get(pre_roll_view.players, id=target_id)
-                await sel.response.edit_message(
-                    content=f"💀 Curse set! **{target.display_name}** pushed toward **{c_role}** ({c_pct}%).",
-                    embed=embed,
-                    view=pre_roll_view,
+                cur_curses = [
+                    c
+                    for c in (user_doc2 or {}).get("active_comp_curses", [])
+                    if c.get("target_id") == target_id
+                ]
+                cur_total = sum(c["weight"] for c in cur_curses)
+
+                if cur_total >= MAX_WEIGHT:
+                    await sel.response.edit_message(
+                        content=f"💀 Already at 100% curse on **{target_member.display_name}**.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                # Step 2: pick role
+                role_select = discord.ui.Select(
+                    placeholder="Which role to push them toward?",
+                    options=[
+                        discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                        for r in ALL_ROLES
+                    ],
                 )
 
-            ts.callback = on_target
+                async def on_curse_role(rs: discord.Interaction):
+                    chosen_role = role_select.values[0]
+                    remaining_cap = MAX_WEIGHT - cur_total
+                    max_usable = min(
+                        owned_count, remaining_cap // c_pct if c_pct else 1
+                    )
+
+                    if max_usable <= 0:
+                        embed = await pre_roll_view._build_status_embed()
+                        await rs.response.edit_message(
+                            content=f"💀 Curse pool for **{target_member.display_name}** is full ({cur_total}% / {MAX_WEIGHT}%).",
+                            embed=embed,
+                            view=pre_roll_view,
+                        )
+                        return
+
+                    # Step 3: pick quantity
+                    qty_options = [
+                        discord.SelectOption(
+                            label=f"×{n}  →  +{n * c_pct}% {chosen_role}  (total: {min(cur_total + n * c_pct, MAX_WEIGHT)}%)",
+                            value=str(n),
+                        )
+                        for n in range(1, max_usable + 1)
+                    ]
+                    qty_select = discord.ui.Select(
+                        placeholder=f"How many? ({remaining_cap}% remaining, each +{c_pct}%)",
+                        options=qty_options,
+                    )
+
+                    async def on_curse_qty(as_: discord.Interaction):
+                        n = int(qty_select.values[0])
+                        for _ in range(n):
+                            await self.bot.users_col.update_one(
+                                {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                                {
+                                    "$push": {
+                                        "active_comp_curses": {
+                                            "target_id": target_id,
+                                            "role": chosen_role,
+                                            "weight": c_pct,
+                                            "item_name": item_name,
+                                        }
+                                    }
+                                },
+                                upsert=True,
+                            )
+                        new_total = min(cur_total + n * c_pct, MAX_WEIGHT)
+                        embed = await pre_roll_view._build_status_embed()
+                        await as_.response.edit_message(
+                            content=f"💀 Cursed ×{n}! **{target_member.display_name}** pushed toward **{chosen_role}** ({new_total}% total).",
+                            embed=embed,
+                            view=pre_roll_view,
+                        )
+
+                    qty_select.callback = on_curse_qty
+                    v3 = discord.ui.View(timeout=60)
+                    v3.add_item(qty_select)
+                    v3.add_item(_back_btn())
+                    cur_breakdown = (
+                        ", ".join(
+                            f"{c.get('role','?')}: {c['weight']}%" for c in cur_curses
+                        )
+                        or "none"
+                    )
+                    await rs.response.edit_message(
+                        content=f"💀 Cursing **{target_member.display_name}** toward **{chosen_role}** (+{c_pct}% each, {remaining_cap}% left).\nCurrent curses on them: {cur_breakdown}\nHow many?",
+                        embed=None,
+                        view=v3,
+                    )
+
+                role_select.callback = on_curse_role
+                v2 = discord.ui.View(timeout=60)
+                v2.add_item(role_select)
+                v2.add_item(_back_btn())
+                cur_breakdown = (
+                    ", ".join(
+                        f"{c.get('role','?')}: {c['weight']}%" for c in cur_curses
+                    )
+                    or "none"
+                )
+                await sel.response.edit_message(
+                    content=f"💀 Cursing **{target_member.display_name}** (current: {cur_total}% / {MAX_WEIGHT}%  •  {cur_breakdown})\nWhich role to push them toward?",
+                    embed=None,
+                    view=v2,
+                )
+
+            target_select.callback = on_curse_target
             v = discord.ui.View(timeout=60)
-            v.add_item(ts)
+            v.add_item(target_select)
             v.add_item(_back_btn())
             await interaction.response.edit_message(
-                content=f"💀 Curse will push target toward **{c_role}** ({c_pct}%). Choose your target:",
+                content=f"💀 Each **{item_name}** adds **+{c_pct}%** toward any role (player picks). Choose your target:",
+                embed=None,
+                view=v,
+            )
+            return
+
+        if chosen_type == "comp_reduce":
+            inv_item = next((i for i in items if i["type"] == "comp_reduce"), None)
+            shop_item = await self.bot.items_col.find_one(
+                {"guild_id": interaction.guild_id, "name": inv_item["name"]}
+                if inv_item
+                else {"guild_id": interaction.guild_id, "type": "comp_reduce"}
+            )
+            r_pct = int((shop_item or {}).get("reduce_pct", 20))
+            item_name = inv_item["name"] if inv_item else ""
+            owned_count = sum(1 for i in items if i["type"] == "comp_reduce")
+
+            user_doc = await self.bot.users_col.find_one(
+                {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
+            )
+            cur_reds = (user_doc or {}).get("active_comp_reductions", [])
+            cur_total = sum(w["weight"] for w in cur_reds)
+
+            role_select = discord.ui.Select(
+                placeholder="Which role do you want to reduce?",
+                options=[
+                    discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                    for r in ALL_ROLES
+                ],
+            )
+
+            async def on_reduce_role(sel: discord.Interaction):
+                chosen_role = role_select.values[0]
+                role_cur = sum(
+                    w["weight"]
+                    for w in cur_reds
+                    if (w.get("role") or w.get("value", "")) == chosen_role
+                )
+                max_usable = min(owned_count, (100 - role_cur) // r_pct if r_pct else 1)
+
+                if max_usable <= 0:
+                    embed = await pre_roll_view._build_status_embed()
+                    await sel.response.edit_message(
+                        content=f"⬇️ **{chosen_role}** is already fully reduced.",
+                        embed=embed,
+                        view=pre_roll_view,
+                    )
+                    return
+
+                qty_options = [
+                    discord.SelectOption(
+                        label=f"×{n}  →  -{n * r_pct}% {chosen_role}  (role total: {min(role_cur + n * r_pct, 100)}%)",
+                        value=str(n),
+                    )
+                    for n in range(1, max_usable + 1)
+                ]
+                qty_select = discord.ui.Select(
+                    placeholder=f"How many? (each -{r_pct}%)", options=qty_options
+                )
+
+                async def on_reduce_qty(as_: discord.Interaction):
+                    n = int(qty_select.values[0])
+                    for _ in range(n):
+                        await self.bot.users_col.update_one(
+                            {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                            {
+                                "$push": {
+                                    "active_comp_reductions": {
+                                        "role": chosen_role,
+                                        "weight": r_pct,
+                                        "item_name": item_name,
+                                    }
+                                }
+                            },
+                            upsert=True,
+                        )
+                    embed = await pre_roll_view._build_status_embed()
+                    await as_.response.edit_message(
+                        content=f"⬇️ Reduced ×{n}! **{chosen_role}** -{n * r_pct}% probability.",
+                        embed=embed,
+                        view=pre_roll_view,
+                    )
+
+                qty_select.callback = on_reduce_qty
+                v2 = discord.ui.View(timeout=60)
+                v2.add_item(qty_select)
+                v2.add_item(_back_btn())
+                await sel.response.edit_message(
+                    content=f"⬇️ How many reductions on **{chosen_role}**?",
+                    embed=None,
+                    view=v2,
+                )
+
+            role_select.callback = on_reduce_role
+            v = discord.ui.View(timeout=60)
+            v.add_item(role_select)
+            v.add_item(_back_btn())
+            await interaction.response.edit_message(
+                content=f"⬇️ Each **{item_name}** reduces a role by **{r_pct}%**. Which role?",
+                embed=None,
+                view=v,
+            )
+            return
+
+        if chosen_type == "comp_curse_reduce":
+            inv_item = next(
+                (i for i in items if i["type"] == "comp_curse_reduce"), None
+            )
+            shop_item = await self.bot.items_col.find_one(
+                {"guild_id": interaction.guild_id, "name": inv_item["name"]}
+                if inv_item
+                else {"guild_id": interaction.guild_id, "type": "comp_curse_reduce"}
+            )
+            cr_pct = int((shop_item or {}).get("curse_reduce_pct", 20))
+            item_name = inv_item["name"] if inv_item else ""
+            owned_count = sum(1 for i in items if i["type"] == "comp_curse_reduce")
+
+            target_opts = [
+                discord.SelectOption(label=p.display_name, value=str(p.id))
+                for p in pre_roll_view.players
+                if p.id != interaction.user.id
+            ]
+            if not target_opts:
+                await interaction.response.send_message(
+                    "*no other players to curse.*", ephemeral=True
+                )
+                return
+
+            target_select = discord.ui.Select(
+                placeholder="Who do you want to reduce?", options=target_opts
+            )
+
+            async def on_cr_target(sel: discord.Interaction):
+                target_id = int(target_select.values[0])
+                target_member = discord.utils.get(pre_roll_view.players, id=target_id)
+                user_doc2 = await self.bot.users_col.find_one(
+                    {"user_id": sel.user.id, "guild_id": sel.guild_id}
+                )
+                cur_creds = [
+                    c
+                    for c in (user_doc2 or {}).get("active_comp_curse_reds", [])
+                    if c.get("target_id") == target_id
+                ]
+
+                role_select = discord.ui.Select(
+                    placeholder="Which role to reduce for them?",
+                    options=[
+                        discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                        for r in ALL_ROLES
+                    ],
+                )
+
+                async def on_cr_role(rs: discord.Interaction):
+                    chosen_role = role_select.values[0]
+                    role_cur = sum(
+                        c["weight"]
+                        for c in cur_creds
+                        if (c.get("role") or c.get("value", "")) == chosen_role
+                    )
+                    max_usable = min(
+                        owned_count, (100 - role_cur) // cr_pct if cr_pct else 1
+                    )
+
+                    if max_usable <= 0:
+                        embed = await pre_roll_view._build_status_embed()
+                        await rs.response.edit_message(
+                            content=f"🪄 **{chosen_role}** is already fully reduced for {target_member.display_name}.",
+                            embed=embed,
+                            view=pre_roll_view,
+                        )
+                        return
+
+                    qty_options = [
+                        discord.SelectOption(
+                            label=f"×{n}  →  -{n * cr_pct}% {chosen_role} for {target_member.display_name}",
+                            value=str(n),
+                        )
+                        for n in range(1, max_usable + 1)
+                    ]
+                    qty_select = discord.ui.Select(
+                        placeholder=f"How many? (each -{cr_pct}%)", options=qty_options
+                    )
+
+                    async def on_cr_qty(as_: discord.Interaction):
+                        n = int(qty_select.values[0])
+                        for _ in range(n):
+                            await self.bot.users_col.update_one(
+                                {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                                {
+                                    "$push": {
+                                        "active_comp_curse_reds": {
+                                            "target_id": target_id,
+                                            "role": chosen_role,
+                                            "weight": cr_pct,
+                                            "item_name": item_name,
+                                        }
+                                    }
+                                },
+                                upsert=True,
+                            )
+                        embed = await pre_roll_view._build_status_embed()
+                        await as_.response.edit_message(
+                            content=f"🪄 Reduced ×{n}! **{target_member.display_name}**'s **{chosen_role}** -{n * cr_pct}%.",
+                            embed=embed,
+                            view=pre_roll_view,
+                        )
+
+                    qty_select.callback = on_cr_qty
+                    v3 = discord.ui.View(timeout=60)
+                    v3.add_item(qty_select)
+                    v3.add_item(_back_btn())
+                    await rs.response.edit_message(
+                        content=f"🪄 How many for **{target_member.display_name}**'s **{chosen_role}**?",
+                        embed=None,
+                        view=v3,
+                    )
+
+                role_select.callback = on_cr_role
+                v2 = discord.ui.View(timeout=60)
+                v2.add_item(role_select)
+                v2.add_item(_back_btn())
+                await sel.response.edit_message(
+                    content=f"🪄 Which role to reduce for **{target_member.display_name}**?",
+                    embed=None,
+                    view=v2,
+                )
+
+            target_select.callback = on_cr_target
+            v = discord.ui.View(timeout=60)
+            v.add_item(target_select)
+            v.add_item(_back_btn())
+            await interaction.response.edit_message(
+                content=f"🪄 Each **{item_name}** reduces a role by **{cr_pct}%** for a chosen player. Target:",
                 embed=None,
                 view=v,
             )
@@ -1301,6 +1688,8 @@ class Valorant(commands.Cog):
                             "active_comp_item": "",
                             "active_comp_weights": "",
                             "active_comp_curses": "",
+                            "active_comp_reductions": "",
+                            "active_comp_curse_reds": "",
                         }
                     },
                 )
@@ -1328,7 +1717,8 @@ class Valorant(commands.Cog):
         items = [
             i
             for i in (inv.get("items", []) if inv else [])
-            if i["type"] in COMP_TYPES and i["type"] != "comp_curse"
+            if i["type"] in COMP_TYPES
+            and i["type"] not in ("comp_curse", "comp_curse_reduce")
         ]
 
         if not items:
@@ -1639,6 +2029,100 @@ class Valorant(commands.Cog):
             )
             return
 
+        if chosen_type == "comp_reduce":
+            inv_item = next((i for i in items if i["type"] == "comp_reduce"), None)
+            shop_item = await self.bot.items_col.find_one(
+                {"guild_id": interaction.guild_id, "name": inv_item["name"]}
+                if inv_item
+                else {"guild_id": interaction.guild_id, "type": "comp_reduce"}
+            )
+            r_pct = int((shop_item or {}).get("reduce_pct", 20))
+            item_name = inv_item["name"] if inv_item else ""
+            owned_count = sum(1 for i in items if i["type"] == "comp_reduce")
+
+            user_doc = await self.bot.users_col.find_one(
+                {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
+            )
+            cur_reds = (user_doc or {}).get("active_comp_reductions", [])
+
+            role_select = discord.ui.Select(
+                placeholder="Which role do you want to reduce?",
+                options=[
+                    discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                    for r in ALL_ROLES
+                ],
+            )
+
+            async def on_reduce_role(sel: discord.Interaction):
+                chosen_role = role_select.values[0]
+                role_cur = sum(
+                    w["weight"]
+                    for w in cur_reds
+                    if (w.get("role") or w.get("value", "")) == chosen_role
+                )
+                max_usable = min(owned_count, (100 - role_cur) // r_pct if r_pct else 1)
+                if max_usable <= 0:
+                    await sel.response.edit_message(
+                        content=f"⬇️ **{chosen_role}** is already fully reduced.",
+                        embed=None,
+                        view=None,
+                    )
+                    return
+
+                qty_options = [
+                    discord.SelectOption(
+                        label=f"×{n}  →  -{n * r_pct}% {chosen_role}  (total: {min(role_cur + n * r_pct, 100)}%)",
+                        value=str(n),
+                    )
+                    for n in range(1, max_usable + 1)
+                ]
+                qty_select = discord.ui.Select(
+                    placeholder=f"How many? (each -{r_pct}%)", options=qty_options
+                )
+
+                async def on_reduce_qty(as_: discord.Interaction):
+                    n = int(qty_select.values[0])
+                    for _ in range(n):
+                        await self.bot.users_col.update_one(
+                            {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                            {
+                                "$push": {
+                                    "active_comp_reductions": {
+                                        "role": chosen_role,
+                                        "weight": r_pct,
+                                        "item_name": item_name,
+                                    }
+                                }
+                            },
+                            upsert=True,
+                        )
+                    await as_.response.edit_message(
+                        content=f"⬇️ Reduced ×{n}! **{chosen_role}** -{n * r_pct}% probability.",
+                        embed=None,
+                        view=None,
+                    )
+
+                qty_select.callback = on_reduce_qty
+                v2 = discord.ui.View(timeout=60)
+                v2.add_item(qty_select)
+                v2.add_item(_back_btn())
+                await sel.response.edit_message(
+                    content=f"⬇️ How many reductions on **{chosen_role}**?",
+                    embed=None,
+                    view=v2,
+                )
+
+            role_select.callback = on_reduce_role
+            v = discord.ui.View(timeout=60)
+            v.add_item(role_select)
+            v.add_item(_back_btn())
+            await interaction.response.edit_message(
+                content=f"⬇️ Each **{item_name}** reduces a role by **{r_pct}%**. Which role?",
+                embed=None,
+                view=v,
+            )
+            return
+
     # ── /cancelitem ───────────────────────────────────────────────────────────
 
     @app_commands.command(
@@ -1651,8 +2135,10 @@ class Valorant(commands.Cog):
         active = (user_doc or {}).get("active_comp_item")
         weights = (user_doc or {}).get("active_comp_weights", [])
         curses = (user_doc or {}).get("active_comp_curses", [])
+        reds = (user_doc or {}).get("active_comp_reductions", [])
+        creds = (user_doc or {}).get("active_comp_curse_reds", [])
 
-        if not active and not weights and not curses:
+        if not active and not weights and not curses and not reds and not creds:
             await interaction.response.send_message(
                 "*you don't have any comp items queued.*", ephemeral=True
             )
@@ -1665,6 +2151,8 @@ class Valorant(commands.Cog):
                     "active_comp_item": "",
                     "active_comp_weights": "",
                     "active_comp_curses": "",
+                    "active_comp_reductions": "",
+                    "active_comp_curse_reds": "",
                 }
             },
         )

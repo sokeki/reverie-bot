@@ -126,7 +126,7 @@
                         <label>Type</label>
                         <select name="type" class="add-type-select" onchange="toggleRoleField(this)">
                             {% set type_order =
-                            ["role","title","custom_title","comp_role_lock","comp_role_ban","comp_agent_lock","comp_reroll","comp_role_swap","comp_weight","comp_curse"]
+                            ["role","title","custom_title","comp_role_lock","comp_role_ban","comp_agent_lock","comp_reroll","comp_role_swap","comp_weight","comp_curse","comp_reduce","comp_curse_reduce"]
                             %}
                             {% for t in type_order if t in cat['types'] %}
                             <option value="{{ t }}">
@@ -140,6 +140,8 @@
                                 {% elif t == "comp_role_swap" %}🔀 Role Swap
                                 {% elif t == "comp_weight" %}⚖️ Role Weight
                                 {% elif t == "comp_curse" %}💀 Role Curse
+                                {% elif t == "comp_reduce" %}⬇️ Role Reduction
+                                {% elif t == "comp_curse_reduce" %}🪄 Curse Reduction
                                 {% endif %}
                             </option>
                             {% endfor %}
@@ -172,18 +174,21 @@
                         <small style="color:#aaa;font-size:0.75rem">Player chooses which role to apply this to</small>
                     </div>
                     <div class="field-row curse-field" style="display:none">
-                        <label>Curse role <span class="req">*</span></label>
-                        <select name="curse_role">
-                            <option value="">— select a role —</option>
-                            <option value="Duelist">⚔️ Duelist</option>
-                            <option value="Initiator">🔍 Initiator</option>
-                            <option value="Controller">🌫️ Controller</option>
-                            <option value="Sentinel">🛡️ Sentinel</option>
-                        </select>
-                    </div>
-                    <div class="field-row curse-field" style="display:none">
                         <label>Curse % <span class="req">*</span></label>
-                        <input type="number" name="curse_pct" min="1" max="99" placeholder="e.g. 70">
+                        <input type="number" name="curse_pct" min="1" max="99" placeholder="e.g. 30">
+                        <small style="color:#aaa;font-size:0.75rem">Player picks target and role when they use
+                            it</small>
+                    </div>
+                    <div class="field-row reduce-field" style="display:none">
+                        <label>Reduce % <span class="req">*</span></label>
+                        <input type="number" name="reduce_pct" min="1" max="99" placeholder="e.g. 20">
+                        <small style="color:#aaa;font-size:0.75rem">Player picks which role to reduce</small>
+                    </div>
+                    <div class="field-row curse-reduce-field" style="display:none">
+                        <label>Curse Reduce % <span class="req">*</span></label>
+                        <input type="number" name="curse_reduce_pct" min="1" max="99" placeholder="e.g. 20">
+                        <small style="color:#aaa;font-size:0.75rem">Player picks target and role when they use
+                            it</small>
                     </div>
                     <div class="edit-actions">
                         <button type="submit" class="btn-edit-save">Add item</button>
@@ -266,6 +271,8 @@
         if (roleField) roleField.style.display = val === 'role' ? 'flex' : 'none';
         weightFields.forEach(f => f.style.display = val === 'comp_weight' ? 'flex' : 'none');
         curseFields.forEach(f => f.style.display = val === 'comp_curse' ? 'flex' : 'none');
+        card.querySelectorAll('.reduce-field').forEach(f => f.style.display = val === 'comp_reduce' ? 'flex' : 'none');
+        card.querySelectorAll('.curse-reduce-field').forEach(f => f.style.display = val === 'comp_curse_reduce' ? 'flex' : 'none');
     }
 
     function syncColourFromRole(select) {

@@ -130,6 +130,8 @@ TYPE_EMOJI = {
     "comp_role_swap": "🔀",
     "comp_weight": "⚖️",
     "comp_curse": "💀",
+    "comp_reduce": "⬇️",
+    "comp_curse_reduce": "🪄",
 }
 
 TYPE_LABEL = {
@@ -143,6 +145,8 @@ TYPE_LABEL = {
     "comp_role_swap": "🔀 Role Swap  *(consumable)*",
     "comp_weight": "⚖️ Role Weight  *(stackable consumable)*",
     "comp_curse": "💀 Role Curse  *(consumable)*",
+    "comp_reduce": "⬇️ Role Reduction  *(stackable consumable)*",
+    "comp_curse_reduce": "🪄 Curse Reduction  *(consumable)*",
 }
 
 # Valorant data mirrored here so the preview can show it without importing valorant.py
@@ -278,6 +282,8 @@ CATEGORIES: list[tuple[str, str, set[str]]] = [
             "comp_role_swap",
             "comp_weight",
             "comp_curse",
+            "comp_reduce",
+            "comp_curse_reduce",
         },
     ),
 ]
@@ -733,7 +739,6 @@ def _preview_comp_weight(
 
 def _preview_comp_curse(item: dict, balance: int, already_owned: bool) -> discord.Embed:
     desc = item.get("description") or "no description"
-    curse_role = item.get("curse_role", "?")
     curse_pct = item.get("curse_pct", "?")
     roles_str = "  ".join(f"{_VAL_ROLE_EMOJIS[r]} **{r}**" for r in _VAL_ROLES)
     embed = discord.Embed(
@@ -742,9 +747,11 @@ def _preview_comp_curse(item: dict, balance: int, already_owned: bool) -> discor
             f"*{desc}*\n\n"
             f"**Type:** {TYPE_LABEL['comp_curse']}\n"
             f"**Cost:** ✨ {item['cost']:,} dream pts\n\n"
-            f"Activate with `/useitem` before a `/randomcomp`. You'll be asked to pick a target "
-            f"player from the comp. During the roll, that player's assignment is weighted toward "
-            f"**{curse_role}** with a **{curse_pct}% chance** — whether they want it or not.\n\n"
+            f"Activate from the pre-roll screen when running `/randomcomp`. You'll pick a target "
+            f"player and which role to push them toward. Each use adds **+{curse_pct}%** toward "
+            f"your chosen role for that target.\n\n"
+            f"**Stackable** — multiple curses on the same target/role add up (capped at 100%). "
+            f"You can even spread curses across multiple targets in the same comp.\n\n"
             f"**Roles:**\n{roles_str}\n\n"
             f"⚠️ Consumed on use. Can own multiple.\n\n"
             f"{_afford_line(item, balance, already_owned, consumable=True)}"
@@ -1041,6 +1048,8 @@ class PersistentShop(commands.Cog):
             "comp_role_swap",
             "comp_weight",
             "comp_curse",
+            "comp_reduce",
+            "comp_curse_reduce",
         }
         already_owned = False
         if item["type"] not in CONSUMABLE_TYPES:
@@ -1089,6 +1098,8 @@ class PersistentShop(commands.Cog):
             "comp_role_swap",
             "comp_weight",
             "comp_curse",
+            "comp_reduce",
+            "comp_curse_reduce",
         }
         if shop_item["type"] not in CONSUMABLE_TYPES:
             inv_doc = await self.bot.inv_col.find_one(
