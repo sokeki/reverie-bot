@@ -231,15 +231,27 @@ class CompPostView(discord.ui.View):
                 "⚠️ Couldn't find your role.", ephemeral=True
             )
             return
-        options = [
-            discord.SelectOption(
-                label=f"{m.display_name}  ({r})",
-                value=str(m.id),
-                emoji=ROLE_EMOJIS.get(r, "•"),
+        seen_ids: set[str] = set()
+        options = []
+        for r, m in self.assignments.items():
+            if m.id == interaction.user.id:
+                continue
+            val = str(m.id)
+            if val in seen_ids:
+                continue
+            seen_ids.add(val)
+            options.append(
+                discord.SelectOption(
+                    label=f"{m.display_name}  ({r})",
+                    value=val,
+                    emoji=ROLE_EMOJIS.get(r, "•"),
+                )
             )
-            for r, m in self.assignments.items()
-            if m.id != interaction.user.id
-        ]
+        if not options:
+            await interaction.response.send_message(
+                "⚠️ No other players to swap with.", ephemeral=True
+            )
+            return
         select = discord.ui.Select(placeholder="Swap with...", options=options)
         original_message = (
             interaction.message
@@ -255,13 +267,14 @@ class CompPostView(discord.ui.View):
                 return
             t_member = self.assignments[t_role]
             my_member = self.assignments[my_role]
+            # Build note before mutating
+            note = f"🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
             self.assignments[my_role] = t_member
             self.assignments[t_role] = my_member
             self.role_of[my_member.id] = t_role
             self.role_of[t_member.id] = my_role
             self.swap_player_ids.discard(sel.user.id)
             self._rebuild()
-            note = f"🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
             # Respond first (required by Discord), then edit the comp embed, then consume
             await sel.response.send_message("🔀 Swapped!", ephemeral=True)
             await original_message.edit(
@@ -1046,9 +1059,7 @@ class Valorant(commands.Cog):
         COMP_TIME_ONLY = {
             "comp_reroll",
             "comp_role_swap",
-            "comp_curse",
-            "comp_curse_reduce",
-        }
+        }  # curses activatable here — comp players are known
         inv = await self.bot.inv_col.find_one(
             {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
         )
@@ -1061,12 +1072,11 @@ class Valorant(commands.Cog):
         )
 
         if not activatable:
-            # Only comp-time items in inventory — nothing to activate manually
             comp_time = [i for i in items if i["type"] in COMP_TIME_ONLY]
             if comp_time:
                 embed = await pre_roll_view._build_status_embed()
                 await interaction.response.edit_message(
-                    content="*your items (🔄 🔀 💀) activate automatically at roll time — nothing to configure here.*",
+                    content="*🔄 🔀 activate automatically when the comp rolls — nothing to configure.*",
                     embed=embed,
                     view=pre_roll_view,
                 )
@@ -1409,12 +1419,19 @@ class Valorant(commands.Cog):
             item_name = inv_item["name"] if inv_item else ""
             owned_count = sum(1 for i in items if i["type"] == "comp_curse")
 
-            # Step 1: pick target
-            target_opts = [
-                discord.SelectOption(label=p.display_name, value=str(p.id))
-                for p in pre_roll_view.players
-                if p.id != interaction.user.id
-            ]
+            # Step 1: pick target — deduplicate by player ID
+            seen_target_ids: set[str] = set()
+            target_opts = []
+            for p in pre_roll_view.players:
+                if p.id == interaction.user.id:
+                    continue
+                val = str(p.id)
+                if val in seen_target_ids:
+                    continue
+                seen_target_ids.add(val)
+                target_opts.append(
+                    discord.SelectOption(label=p.display_name, value=val)
+                )
             if not target_opts:
                 await interaction.response.send_message(
                     "*no other players to curse.*", ephemeral=True
@@ -1665,11 +1682,18 @@ class Valorant(commands.Cog):
             item_name = inv_item["name"] if inv_item else ""
             owned_count = sum(1 for i in items if i["type"] == "comp_curse_reduce")
 
-            target_opts = [
-                discord.SelectOption(label=p.display_name, value=str(p.id))
-                for p in pre_roll_view.players
-                if p.id != interaction.user.id
-            ]
+            seen_target_ids2: set[str] = set()
+            target_opts = []
+            for p in pre_roll_view.players:
+                if p.id == interaction.user.id:
+                    continue
+                val = str(p.id)
+                if val in seen_target_ids2:
+                    continue
+                seen_target_ids2.add(val)
+                target_opts.append(
+                    discord.SelectOption(label=p.display_name, value=val)
+                )
             if not target_opts:
                 await interaction.response.send_message(
                     "*no other players to curse.*", ephemeral=True
@@ -1855,13 +1879,30 @@ class Valorant(commands.Cog):
 
         inv_note = f"**In inventory:** {len(activatable)} activatable item(s)"
         if comp_time:
-            type_counts = {}
-            for i in comp_time:
-                type_counts[i["type"]] = type_counts.get(i["type"], 0) + 1
-            ct_parts = ", ".join(
-                f"{LABEL_MAP.get(t, t)} ×{n}" for t, n in type_counts.items()
-            )
-            inv_note += f"\n*(comp-time only: {ct_parts} — activates automatically when you're in a comp)*"
+            auto_items = [
+                i for i in comp_time if i["type"] in ("comp_reroll", "comp_role_swap")
+            ]
+            curse_items = [
+                i for i in comp_time if i["type"] in ("comp_curse", "comp_curse_reduce")
+            ]
+            ct_notes = []
+            if auto_items:
+                counts = {}
+                for i in auto_items:
+                    counts[i["type"]] = counts.get(i["type"], 0) + 1
+                ct_notes.append(
+                    ", ".join(f"{LABEL_MAP.get(t,t)} ×{n}" for t, n in counts.items())
+                    + " — auto-activate at comp time"
+                )
+            if curse_items:
+                counts = {}
+                for i in curse_items:
+                    counts[i["type"]] = counts.get(i["type"], 0) + 1
+                ct_notes.append(
+                    ", ".join(f"{LABEL_MAP.get(t,t)} ×{n}" for t, n in counts.items())
+                    + " — activated by the comp roller's pre-roll screen"
+                )
+            inv_note += "\n*(" + "  •  ".join(ct_notes) + ")*"
 
         embed = discord.Embed(
             title="🎒 Comp Items",
