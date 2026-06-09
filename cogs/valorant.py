@@ -383,15 +383,37 @@ class PreRollView(discord.ui.View):
 
         weights = (user_doc or {}).get("active_comp_weights", [])
         if weights:
-            total = min(sum(w["weight"] for w in weights), MAX_WEIGHT)
-            role = weights[0]["value"]
-            lines.append(f"• ⚖️ {len(weights)}× Weight → **{role}** ({total}% total)")
+            # Group by role and sum
+            role_totals: dict[str, int] = {}
+            for w in weights:
+                r = w.get("role") or w.get("value", "?")
+                role_totals[r] = role_totals.get(r, 0) + w["weight"]
+            pool_total = min(sum(role_totals.values()), MAX_WEIGHT)
+            breakdown = ", ".join(f"**{r}** +{v}%" for r, v in role_totals.items())
+            lines.append(f"• ⚖️ Weight: {breakdown}  ({pool_total}% pool used)")
+
+        reductions = (user_doc or {}).get("active_comp_reductions", [])
+        if reductions:
+            role_totals_r: dict[str, int] = {}
+            for rd in reductions:
+                r = rd.get("role") or rd.get("value", "?")
+                role_totals_r[r] = role_totals_r.get(r, 0) + rd["weight"]
+            breakdown = ", ".join(f"**{r}** -{v}%" for r, v in role_totals_r.items())
+            lines.append(f"• ⬇️ Reduce: {breakdown}")
 
         curses = (user_doc or {}).get("active_comp_curses", [])
         for c in curses:
             target = discord.utils.get(self.players, id=c["target_id"])
             tname = target.display_name if target else f"<{c['target_id']}>"
-            lines.append(f"• 💀 Curse → {tname}: **{c['value']}** ({c['weight']}%)")
+            role = c.get("role") or c.get("value", "?")
+            lines.append(f"• 💀 Curse → {tname}: **{role}** +{c['weight']}%")
+
+        curse_reds = (user_doc or {}).get("active_comp_curse_reds", [])
+        for cr in curse_reds:
+            target = discord.utils.get(self.players, id=cr["target_id"])
+            tname = target.display_name if target else f"<{cr['target_id']}>"
+            role = cr.get("role") or cr.get("value", "?")
+            lines.append(f"• 🪄 Curse Reduce → {tname}: **{role}** -{cr['weight']}%")
 
         desc = "\n".join(lines) if lines else "*no items queued — rolling clean*"
         embed = discord.Embed(
@@ -1731,10 +1753,13 @@ class Valorant(commands.Cog):
             val = active.get("value", "")
             queued_lines.append(f"• {label}" + (f": **{val}**" if val else ""))
         if weights:
-            total = min(sum(w["weight"] for w in weights), MAX_WEIGHT)
-            queued_lines.append(
-                f"• ⚖️ {len(weights)}× Weight → **{weights[0]['value']}** ({total}% total)"
-            )
+            role_totals: dict[str, int] = {}
+            for w in weights:
+                r = w.get("role") or w.get("value", "?")
+                role_totals[r] = role_totals.get(r, 0) + w["weight"]
+            pool_total = min(sum(role_totals.values()), MAX_WEIGHT)
+            breakdown = ", ".join(f"**{r}** +{v}%" for r, v in role_totals.items())
+            queued_lines.append(f"• ⚖️ Weight: {breakdown}  ({pool_total}% pool)")
         if curses:
             queued_lines.append(
                 f"• 💀 {len(curses)} curse(s) queued *(target set at comp time)*"

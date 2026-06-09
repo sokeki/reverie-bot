@@ -137,8 +137,13 @@ class Points(commands.Cog):
                 queued.append(f"{label}" + (f":{val}" if val else ""))
             weights = d.get("active_comp_weights", [])
             if weights:
-                total = min(sum(w["weight"] for w in weights), 95)
-                queued.append(f"⚖️{weights[0]['value']} {total}%")
+                role_totals: dict[str, int] = {}
+                for w in weights:
+                    r = w.get("role") or w.get("value", "?")
+                    role_totals[r] = role_totals.get(r, 0) + w["weight"]
+                pool_total = min(sum(role_totals.values()), 100)
+                breakdown = "+".join(f"{v}%{r[:3]}" for r, v in role_totals.items())
+                queued.append(f"⚖️{breakdown} ({pool_total}%)")
             curses = d.get("active_comp_curses", [])
             if curses:
                 queued.append(f"💀×{len(curses)}")
