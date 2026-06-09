@@ -614,9 +614,15 @@ class Valorant(commands.Cog):
             if not avail:
                 continue
             role, pct = cursed_players.get(player.id) or weighted_players.get(player.id)
+            weight_applied = role in avail
             chosen = _weighted_choice(avail, role, pct)
             assignments[chosen] = player
             taken.add(chosen)
+            # If weight couldn't apply because the preferred role was already taken, note it
+            if not weight_applied and player.id in weighted_players:
+                item_notes.append(
+                    f"⚖️ {player.mention}'s weight on **{role}** didn't apply — **{role}** was already taken"
+                )
 
         # Unweighted — greedy by fewest eligible
         eligible_list = []

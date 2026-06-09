@@ -163,6 +163,34 @@
                             {% endfor %}
                         </select>
                     </div>
+                    <div class="field-row weight-field" style="display:none">
+                        <label>Weight role <span class="req">*</span></label>
+                        <select name="weight_role">
+                            <option value="">— select a role —</option>
+                            <option value="Duelist">⚔️ Duelist</option>
+                            <option value="Initiator">🔍 Initiator</option>
+                            <option value="Controller">🌫️ Controller</option>
+                            <option value="Sentinel">🛡️ Sentinel</option>
+                        </select>
+                    </div>
+                    <div class="field-row weight-field" style="display:none">
+                        <label>Weight % <span class="req">*</span></label>
+                        <input type="number" name="weight_pct" min="1" max="99" placeholder="e.g. 20">
+                    </div>
+                    <div class="field-row curse-field" style="display:none">
+                        <label>Curse role <span class="req">*</span></label>
+                        <select name="curse_role">
+                            <option value="">— select a role —</option>
+                            <option value="Duelist">⚔️ Duelist</option>
+                            <option value="Initiator">🔍 Initiator</option>
+                            <option value="Controller">🌫️ Controller</option>
+                            <option value="Sentinel">🛡️ Sentinel</option>
+                        </select>
+                    </div>
+                    <div class="field-row curse-field" style="display:none">
+                        <label>Curse % <span class="req">*</span></label>
+                        <input type="number" name="curse_pct" min="1" max="99" placeholder="e.g. 70">
+                    </div>
                     <div class="edit-actions">
                         <button type="submit" class="btn-edit-save">Add item</button>
                     </div>
@@ -237,8 +265,13 @@
 
     function toggleRoleField(select) {
         const card = select.closest('.shop-card');
+        const val = select.value;
         const roleField = card.querySelector('.role-field');
-        if (roleField) roleField.style.display = select.value === 'role' ? 'flex' : 'none';
+        const weightFields = card.querySelectorAll('.weight-field');
+        const curseFields = card.querySelectorAll('.curse-field');
+        if (roleField) roleField.style.display = val === 'role' ? 'flex' : 'none';
+        weightFields.forEach(f => f.style.display = val === 'comp_weight' ? 'flex' : 'none');
+        curseFields.forEach(f => f.style.display = val === 'comp_curse' ? 'flex' : 'none');
     }
 
     function syncColourFromRole(select) {
