@@ -166,19 +166,14 @@ ITEMS_PER_PAGE = 10
 
 
 def _build_embed(
-    items: list[dict],
-    guild: discord.Guild,
-    page: int = 0,
+    items: list[dict], guild: discord.Guild, page: int = 0
 ) -> discord.Embed:
-    total_pages = max(1, math.ceil(len(items) / ITEMS_PER_PAGE))
-    page = max(0, min(page, total_pages - 1))
-    page_items = items[page * ITEMS_PER_PAGE : (page + 1) * ITEMS_PER_PAGE]
-
+    """Pinned channel embed — shows category summary with item counts, not a full item list."""
     embed = discord.Embed(
         title="🌙 The Dream Shop",
         description=(
             "*spend your dream points on something wonderful...*\n"
-            "Click **Browse & Buy** below to purchase an item."
+            "Click **Browse & Buy** below to browse by category and purchase."
         ),
         color=COLOUR_LB,
     )
@@ -190,27 +185,32 @@ def _build_embed(
         embed.set_footer(text=f"Reverie  •  {guild.name}")
         return embed
 
-    for item in page_items:
-        emoji = TYPE_EMOJI.get(item["type"], "•")
-        colour_str = ""
-        if item["type"] == "role" and item.get("role_id"):
-            role = guild.get_role(item["role_id"])
-            if role and role.colour.value:
-                name = _colour_name(role.colour.value)
-                colour_str = f"  •  🎨 {name} (`#{role.colour.value:06X}`)"
+    for label, emoji, types in CATEGORIES:
+        cat_items = [i for i in items if i["type"] in types]
+        if not cat_items:
+            continue
 
-        cost_str = f"✨ **{item['cost']:,}** pts"
-        desc = item.get("description") or "no description"
+        # Build a short summary line per item
+        lines = []
+        for item in cat_items:
+            item_emoji = TYPE_EMOJI.get(item["type"], "•")
+            colour_str = ""
+            if item["type"] == "role" and item.get("role_id"):
+                role = guild.get_role(item["role_id"])
+                if role and role.colour.value:
+                    cname = _colour_name(role.colour.value)
+                    colour_str = f" — {cname} (`#{role.colour.value:06X}`)"
+            lines.append(
+                f"{item_emoji} **{item['name']}** · ✨ {item['cost']:,} pts{colour_str}"
+            )
+
         embed.add_field(
-            name=f"{emoji}  {item['name']}  —  {cost_str}{colour_str}",
-            value=desc,
+            name=f"{emoji}  {label}  ({len(cat_items)} item{'s' if len(cat_items) != 1 else ''})",
+            value="\n".join(lines),
             inline=False,
         )
 
-    footer = f"Page {page + 1}/{total_pages}  •  Reverie  •  {guild.name}"
-    if total_pages > 1:
-        footer = f"Page {page + 1}/{total_pages}  •  use ◀ ▶ to browse  •  Reverie  •  {guild.name}"
-    embed.set_footer(text=footer)
+    embed.set_footer(text=f"Reverie  •  {guild.name}")
     return embed
 
 
@@ -422,7 +422,7 @@ class BuyMenuView(discord.ui.View):
         back_btn = discord.ui.Button(
             label="◀ Categories",
             style=discord.ButtonStyle.secondary,
-            row=1,
+            row=2,
         )
         back_btn.callback = self._back_to_categories
         self.add_item(back_btn)
@@ -431,9 +431,26 @@ class BuyMenuView(discord.ui.View):
         cat_label = f" — {self.category_label}" if self.category_label else ""
         embed = discord.Embed(
             title=f"🛒 Dream Shop{cat_label}",
-            description="*select an item below to preview it before buying.*",
+            description="*select an item from the dropdown to preview and buy.*",
             color=COLOUR_MAIN,
         )
+        page_items = self.items[
+            self.page * ITEMS_PER_PAGE : (self.page + 1) * ITEMS_PER_PAGE
+        ]
+        for item in page_items:
+            emoji = TYPE_EMOJI.get(item["type"], "•")
+            colour_str = ""
+            if item["type"] == "role" and item.get("role_id"):
+                role = self.guild.get_role(item["role_id"])
+                if role and role.colour.value:
+                    cname = _colour_name(role.colour.value)
+                    colour_str = f"\n🎨 {cname}  (`#{role.colour.value:06X}`)"
+            desc = item.get("description") or "no description"
+            embed.add_field(
+                name=f"{emoji}  {item['name']}  —  ✨ {item['cost']:,} pts{colour_str}",
+                value=desc,
+                inline=False,
+            )
         embed.set_footer(
             text=f"Your balance: {self.balance:,} pts  •  "
             f"Page {self.page + 1}/{self.total_pages}  •  Reverie"
