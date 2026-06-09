@@ -46,6 +46,7 @@ COGS = [
     "cogs.admin",
     "cogs.voice",
     "cogs.shop",
+    "cogs.persistent_shop",
     "cogs.valorant",
     "cogs.guest_invite",
     # "cogs.anonymous",  # disabled — guessing game archived

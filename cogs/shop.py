@@ -6,6 +6,17 @@ from discord.ext import commands
 from config import COLOUR_MAIN, COLOUR_LB, COLOUR_CONFIRM
 
 
+# Imported lazily to avoid a circular import; called after shop mutations.
+# Usage: from cogs.persistent_shop import refresh_persistent_shop
+async def _refresh_shop(bot, guild_id: int):
+    try:
+        from cogs.persistent_shop import refresh_persistent_shop
+
+        await refresh_persistent_shop(bot, guild_id)
+    except Exception:
+        pass
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 CUSTOM_TITLE_MAX_LEN = 32
@@ -426,7 +437,9 @@ class Shop(commands.Cog):
             description="*choose which shop role to remove.*\n\nThis will consume one **Role Remover** from your inventory.",
             color=COLOUR_MAIN,
         )
-        embed.set_footer(text=f"This menu expires in 60 seconds  •  Reverie  •  {interaction.guild.name}")
+        embed.set_footer(
+            text=f"This menu expires in 60 seconds  •  Reverie  •  {interaction.guild.name}"
+        )
 
         view = RoleRemoverView(
             purchasable_roles, self.inv_col, role_item_names, remover["name"]
@@ -465,7 +478,9 @@ class Shop(commands.Cog):
                 lines.append(f"{label}  **{i['name']}**{active}")
             embed.description = "\n".join(lines)
             if any(i["type"] == "title" for i in inventory):
-                embed.set_footer(text=f"Use /settitle <n> to equip a title  •  Reverie  •  {interaction.guild.name}")
+                embed.set_footer(
+                    text=f"Use /settitle <n> to equip a title  •  Reverie  •  {interaction.guild.name}"
+                )
             else:
                 embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
 
@@ -529,6 +544,10 @@ class Shop(commands.Cog):
             app_commands.Choice(name="Title", value="title"),
             app_commands.Choice(name="Role Remover", value="role_remover"),
             app_commands.Choice(name="Custom Title", value="custom_title"),
+            app_commands.Choice(name="Comp: Role Lock", value="comp_role_lock"),
+            app_commands.Choice(name="Comp: Role Ban", value="comp_role_ban"),
+            app_commands.Choice(name="Comp: Agent Lock", value="comp_agent_lock"),
+            app_commands.Choice(name="Comp: Reroll", value="comp_reroll"),
         ]
     )
     @app_commands.default_permissions(administrator=True)
@@ -574,6 +593,7 @@ class Shop(commands.Cog):
             f"✅ **{name}** added to the shop for **{cost:,}** dream points.",
             ephemeral=True,
         )
+        await _refresh_shop(self.bot, interaction.guild_id)
 
     # ── /removeitem (admin) ───────────────────────────────────────────────────
 
@@ -599,6 +619,7 @@ class Shop(commands.Cog):
                 f"🌙 **{name}** has been removed from the shop.",
                 ephemeral=True,
             )
+            await _refresh_shop(self.bot, interaction.guild_id)
 
     # ── /edititem (admin) ─────────────────────────────────────────────────────
 
@@ -669,6 +690,7 @@ class Shop(commands.Cog):
             f"✅ **{name}** updated:{chr(10)}{bullet_list}",
             ephemeral=True,
         )
+        await _refresh_shop(self.bot, interaction.guild_id)
 
     # ── /setcustomtitle ───────────────────────────────────────────────────────
 
@@ -724,7 +746,9 @@ class Shop(commands.Cog):
             description=f"Your title is now **{title}**. It will show on your `/points` profile!",
             color=COLOUR_CONFIRM,
         )
-        embed.set_footer(text=f"Buy another Custom Title item to change it  •  Reverie  •  {interaction.guild.name}")
+        embed.set_footer(
+            text=f"Buy another Custom Title item to change it  •  Reverie  •  {interaction.guild.name}"
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /equip ───────────────────────────────────────────────────────────────
@@ -784,7 +808,8 @@ class Shop(commands.Cog):
             role = interaction.guild.get_role(int(select.values[0]))
             if not role:
                 await select_interaction.response.edit_message(
-                    content="⚠️ That role no longer exists. Contact an admin.", view=None
+                    content="⚠️ That role no longer exists. Contact an admin.",
+                    view=None,
                 )
                 return
             try:
