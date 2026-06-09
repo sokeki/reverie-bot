@@ -103,6 +103,7 @@ def _build_comp_embed(
     rolled_agents: dict[str, str],
     item_notes: list[str],
     swap_players: set[int],
+    reroll_players: set[int],
     guild_name: str,
 ) -> discord.Embed:
     role_order = ["Duelist", "Initiator", "Controller", "Sentinel", "Free Pick"]
@@ -123,6 +124,8 @@ def _build_comp_embed(
         description += "\n\n" + "\n".join(item_notes)
     if swap_players:
         description += "\n*🔀 Role Swap holders — click the button below to swap.*"
+    if reroll_players:
+        description += "\n*🔄 Reshuffle holders — click the button below to reshuffle all unlocked roles.*"
 
     embed = discord.Embed(
         title="🎲 Random Team Comp", description=description, color=COLOUR_LB
@@ -131,27 +134,62 @@ def _build_comp_embed(
     return embed
 
 
-# ── Comp swap view ────────────────────────────────────────────────────────────
+# ── Comp post-roll view (swap + reroll buttons) ───────────────────────────────
 
 
-class CompSwapView(discord.ui.View):
+class CompPostView(discord.ui.View):
+    """Shown on the comp result. Holds swap and/or reshuffle buttons."""
+
     def __init__(
-        self, assignments, swap_player_ids, guild_id, bot, roll_agents, rolled_agents
+        self,
+        assignments,
+        swap_player_ids,
+        reroll_player_ids,
+        locked_player_ids,
+        guild_id,
+        bot,
+        roll_agents,
+        rolled_agents,
     ):
         super().__init__(timeout=120)
         self.assignments = assignments
         self.swap_player_ids = swap_player_ids
+        self.reroll_player_ids = reroll_player_ids
+        self.locked_player_ids = locked_player_ids
         self.guild_id = guild_id
         self.bot = bot
         self.roll_agents = roll_agents
         self.rolled_agents = rolled_agents
         self.role_of: dict[int, str] = {m.id: r for r, m in assignments.items()}
+        self._rebuild()
 
-        btn = discord.ui.Button(
-            label="🔀 Use Role Swap", style=discord.ButtonStyle.primary
+    def _rebuild(self):
+        self.clear_items()
+        if self.swap_player_ids:
+            btn = discord.ui.Button(
+                label="🔀 Use Role Swap", style=discord.ButtonStyle.primary
+            )
+            btn.callback = self._on_swap
+            self.add_item(btn)
+        if self.reroll_player_ids:
+            btn = discord.ui.Button(
+                label="🔄 Reshuffle", style=discord.ButtonStyle.secondary
+            )
+            btn.callback = self._on_reroll
+            self.add_item(btn)
+
+    def _current_embed(self, extra_note: str = "") -> discord.Embed:
+        embed = _build_comp_embed(
+            self.assignments,
+            self.rolled_agents,
+            [],
+            self.swap_player_ids,
+            self.reroll_player_ids,
+            "",
         )
-        btn.callback = self._on_swap
-        self.add_item(btn)
+        if extra_note:
+            embed.description += f"\n\n{extra_note}"
+        return embed
 
     async def _on_swap(self, interaction: discord.Interaction):
         if interaction.user.id not in self.swap_player_ids:
@@ -165,7 +203,6 @@ class CompSwapView(discord.ui.View):
                 "⚠️ Couldn't find your role.", ephemeral=True
             )
             return
-
         options = [
             discord.SelectOption(
                 label=f"{m.display_name}  ({r})",
@@ -191,7 +228,6 @@ class CompSwapView(discord.ui.View):
             self.assignments[t_role] = my_member
             self.role_of[my_member.id] = t_role
             self.role_of[t_member.id] = my_role
-
             await self.bot.inv_col.update_one(
                 {"user_id": sel.user.id, "guild_id": self.guild_id},
                 {"$pull": {"items": {"type": "comp_role_swap"}}},
@@ -201,17 +237,10 @@ class CompSwapView(discord.ui.View):
                 {"$unset": {"active_comp_item": ""}},
             )
             self.swap_player_ids.discard(sel.user.id)
-
-            embed = _build_comp_embed(
-                self.assignments,
-                self.rolled_agents,
-                [],
-                self.swap_player_ids,
-                sel.guild.name,
-            )
-            embed.description += f"\n\n🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
+            self._rebuild()
+            note = f"🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
             await sel.message.edit(
-                embed=embed, view=self if self.swap_player_ids else None
+                embed=self._current_embed(note), view=self if self.children else None
             )
             await sel.response.send_message("🔀 Swapped!", ephemeral=True)
 
@@ -224,12 +253,77 @@ class CompSwapView(discord.ui.View):
             ephemeral=True,
         )
 
+    async def _on_reroll(self, interaction: discord.Interaction):
+        if interaction.user.id not in self.reroll_player_ids:
+            await interaction.response.send_message(
+                "⚠️ This reshuffle isn't for you.", ephemeral=True
+            )
+            return
+
+        # Keep locked players in place; reshuffle everyone else
+        free_roles = [
+            r for r, m in self.assignments.items() if m.id not in self.locked_player_ids
+        ]
+        free_members = [self.assignments[r] for r in free_roles]
+        random.shuffle(free_members)
+        for role, member in zip(free_roles, free_members):
+            self.assignments[role] = member
+            self.role_of[member.id] = role
+
+        # Re-roll agents for reshuffled slots
+        if self.roll_agents and self.rolled_agents:
+            locked_agent_vals = {
+                self.rolled_agents[r]
+                for r in self.rolled_agents
+                if self.assignments.get(r)
+                and self.assignments[r].id in self.locked_player_ids
+            }
+            pool = [a for a in ALL_AGENTS if a not in locked_agent_vals]
+            random.shuffle(pool)
+            for role in free_roles:
+                if role == "Free Pick":
+                    self.rolled_agents[role] = (
+                        pool.pop(0) if pool else random.choice(ALL_AGENTS)
+                    )
+                else:
+                    role_pool = [a for a in pool if a in AGENTS.get(role, [])]
+                    if role_pool:
+                        chosen = role_pool[0]
+                        pool.remove(chosen)
+                    elif pool:
+                        chosen = pool.pop(0)
+                    else:
+                        chosen = random.choice(AGENTS.get(role, ALL_AGENTS))
+                    self.rolled_agents[role] = chosen
+
+        await self.bot.inv_col.update_one(
+            {"user_id": interaction.user.id, "guild_id": self.guild_id},
+            {"$pull": {"items": {"type": "comp_reroll"}}},
+        )
+        await self.bot.users_col.update_one(
+            {"user_id": interaction.user.id, "guild_id": self.guild_id},
+            {"$unset": {"active_comp_item": ""}},
+        )
+        self.reroll_player_ids.discard(interaction.user.id)
+        self._rebuild()
+
+        locked_names = (
+            ", ".join(
+                self.assignments[r].display_name
+                for r in self.assignments
+                if self.assignments[r].id in self.locked_player_ids
+            )
+            or "none"
+        )
+        note = f"🔄 *{interaction.user.display_name} reshuffled all unlocked roles  •  protected: {locked_names}*"
+        await interaction.message.edit(
+            embed=self._current_embed(note), view=self if self.children else None
+        )
+        await interaction.response.send_message("🔄 Reshuffled!", ephemeral=True)
+
     async def on_timeout(self):
         for c in self.children:
             c.disabled = True
-
-
-# ── Pre-roll dialogue ─────────────────────────────────────────────────────────
 
 
 class PreRollView(discord.ui.View):
@@ -464,6 +558,7 @@ class Valorant(commands.Cog):
         weighted_players: dict[int, dict[str, float]] = {}
         # cursed_players declared after curse resolution below
         swap_players: set[int] = set()
+        reroll_players: set[int] = set()
         item_notes: list[str] = []
         refunded_players: list[str] = []  # notes for items returned due to conflict
 
@@ -494,7 +589,8 @@ class Valorant(commands.Cog):
                     item_notes.append(f"🔀 {player.mention} has a **Role Swap** ready")
 
                 elif itype == "comp_reroll":
-                    pass  # post-roll effect only
+                    reroll_players.add(player.id)
+                    item_notes.append(f"🔄 {player.mention} has a **Reshuffle** ready")
 
             # Stacked weights (own) — build per-role delta map (+boost, -reduce), cap at 100%
             weights_list = all_weights.get(player.id, [])
@@ -809,23 +905,35 @@ class Valorant(commands.Cog):
                 )
 
         # ── Post result ───────────────────────────────────────────────────────
+        locked_player_ids = {m.id for m in locked_roles.values()}
         embed = _build_comp_embed(
-            assignments, rolled_agents, item_notes, swap_players, interaction.guild.name
+            assignments,
+            rolled_agents,
+            item_notes,
+            swap_players,
+            reroll_players,
+            interaction.guild.name,
         )
+        needs_view = swap_players or reroll_players
         view = (
-            CompSwapView(
+            CompPostView(
                 assignments,
                 swap_players,
+                reroll_players,
+                locked_player_ids,
                 guild_id,
                 self.bot,
                 roll_agents,
                 rolled_agents,
             )
-            if swap_players
+            if needs_view
             else None
         )
         pings = " ".join(p.mention for p in players)
-        await interaction.followup.send(content=pings, embed=embed, view=view)
+        if view:
+            await interaction.followup.send(content=pings, embed=embed, view=view)
+        else:
+            await interaction.followup.send(content=pings, embed=embed)
 
         # ── Record for weekly recap ───────────────────────────────────────────
         now = datetime.now(timezone.utc)
@@ -951,24 +1059,17 @@ class Valorant(commands.Cog):
             b.callback = back_to_items
             return b
 
-        if chosen_type == "comp_reroll":
+        if chosen_type in ("comp_reroll", "comp_role_swap"):
             await self.bot.users_col.update_one(
                 {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
-                {"$set": {"active_comp_item": {"type": "comp_reroll", "value": ""}}},
+                {"$set": {"active_comp_item": {"type": chosen_type, "value": ""}}},
                 upsert=True,
             )
-            embed = await pre_roll_view._build_status_embed()
-            await interaction.response.edit_message(
-                content=None, embed=embed, view=pre_roll_view
-            )
-            return
-
-        if chosen_type == "comp_role_swap":
-            await self.bot.users_col.update_one(
-                {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
-                {"$set": {"active_comp_item": {"type": "comp_role_swap", "value": ""}}},
-                upsert=True,
-            )
+            label = LABEL_MAP[chosen_type]
+            if chosen_type == "comp_reroll":
+                hint = "After the comp posts, a **🔄 Reshuffle** button will appear — click it to randomly redistribute all unlocked roles."
+            else:
+                hint = "After the comp posts, a **🔀 Swap** button will appear for you."
             embed = await pre_roll_view._build_status_embed()
             await interaction.response.edit_message(
                 content=None, embed=embed, view=pre_roll_view
@@ -1812,9 +1913,10 @@ class Valorant(commands.Cog):
                 upsert=True,
             )
             label = LABEL_MAP[chosen_type]
-            hint = "It will activate on the next `/randomcomp` you're in."
-            if chosen_type == "comp_role_swap":
-                hint = "After the comp posts, a **🔀 Swap** button will appear for you."
+            if chosen_type == "comp_reroll":
+                hint = "After the comp posts, click **🔄 Reshuffle** to randomly redistribute all unlocked roles."
+            else:
+                hint = "After the comp posts, click **🔀 Swap** to swap roles with another player."
             await interaction.response.edit_message(
                 content=f"✅ **{label}** queued! {hint}",
                 embed=None,
