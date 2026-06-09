@@ -983,28 +983,45 @@ class Valorant(commands.Cog):
         self, interaction: discord.Interaction, pre_roll_view: PreRollView
     ):
         """Show the item activation menu. Back button returns to pre-roll screen."""
+        COMP_TIME_ONLY = {
+            "comp_reroll",
+            "comp_role_swap",
+            "comp_curse",
+            "comp_curse_reduce",
+        }
         inv = await self.bot.inv_col.find_one(
             {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
         )
         items = [
             i for i in (inv.get("items", []) if inv else []) if i["type"] in COMP_TYPES
         ]
+        activatable = [i for i in items if i["type"] not in COMP_TIME_ONLY]
         user_doc = await self.bot.users_col.find_one(
             {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
         )
 
-        if not items:
-            embed = await pre_roll_view._build_status_embed()
-            await interaction.response.edit_message(
-                content="*no comp items in your inventory.*",
-                embed=embed,
-                view=pre_roll_view,
-            )
+        if not activatable:
+            # Only comp-time items in inventory — nothing to activate manually
+            comp_time = [i for i in items if i["type"] in COMP_TIME_ONLY]
+            if comp_time:
+                embed = await pre_roll_view._build_status_embed()
+                await interaction.response.edit_message(
+                    content="*your items (🔄 🔀 💀) activate automatically at roll time — nothing to configure here.*",
+                    embed=embed,
+                    view=pre_roll_view,
+                )
+            else:
+                embed = await pre_roll_view._build_status_embed()
+                await interaction.response.edit_message(
+                    content="*no comp items in your inventory.*",
+                    embed=embed,
+                    view=pre_roll_view,
+                )
             return
 
         # Count stackable items
-        weight_count = sum(1 for i in items if i["type"] == "comp_weight")
-        curse_count = sum(1 for i in items if i["type"] == "comp_curse")
+        weight_count = sum(1 for i in activatable if i["type"] == "comp_weight")
+        curse_count = sum(1 for i in activatable if i["type"] == "comp_curse")
         cur_weights = (user_doc or {}).get("active_comp_weights", [])
         cur_total_w = (
             min(sum(w["weight"] for w in cur_weights), MAX_WEIGHT) if cur_weights else 0
@@ -1012,7 +1029,7 @@ class Valorant(commands.Cog):
 
         seen: set[str] = set()
         options = []
-        for item in items:
+        for item in activatable:
             key = item["type"]
             if key in seen:
                 continue
@@ -1034,7 +1051,7 @@ class Valorant(commands.Cog):
 
         async def on_select(sel: discord.Interaction):
             chosen_type = select.values[0]
-            await self._activate_item_flow(sel, chosen_type, items, pre_roll_view)
+            await self._activate_item_flow(sel, chosen_type, activatable, pre_roll_view)
 
         select.callback = on_select
 
