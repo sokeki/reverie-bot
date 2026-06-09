@@ -21,8 +21,8 @@
 <div class="cat-tabs">
     {% for cat in categories %}
     <button class="cat-tab {% if loop.first %}active{% endif %}" data-target="cat-{{ loop.index }}">
-        {{ cat.emoji }} {{ cat.label }}
-        <span class="cat-count">{{ cat.items | length }}</span>
+        {{ cat['emoji'] }} {{ cat['label'] }}
+        <span class="cat-count">{{ cat['items'] | length }}</span>
     </button>
     {% endfor %}
 </div>
@@ -31,13 +31,13 @@
 {% for cat in categories %}
 <div class="cat-panel {% if loop.first %}active{% endif %}" id="cat-{{ loop.index }}">
 
-    {% if not cat.items %}
+    {% if not cat['items'] %}
     <div class="empty-state">
-        <p>No {{ cat.label | lower }} in the shop yet.</p>
+        <p>No {{ cat['label'] | lower }} in the shop yet.</p>
     </div>
     {% else %}
     <div class="shop-grid">
-        {% for item in cat.items %}
+        {% for item in cat['items'] %}
         <div class="shop-card" id="card-{{ item._id }}">
             <div class="shop-type">{{ item.type_label }}</div>
 
@@ -123,7 +123,7 @@
                     <div class="field-row">
                         <label>Type</label>
                         <select name="type" class="add-type-select" onchange="toggleRoleField(this)">
-                            {% for t in cat.types %}
+                            {% for t in cat['types'] %}
                             <option value="{{ t }}">
                                 {% if t == "role" %}🎭 Colour Role
                                 {% elif t == "title" %}✨ Title
@@ -145,7 +145,8 @@
                         <label>Description</label>
                         <input type="text" name="description" placeholder="A short description...">
                     </div>
-                    <div class="field-row role-field" style="{% if 'role' not in cat.types %}display:none{% endif %}">
+                    <div class="field-row role-field"
+                        style="{% if 'role' not in cat['types'] %}display:none{% endif %}">
                         <label>Role <span class="req">*</span></label>
                         <select name="role_id" onchange="syncColourFromRole(this)">
                             <option value="">— select a role —</option>

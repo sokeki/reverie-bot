@@ -217,7 +217,7 @@ class PersistentShopView(discord.ui.View):
 
     @discord.ui.button(
         label="🎭 Colour Roles",
-        style=discord.ButtonStyle.primary,
+        style=discord.ButtonStyle.secondary,
         custom_id="persistent_shop:cat:role",
     )
     async def cat_roles(
