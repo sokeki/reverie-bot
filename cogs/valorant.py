@@ -213,6 +213,9 @@ class CompPostView(discord.ui.View):
             if m.id != interaction.user.id
         ]
         select = discord.ui.Select(placeholder="Swap with...", options=options)
+        original_message = (
+            interaction.message
+        )  # comp embed — store before sending ephemeral
 
         async def on_pick(sel: discord.Interaction):
             tid = int(select.values[0])
@@ -239,7 +242,7 @@ class CompPostView(discord.ui.View):
             self.swap_player_ids.discard(sel.user.id)
             self._rebuild()
             note = f"🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
-            await sel.message.edit(
+            await original_message.edit(
                 embed=self._current_embed(note), view=self if self.children else None
             )
             await sel.response.send_message("🔀 Swapped!", ephemeral=True)
@@ -316,10 +319,11 @@ class CompPostView(discord.ui.View):
             or "none"
         )
         note = f"🔄 *{interaction.user.display_name} reshuffled all unlocked roles  •  protected: {locked_names}*"
-        await interaction.message.edit(
+        comp_message = interaction.message
+        await interaction.response.send_message("🔄 Reshuffled!", ephemeral=True)
+        await comp_message.edit(
             embed=self._current_embed(note), view=self if self.children else None
         )
-        await interaction.response.send_message("🔄 Reshuffled!", ephemeral=True)
 
     async def on_timeout(self):
         for c in self.children:
