@@ -341,202 +341,289 @@ class Valorant(commands.Cog):
         description="Activate a comp item from your inventory before the next /randomcomp",
     )
     async def useitem(self, interaction: discord.Interaction):
-        inv_doc = await self.bot.inv_col.find_one(
-            {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
-        )
-        inventory = inv_doc.get("items", []) if inv_doc else []
-
         COMP_TYPES = {
             "comp_role_lock",
             "comp_role_ban",
             "comp_agent_lock",
             "comp_reroll",
         }
-        comp_items = [i for i in inventory if i["type"] in COMP_TYPES]
+        LABEL_MAP = {
+            "comp_role_lock": "🎯 Role Lock",
+            "comp_role_ban": "🚫 Role Ban",
+            "comp_agent_lock": "🌟 Agent Lock",
+            "comp_reroll": "🔄 Role Reroll",
+        }
 
-        if not comp_items:
-            await interaction.response.send_message(
-                "*you don't have any comp items.* Pick some up in the shop! 🛒",
-                ephemeral=True,
+        # ── inner: show the item selector ────────────────────────────────────
+        async def _show_item_select(target: discord.Interaction):
+            inv = await self.bot.inv_col.find_one(
+                {"user_id": target.user.id, "guild_id": target.guild_id}
             )
-            return
+            fresh_items = [
+                i
+                for i in (inv.get("items", []) if inv else [])
+                if i["type"] in COMP_TYPES
+            ]
 
-        # Check if already has an active item
-        user_doc = await self.bot.users_col.find_one(
-            {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
-        )
-        if user_doc and user_doc.get("active_comp_item"):
-            active = user_doc["active_comp_item"]
-            await interaction.response.send_message(
-                f"⚠️ You already have a **{active['type'].replace('comp_', '').replace('_', ' ')}** "
-                f"queued (`{active.get('value', '')}`). It will activate on the next `/randomcomp` you're in.\n"
-                f"You can only queue one item at a time.",
-                ephemeral=True,
-            )
-            return
-
-        # Build select options grouped by item type
-        seen_types: set[str] = set()
-        options = []
-        for item in comp_items:
-            key = item["type"]
-            if key in seen_types:
-                continue  # one option per type in the selector; each use consumes one stack
-            seen_types.add(key)
-            label_map = {
-                "comp_role_lock": "🎯 Role Lock",
-                "comp_role_ban": "🚫 Role Ban",
-                "comp_agent_lock": "🌟 Agent Lock",
-                "comp_reroll": "🔄 Role Reroll",
-            }
-            options.append(
-                discord.SelectOption(
-                    label=label_map.get(key, key),
-                    value=key,
-                    description=item.get("name", ""),
-                )
-            )
-
-        select = discord.ui.Select(
-            placeholder="Choose which item to activate...",
-            options=options,
-        )
-
-        async def on_type_select(sel_interaction: discord.Interaction):
-            chosen_type = select.values[0]
-
-            if chosen_type == "comp_reroll":
-                # Reroll doesn't need a value — activate immediately
-                await self.bot.users_col.update_one(
-                    {
-                        "user_id": sel_interaction.user.id,
-                        "guild_id": sel_interaction.guild_id,
-                    },
-                    {
-                        "$set": {
-                            "active_comp_item": {"type": "comp_reroll", "value": ""}
-                        }
-                    },
-                    upsert=True,
-                )
-                await sel_interaction.response.edit_message(
-                    content="🔄 **Role Reroll** queued! It will activate on the next `/randomcomp` you're in.",
-                    view=None,
-                )
+            if not fresh_items:
+                msg = "*you don't have any comp items.* Pick some up in the shop! 🛒"
+                if target.response.is_done():
+                    await target.edit_original_response(content=msg, view=None)
+                else:
+                    await target.response.send_message(msg, ephemeral=True)
                 return
 
-            # Role Lock / Role Ban → pick a role
-            if chosen_type in ("comp_role_lock", "comp_role_ban"):
-                role_options = [
+            seen_types: set[str] = set()
+            options = []
+            for item in fresh_items:
+                key = item["type"]
+                if key in seen_types:
+                    continue
+                seen_types.add(key)
+                options.append(
                     discord.SelectOption(
-                        label=f"{ROLE_EMOJIS[r]} {r}",
-                        value=r,
+                        label=LABEL_MAP.get(key, key),
+                        value=key,
+                        description=item.get("name", ""),
                     )
-                    for r in ALL_ROLES
-                ]
-                role_select = discord.ui.Select(
-                    placeholder="Choose a role...",
-                    options=role_options,
                 )
 
-                async def on_role_select(rs_interaction: discord.Interaction):
-                    chosen_role = role_select.values[0]
-                    verb = "locked" if chosen_type == "comp_role_lock" else "banned"
-                    emoji = "🎯" if chosen_type == "comp_role_lock" else "🚫"
+            select = discord.ui.Select(
+                placeholder="Choose which item to activate...", options=options
+            )
+
+            async def on_type_select(sel: discord.Interaction):
+                chosen_type = select.values[0]
+
+                if chosen_type == "comp_reroll":
                     await self.bot.users_col.update_one(
-                        {
-                            "user_id": rs_interaction.user.id,
-                            "guild_id": rs_interaction.guild_id,
-                        },
+                        {"user_id": sel.user.id, "guild_id": sel.guild_id},
                         {
                             "$set": {
-                                "active_comp_item": {
-                                    "type": chosen_type,
-                                    "value": chosen_role,
-                                }
+                                "active_comp_item": {"type": "comp_reroll", "value": ""}
                             }
                         },
                         upsert=True,
                     )
-                    await rs_interaction.response.edit_message(
-                        content=f"{emoji} **{chosen_role}** {verb}! It will apply on the next `/randomcomp` you're in.",
+                    await sel.response.edit_message(
+                        content="🔄 **Role Reroll** queued! It will activate on the next `/randomcomp` you're in.",
                         view=None,
                     )
+                    return
 
-                role_select.callback = on_role_select
-                v = discord.ui.View(timeout=60)
-                v.add_item(role_select)
-                await sel_interaction.response.edit_message(
-                    content=f"{'🎯 Choose the role to **lock**:' if chosen_type == 'comp_role_lock' else '🚫 Choose the role to **ban**:'}",
-                    view=v,
-                )
-                return
-
-            # Agent Lock → pick an agent via role then agent
-            if chosen_type == "comp_agent_lock":
-                role_options = [
-                    discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
-                    for r in ALL_ROLES
-                ]
-                role_select = discord.ui.Select(
-                    placeholder="First, choose an agent role...",
-                    options=role_options,
-                )
-
-                async def on_agent_role_select(ars_interaction: discord.Interaction):
-                    chosen_role = role_select.values[0]
-                    agent_options = [
-                        discord.SelectOption(label=a, value=a)
-                        for a in AGENTS[chosen_role]
+                if chosen_type in ("comp_role_lock", "comp_role_ban"):
+                    role_options = [
+                        discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                        for r in ALL_ROLES
                     ]
-                    agent_select = discord.ui.Select(
-                        placeholder=f"Choose a {chosen_role} agent...",
-                        options=agent_options,
+                    role_select = discord.ui.Select(
+                        placeholder="Choose a role...", options=role_options
                     )
 
-                    async def on_agent_select(as_interaction: discord.Interaction):
-                        chosen_agent = agent_select.values[0]
+                    async def on_role_select(rs: discord.Interaction):
+                        chosen_role = role_select.values[0]
+                        verb = "locked" if chosen_type == "comp_role_lock" else "banned"
+                        emoji = "🎯" if chosen_type == "comp_role_lock" else "🚫"
                         await self.bot.users_col.update_one(
-                            {
-                                "user_id": as_interaction.user.id,
-                                "guild_id": as_interaction.guild_id,
-                            },
+                            {"user_id": rs.user.id, "guild_id": rs.guild_id},
                             {
                                 "$set": {
                                     "active_comp_item": {
-                                        "type": "comp_agent_lock",
-                                        "value": chosen_agent,
+                                        "type": chosen_type,
+                                        "value": chosen_role,
                                     }
                                 }
                             },
                             upsert=True,
                         )
-                        await as_interaction.response.edit_message(
-                            content=f"🌟 **{chosen_agent}** locked! You'll get {chosen_role} + {chosen_agent} on the next `/randomcomp` you're in.",
+                        await rs.response.edit_message(
+                            content=f"{emoji} **{chosen_role}** {verb}! It will apply on the next `/randomcomp` you're in.",
                             view=None,
                         )
 
-                    agent_select.callback = on_agent_select
+                    role_select.callback = on_role_select
                     v = discord.ui.View(timeout=60)
-                    v.add_item(agent_select)
-                    await ars_interaction.response.edit_message(
-                        content=f"🌟 Choose your **{chosen_role}** agent:",
+                    v.add_item(role_select)
+                    prompt = (
+                        "🎯 Choose the role to **lock**:"
+                        if chosen_type == "comp_role_lock"
+                        else "🚫 Choose the role to **ban**:"
+                    )
+                    await sel.response.edit_message(content=prompt, view=v)
+                    return
+
+                if chosen_type == "comp_agent_lock":
+                    role_options = [
+                        discord.SelectOption(label=f"{ROLE_EMOJIS[r]} {r}", value=r)
+                        for r in ALL_ROLES
+                    ]
+                    role_select = discord.ui.Select(
+                        placeholder="First, choose an agent role...",
+                        options=role_options,
+                    )
+
+                    async def on_agent_role_select(ars: discord.Interaction):
+                        chosen_role = role_select.values[0]
+                        agent_select = discord.ui.Select(
+                            placeholder=f"Choose a {chosen_role} agent...",
+                            options=[
+                                discord.SelectOption(label=a, value=a)
+                                for a in AGENTS[chosen_role]
+                            ],
+                        )
+
+                        async def on_agent_select(as_: discord.Interaction):
+                            chosen_agent = agent_select.values[0]
+                            await self.bot.users_col.update_one(
+                                {"user_id": as_.user.id, "guild_id": as_.guild_id},
+                                {
+                                    "$set": {
+                                        "active_comp_item": {
+                                            "type": "comp_agent_lock",
+                                            "value": chosen_agent,
+                                        }
+                                    }
+                                },
+                                upsert=True,
+                            )
+                            await as_.response.edit_message(
+                                content=f"🌟 **{chosen_agent}** locked! You'll get {chosen_role} + {chosen_agent} on the next `/randomcomp` you're in.",
+                                view=None,
+                            )
+
+                        agent_select.callback = on_agent_select
+                        v = discord.ui.View(timeout=60)
+                        v.add_item(agent_select)
+                        await ars.response.edit_message(
+                            content=f"🌟 Choose your **{chosen_role}** agent:", view=v
+                        )
+
+                    role_select.callback = on_agent_role_select
+                    v = discord.ui.View(timeout=60)
+                    v.add_item(role_select)
+                    await sel.response.edit_message(
+                        content="🌟 Choose the **role** first, then pick your agent:",
                         view=v,
                     )
 
-                role_select.callback = on_agent_role_select
-                v = discord.ui.View(timeout=60)
-                v.add_item(role_select)
-                await sel_interaction.response.edit_message(
-                    content="🌟 Choose the **role** first, then pick your agent:",
-                    view=v,
+            select.callback = on_type_select
+            view = discord.ui.View(timeout=60)
+            view.add_item(select)
+            if target.response.is_done():
+                await target.edit_original_response(
+                    content="*choose a comp item to activate:*", view=view
+                )
+            else:
+                await target.response.send_message(
+                    content="*choose a comp item to activate:*",
+                    view=view,
+                    ephemeral=True,
                 )
 
-        select.callback = on_type_select
-        view = discord.ui.View(timeout=60)
-        view.add_item(select)
+        # ── check for existing queued item ────────────────────────────────────
+        user_doc = await self.bot.users_col.find_one(
+            {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
+        )
+
+        if user_doc and user_doc.get("active_comp_item"):
+            active = user_doc["active_comp_item"]
+            itype = active.get("type", "")
+            ivalue = active.get("value", "")
+            active_label = LABEL_MAP.get(itype, itype)
+            active_desc = f"**{ivalue}**" if ivalue else "no value set"
+
+            replace_btn = discord.ui.Button(
+                label="🔄 Replace with a different item",
+                style=discord.ButtonStyle.primary,
+                row=0,
+            )
+            cancel_btn = discord.ui.Button(
+                label="❌ Cancel queued item", style=discord.ButtonStyle.danger, row=0
+            )
+            dismiss_btn = discord.ui.Button(
+                label="✖ Dismiss", style=discord.ButtonStyle.secondary, row=0
+            )
+
+            async def on_replace(btn: discord.Interaction):
+                await self.bot.users_col.update_one(
+                    {"user_id": btn.user.id, "guild_id": btn.guild_id},
+                    {"$unset": {"active_comp_item": ""}},
+                )
+                await _show_item_select(btn)
+
+            async def on_cancel_queued(btn: discord.Interaction):
+                await self.bot.users_col.update_one(
+                    {"user_id": btn.user.id, "guild_id": btn.guild_id},
+                    {"$unset": {"active_comp_item": ""}},
+                )
+                await btn.response.edit_message(
+                    content=f"❌ Your queued **{active_label}** ({active_desc}) has been cancelled — it's still in your inventory.",
+                    view=None,
+                )
+
+            async def on_dismiss(btn: discord.Interaction):
+                await btn.response.edit_message(
+                    content=f"*keeping your queued **{active_label}** ({active_desc}).*",
+                    view=None,
+                )
+
+            replace_btn.callback = on_replace
+            cancel_btn.callback = on_cancel_queued
+            dismiss_btn.callback = on_dismiss
+
+            conflict_view = discord.ui.View(timeout=60)
+            conflict_view.add_item(replace_btn)
+            conflict_view.add_item(cancel_btn)
+            conflict_view.add_item(dismiss_btn)
+
+            await interaction.response.send_message(
+                f"⚠️ You already have **{active_label}** queued"
+                + (f" → {active_desc}" if ivalue else "")
+                + ".\nIt will activate on the next `/randomcomp` you're in.\n\nWhat would you like to do?",
+                view=conflict_view,
+                ephemeral=True,
+            )
+            return
+
+        await _show_item_select(interaction)
+
+    # ── /cancelitem ───────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="cancelitem",
+        description="Cancel your currently queued comp item",
+    )
+    async def cancelitem(self, interaction: discord.Interaction):
+        user_doc = await self.bot.users_col.find_one(
+            {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
+        )
+        active = user_doc.get("active_comp_item") if user_doc else None
+        if not active:
+            await interaction.response.send_message(
+                "*you don't have any comp item queued.*",
+                ephemeral=True,
+            )
+            return
+
+        LABEL_MAP = {
+            "comp_role_lock": "🎯 Role Lock",
+            "comp_role_ban": "🚫 Role Ban",
+            "comp_agent_lock": "🌟 Agent Lock",
+            "comp_reroll": "🔄 Role Reroll",
+        }
+        itype = active.get("type", "")
+        ivalue = active.get("value", "")
+        active_label = LABEL_MAP.get(itype, itype)
+
+        await self.bot.users_col.update_one(
+            {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
+            {"$unset": {"active_comp_item": ""}},
+        )
         await interaction.response.send_message(
-            "*choose a comp item to activate:*", view=view, ephemeral=True
+            f"❌ Queued **{active_label}"
+            + (f" → {ivalue}" if ivalue else "")
+            + "** cancelled — it's still in your inventory.",
+            ephemeral=True,
         )
 
 

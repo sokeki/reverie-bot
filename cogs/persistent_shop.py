@@ -204,11 +204,30 @@ def _build_embed(
                 f"{item_emoji} **{item['name']}** · ✨ {item['cost']:,} pts{colour_str}"
             )
 
-        embed.add_field(
-            name=f"{emoji}  {label}  ({len(cat_items)} item{'s' if len(cat_items) != 1 else ''})",
-            value="\n".join(lines),
-            inline=False,
-        )
+        # Split into chunks that fit within Discord's 1024 char field value limit
+        chunks: list[list[str]] = []
+        current: list[str] = []
+        current_len = 0
+        for line in lines:
+            if current and current_len + len(line) + 1 > 1024:
+                chunks.append(current)
+                current = [line]
+                current_len = len(line)
+            else:
+                current.append(line)
+                current_len += len(line) + 1
+        if current:
+            chunks.append(current)
+
+        for i, chunk in enumerate(chunks):
+            if len(embed.fields) >= 25:
+                break
+            field_name = (
+                f"{emoji}  {label}  ({len(cat_items)} item{'s' if len(cat_items) != 1 else ''})"
+                if i == 0
+                else f"{emoji}  {label}  (cont.)"
+            )
+            embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
 
     embed.set_footer(text=f"Reverie  •  {guild.name}")
     return embed
