@@ -132,9 +132,6 @@ def _winning_team(match: dict) -> str:
     return ""
 
 
-_val_group = app_commands.Group(name="val", description="Valorant commands")
-
-
 class RRTracker(commands.Cog):
     """Tracks Valorant RR gains and losses for registered members."""
 
@@ -538,8 +535,8 @@ class RRTracker(commands.Cog):
 
     # ── /rrleaderboard ───────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="leaderboard",
+    @app_commands.command(
+        name="valleaderboard",
         description="See the Valorant RR leaderboard for registered players",
     )
     async def valleaderboard(self, interaction: discord.Interaction):
@@ -601,8 +598,8 @@ class RRTracker(commands.Cog):
 
     # ── /valduos ─────────────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="duos",
+    @app_commands.command(
+        name="valduos",
         description="Duo leaderboard for tracked players, or look up a specific pair",
     )
     @app_commands.describe(
@@ -1019,8 +1016,8 @@ class RRTracker(commands.Cog):
 
     # ── /rrtrackertest ───────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="trackertest",
+    @app_commands.command(
+        name="valtrackertest",
         description="[Admin] Test the Valorant API for a specific account",
     )
     @app_commands.describe(username="Valorant username e.g. Name#TAG")
@@ -1052,8 +1049,8 @@ class RRTracker(commands.Cog):
 
     # ── /valforcepost ────────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="forcepost",
+    @app_commands.command(
+        name="valforcepost",
         description="[Admin] Force-post the most recent match for a tracked account and update streak",
     )
     @app_commands.describe(username="Tracked account e.g. Name#TAG")
@@ -1151,8 +1148,8 @@ class RRTracker(commands.Cog):
 
     # ── /rrtrackerstatus ─────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="trackerstatus",
+    @app_commands.command(
+        name="valtrackerstatus",
         description="[Admin] Check if the Valorant tracker is running",
     )
     @app_commands.default_permissions(administrator=True)
@@ -1182,8 +1179,8 @@ class RRTracker(commands.Cog):
 
     # ── /valstats ─────────────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="vs",
+    @app_commands.command(
+        name="valvs",
         description="Head-to-head stats comparison between two tracked Valorant players",
     )
     @app_commands.describe(
@@ -1530,7 +1527,9 @@ class RRTracker(commands.Cog):
         embed.set_footer(text=f"{footer_note}  •  Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
-    @_val_group.command(name="stats", description="Show Valorant stats for any player")
+    @app_commands.command(
+        name="valstats", description="Show Valorant stats for any player"
+    )
     @app_commands.describe(
         username="Riot ID including tag, e.g. Name#EUW",
         region="Server region",
@@ -2100,7 +2099,7 @@ class RRTracker(commands.Cog):
 
     # ── /footshot ─────────────────────────────────────────────────────────────
 
-    @_val_group.command(
+    @app_commands.command(
         name="footshot",
         description="Check a player's shot accuracy across their last 10 competitive games",
     )
@@ -2228,7 +2227,7 @@ class RRTracker(commands.Cog):
 
         # ── /scoreboard ───────────────────────────────────────────────────────────
 
-    @_val_group.command(
+    @app_commands.command(
         name="scoreboard",
         description="Show the scoreboard for a match. Provide a match ID or a username to use their latest game.",
     )
@@ -3082,8 +3081,8 @@ class RRTracker(commands.Cog):
 
     # ── /valclutches ─────────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="clutches",
+    @app_commands.command(
+        name="valclutches",
         description="Clutch leaderboard for all tracked players based on cached matches",
     )
     async def valclutches(self, interaction: discord.Interaction):
@@ -3219,8 +3218,8 @@ class RRTracker(commands.Cog):
 
     # ── /valtrend ─────────────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="trend",
+    @app_commands.command(
+        name="valtrend",
         description="Performance trend — compares recent games vs older cached games",
     )
     @app_commands.describe(username="Riot ID e.g. Name#TAG")
@@ -3355,8 +3354,8 @@ class RRTracker(commands.Cog):
 
     # ── /valcache ─────────────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="cache",
+    @app_commands.command(
+        name="valcache",
         description="Show how many matches are cached for each tracked account",
     )
     @app_commands.default_permissions(administrator=True)
@@ -3397,8 +3396,8 @@ class RRTracker(commands.Cog):
 
     # ── Streak backfill ───────────────────────────────────────────────────────
 
-    @_val_group.command(
-        name="backfillstreak",
+    @app_commands.command(
+        name="valbackfillstreak",
         description="Backfill win/loss streaks from match history for all tracked accounts (admin only)",
     )
     @app_commands.default_permissions(administrator=True)
@@ -3458,4 +3457,28 @@ class RRTracker(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RRTracker(bot))
-    bot.tree.add_command(_val_group)
+
+    # Build /val subcommand group from flat val commands
+    VAL_COMMANDS = {
+        "valleaderboard": "leaderboard",
+        "valduos": "duos",
+        "valvs": "vs",
+        "valstats": "stats",
+        "valclutches": "clutches",
+        "valtrend": "trend",
+        "valcache": "cache",
+        "valbackfillstreak": "backfillstreak",
+        "valtrackertest": "trackertest",
+        "valforcepost": "forcepost",
+        "valtrackerstatus": "trackerstatus",
+        "footshot": "footshot",
+        "scoreboard": "scoreboard",
+    }
+    val_group = app_commands.Group(name="val", description="Valorant commands")
+    for old_name, new_name in VAL_COMMANDS.items():
+        cmd = bot.tree.get_command(old_name)
+        if cmd:
+            bot.tree.remove_command(old_name)
+            cmd.name = new_name
+            val_group.add_command(cmd)
+    bot.tree.add_command(val_group)
