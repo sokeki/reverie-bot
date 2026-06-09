@@ -1765,21 +1765,30 @@ class Valorant(commands.Cog):
                 f"• 💀 {len(curses)} curse(s) queued *(target set at comp time)*"
             )
 
+        COMP_TIME_ONLY = {
+            "comp_curse",
+            "comp_curse_reduce",
+            "comp_reroll",
+            "comp_role_swap",
+        }
+        activatable = [i for i in items if i["type"] not in COMP_TIME_ONLY]
+        comp_time = [i for i in items if i["type"] in COMP_TIME_ONLY]
+
         status = "\n".join(queued_lines) if queued_lines else "*nothing queued yet*"
-        inv_count = len([i for i in items if i["type"] not in ("comp_curse",)])
-        curse_count = len([i for i in items if i["type"] == "comp_curse"])
+
+        inv_note = f"**In inventory:** {len(activatable)} activatable item(s)"
+        if comp_time:
+            type_counts = {}
+            for i in comp_time:
+                type_counts[i["type"]] = type_counts.get(i["type"], 0) + 1
+            ct_parts = ", ".join(
+                f"{LABEL_MAP.get(t, t)} ×{n}" for t, n in type_counts.items()
+            )
+            inv_note += f"\n*(comp-time only: {ct_parts} — activates automatically when you're in a comp)*"
 
         embed = discord.Embed(
             title="🎒 Comp Items",
-            description=(
-                f"**Queued for next `/randomcomp`:**\n{status}\n\n"
-                f"**In inventory:** {inv_count} item(s)"
-                + (
-                    f", {curse_count} curse(s) *(activate at comp time via the roller)*"
-                    if curse_count
-                    else ""
-                )
-            ),
+            description=f"**Queued for next `/randomcomp`:**\n{status}\n\n{inv_note}",
             color=COLOUR_MAIN,
         )
         embed.set_footer(
@@ -1788,8 +1797,6 @@ class Valorant(commands.Cog):
 
         view = discord.ui.View(timeout=90)
 
-        # Activate button (only if there are non-curse items to activate)
-        activatable = [i for i in items if i["type"] != "comp_curse"]
         if activatable:
             act_btn = discord.ui.Button(
                 label="🎒 Activate an item", style=discord.ButtonStyle.primary
@@ -1840,16 +1847,23 @@ class Valorant(commands.Cog):
         inv = await self.bot.inv_col.find_one(
             {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
         )
+        COMP_TIME_ONLY = {
+            "comp_curse",
+            "comp_curse_reduce",
+            "comp_reroll",
+            "comp_role_swap",
+        }
         items = [
             i
             for i in (inv.get("items", []) if inv else [])
-            if i["type"] in COMP_TYPES
-            and i["type"] not in ("comp_curse", "comp_curse_reduce")
+            if i["type"] in COMP_TYPES and i["type"] not in COMP_TIME_ONLY
         ]
 
         if not items:
             await interaction.response.send_message(
-                "*no activatable items — curses can only be set from the comp roller's pre-roll screen.*",
+                "*no activatable items here.*\n"
+                "🔄 Reroll and 🔀 Swap activate after the comp posts.\n"
+                "💀 Curses activate from the roller's pre-roll screen.",
                 ephemeral=True,
             )
             return
