@@ -231,6 +231,14 @@ class CompPostView(discord.ui.View):
             self.assignments[t_role] = my_member
             self.role_of[my_member.id] = t_role
             self.role_of[t_member.id] = my_role
+            self.swap_player_ids.discard(sel.user.id)
+            self._rebuild()
+            note = f"🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
+            # Respond first (required by Discord), then edit the comp embed, then consume
+            await sel.response.send_message("🔀 Swapped!", ephemeral=True)
+            await original_message.edit(
+                embed=self._current_embed(note), view=self if self.children else None
+            )
             await self.bot.inv_col.update_one(
                 {"user_id": sel.user.id, "guild_id": self.guild_id},
                 {"$pull": {"items": {"type": "comp_role_swap"}}},
@@ -239,13 +247,6 @@ class CompPostView(discord.ui.View):
                 {"user_id": sel.user.id, "guild_id": self.guild_id},
                 {"$unset": {"active_comp_item": ""}},
             )
-            self.swap_player_ids.discard(sel.user.id)
-            self._rebuild()
-            note = f"🔀 *{sel.user.display_name} swapped **{my_role}** ↔ {t_member.display_name} (**{t_role}**)*"
-            await original_message.edit(
-                embed=self._current_embed(note), view=self if self.children else None
-            )
-            await sel.response.send_message("🔀 Swapped!", ephemeral=True)
 
         select.callback = on_pick
         v = discord.ui.View(timeout=60)
