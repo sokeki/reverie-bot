@@ -500,6 +500,9 @@ ITEM_TYPE_LABEL = {
     "comp_role_ban": "🚫 Role Ban",
     "comp_agent_lock": "🌟 Agent Lock",
     "comp_reroll": "🔄 Role Reroll",
+    "comp_role_swap": "🔀 Role Swap",
+    "comp_weight": "⚖️ Role Weight",
+    "comp_curse": "💀 Role Curse",
 }
 
 
@@ -578,12 +581,37 @@ async def shop_add(request: Request, user: dict = Depends(require_admin)):
         if not role_id_str:
             return RedirectResponse("/shop?error=Please+select+a+role", status_code=303)
         doc["role_id"] = int(role_id_str)
-        # Pull colour from Discord directly
         roles = await fetch_guild_roles()
         matched = next((r for r in roles if str(r["id"]) == role_id_str), None)
         doc["role_colour"] = matched["colour_hex"] if matched else None
 
+    if item_type == "comp_weight":
+        weight_role = form.get("weight_role", "").strip()
+        weight_pct_str = form.get("weight_pct", "").strip()
+        if not weight_role or not weight_pct_str:
+            return RedirectResponse(
+                "/shop?error=weight_role+and+weight_pct+required+for+Comp+Weight",
+                status_code=303,
+            )
+        doc["weight_role"] = weight_role
+        doc["weight_pct"] = int(weight_pct_str)
+
+    if item_type == "comp_curse":
+        curse_role = form.get("curse_role", "").strip()
+        curse_pct_str = form.get("curse_pct", "").strip()
+        if not curse_role or not curse_pct_str:
+            return RedirectResponse(
+                "/shop?error=curse_role+and+curse_pct+required+for+Comp+Curse",
+                status_code=303,
+            )
+        doc["curse_role"] = curse_role
+        doc["curse_pct"] = int(curse_pct_str)
+
     await items_col.insert_one(doc)
+    # Signal the bot to refresh the persistent shop embed
+    await settings_col.update_one(
+        {"guild_id": GUILD_ID}, {"$set": {"shop_refresh_pending": True}}, upsert=True
+    )
     return RedirectResponse("/shop?saved=1", status_code=303)
 
 
@@ -613,6 +641,11 @@ async def shop_edit(
 
     if changes:
         await items_col.update_one({"_id": ObjectId(item_id)}, {"$set": changes})
+        await settings_col.update_one(
+            {"guild_id": GUILD_ID},
+            {"$set": {"shop_refresh_pending": True}},
+            upsert=True,
+        )
     return RedirectResponse("/shop?saved=1", status_code=303)
 
 
@@ -623,6 +656,9 @@ async def shop_delete(
     from bson import ObjectId
 
     await items_col.delete_one({"_id": ObjectId(item_id)})
+    await settings_col.update_one(
+        {"guild_id": GUILD_ID}, {"$set": {"shop_refresh_pending": True}}, upsert=True
+    )
     return RedirectResponse("/shop?deleted=1", status_code=303)
 
 

@@ -24,7 +24,7 @@ import math
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from config import COLOUR_MAIN, COLOUR_LB, COLOUR_CONFIRM
 
@@ -127,6 +127,9 @@ TYPE_EMOJI = {
     "comp_role_ban": "🚫",
     "comp_agent_lock": "🌟",
     "comp_reroll": "🔄",
+    "comp_role_swap": "🔀",
+    "comp_weight": "⚖️",
+    "comp_curse": "💀",
 }
 
 TYPE_LABEL = {
@@ -137,6 +140,9 @@ TYPE_LABEL = {
     "comp_role_ban": "🚫 Role Ban  *(consumable)*",
     "comp_agent_lock": "🌟 Agent Lock  *(consumable)*",
     "comp_reroll": "🔄 Role Reroll  *(consumable)*",
+    "comp_role_swap": "🔀 Role Swap  *(consumable)*",
+    "comp_weight": "⚖️ Role Weight  *(stackable consumable)*",
+    "comp_curse": "💀 Role Curse  *(consumable)*",
 }
 
 # Valorant data mirrored here so the preview can show it without importing valorant.py
@@ -264,7 +270,15 @@ CATEGORIES: list[tuple[str, str, set[str]]] = [
     (
         "Comp Items",
         "🎮",
-        {"comp_role_lock", "comp_role_ban", "comp_agent_lock", "comp_reroll"},
+        {
+            "comp_role_lock",
+            "comp_role_ban",
+            "comp_agent_lock",
+            "comp_reroll",
+            "comp_role_swap",
+            "comp_weight",
+            "comp_curse",
+        },
     ),
 ]
 
@@ -671,6 +685,77 @@ def _preview_comp_reroll(
     return embed
 
 
+def _preview_comp_role_swap(
+    item: dict, balance: int, already_owned: bool
+) -> discord.Embed:
+    desc = item.get("description") or "no description"
+    embed = discord.Embed(
+        title=f"🔀  {item['name']}",
+        description=(
+            f"*{desc}*\n\n"
+            f"**Type:** {TYPE_LABEL['comp_role_swap']}\n"
+            f"**Cost:** ✨ {item['cost']:,} dream pts\n\n"
+            f"Activate with `/useitem` before a `/randomcomp`. After the comp result posts, "
+            f"a **🔀 Swap** button will appear for you — click it to pick another player "
+            f"and swap roles with them. The swap is instant and shown publicly.\n\n"
+            f"⚠️ Consumed on use. Can own multiple.\n\n"
+            f"{_afford_line(item, balance, already_owned, consumable=True)}"
+        ),
+        color=0x00BCD4,
+    )
+    return embed
+
+
+def _preview_comp_weight(
+    item: dict, balance: int, already_owned: bool
+) -> discord.Embed:
+    desc = item.get("description") or "no description"
+    weight_role = item.get("weight_role", "?")
+    weight_pct = item.get("weight_pct", "?")
+    roles_str = "  ".join(f"{_VAL_ROLE_EMOJIS[r]} **{r}**" for r in _VAL_ROLES)
+    embed = discord.Embed(
+        title=f"⚖️  {item['name']}",
+        description=(
+            f"*{desc}*\n\n"
+            f"**Type:** {TYPE_LABEL['comp_weight']}\n"
+            f"**Cost:** ✨ {item['cost']:,} dream pts\n\n"
+            f"Activate with `/useitem` before a `/randomcomp`. During the roll, "
+            f"your role assignment uses weighted probability — giving you a "
+            f"**{weight_pct}% chance** of landing **{weight_role}** instead of a pure random draw.\n\n"
+            f"The remaining {100 - int(weight_pct) if str(weight_pct).isdigit() else '?'}% is split evenly across the other roles.\n\n"
+            f"**Stackable** — use multiple to increase the total weight (capped at 95%).\n\n"
+            f"**Roles:**\n{roles_str}\n\n"
+            f"⚠️ Consumed on use. Can own multiple.\n\n"
+            f"{_afford_line(item, balance, already_owned, consumable=True)}"
+        ),
+        color=0xFF9800,
+    )
+    return embed
+
+
+def _preview_comp_curse(item: dict, balance: int, already_owned: bool) -> discord.Embed:
+    desc = item.get("description") or "no description"
+    curse_role = item.get("curse_role", "?")
+    curse_pct = item.get("curse_pct", "?")
+    roles_str = "  ".join(f"{_VAL_ROLE_EMOJIS[r]} **{r}**" for r in _VAL_ROLES)
+    embed = discord.Embed(
+        title=f"💀  {item['name']}",
+        description=(
+            f"*{desc}*\n\n"
+            f"**Type:** {TYPE_LABEL['comp_curse']}\n"
+            f"**Cost:** ✨ {item['cost']:,} dream pts\n\n"
+            f"Activate with `/useitem` before a `/randomcomp`. You'll be asked to pick a target "
+            f"player from the comp. During the roll, that player's assignment is weighted toward "
+            f"**{curse_role}** with a **{curse_pct}% chance** — whether they want it or not.\n\n"
+            f"**Roles:**\n{roles_str}\n\n"
+            f"⚠️ Consumed on use. Can own multiple.\n\n"
+            f"{_afford_line(item, balance, already_owned, consumable=True)}"
+        ),
+        color=0x333333,
+    )
+    return embed
+
+
 # ── Preview dispatcher ────────────────────────────────────────────────────────
 
 
@@ -696,6 +781,12 @@ def _build_preview_embed(
         embed = _preview_comp_agent_lock(item, balance, already_owned)
     elif t == "comp_reroll":
         embed = _preview_comp_reroll(item, balance, already_owned)
+    elif t == "comp_role_swap":
+        embed = _preview_comp_role_swap(item, balance, already_owned)
+    elif t == "comp_weight":
+        embed = _preview_comp_weight(item, balance, already_owned)
+    elif t == "comp_curse":
+        embed = _preview_comp_curse(item, balance, already_owned)
     else:
         # Fallback for unknown future types
         desc = item.get("description") or "no description"
@@ -785,6 +876,34 @@ class PersistentShop(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         bot.add_view(PersistentShopView())
+        self._dashboard_refresh_task.start()
+
+    def cog_unload(self):
+        self._dashboard_refresh_task.cancel()
+
+    # ── Dashboard-triggered refresh (polls MongoDB flag every 30s) ────────────
+
+    @tasks.loop(seconds=30)
+    async def _dashboard_refresh_task(self):
+        """Check if the dashboard set a refresh flag and act on it."""
+        try:
+            doc = await self.bot.settings_col.find_one({"shop_refresh_pending": True})
+            if not doc:
+                return
+            guild_id = doc.get("guild_id")
+            await self.bot.settings_col.update_one(
+                {"guild_id": guild_id},
+                {"$unset": {"shop_refresh_pending": ""}},
+            )
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                await self._post_or_edit_shop(guild)
+        except Exception as e:
+            print(f"[Shop] Dashboard refresh check error: {e}")
+
+    @_dashboard_refresh_task.before_loop
+    async def _before_refresh_task(self):
+        await self.bot.wait_until_ready()
 
     # ── DB helpers ────────────────────────────────────────────────────────────
 
@@ -921,6 +1040,9 @@ class PersistentShop(commands.Cog):
             "comp_role_ban",
             "comp_agent_lock",
             "comp_reroll",
+            "comp_role_swap",
+            "comp_weight",
+            "comp_curse",
         }
         already_owned = False
         if item["type"] not in CONSUMABLE_TYPES:
@@ -966,6 +1088,9 @@ class PersistentShop(commands.Cog):
             "comp_role_ban",
             "comp_agent_lock",
             "comp_reroll",
+            "comp_role_swap",
+            "comp_weight",
+            "comp_curse",
         }
         if shop_item["type"] not in CONSUMABLE_TYPES:
             inv_doc = await self.bot.inv_col.find_one(
@@ -1044,6 +1169,8 @@ class PersistentShop(commands.Cog):
             "comp_role_ban",
             "comp_agent_lock",
             "comp_reroll",
+            "comp_role_swap",
+            "comp_weight",
         ):
             embed.description += (
                 "\n\nUse `/useitem` before the next `/randomcomp` to activate it."

@@ -47,6 +47,9 @@ TYPE_LABEL_SLASH = {
     "comp_role_ban": "🚫 Role Ban",
     "comp_agent_lock": "🌟 Agent Lock",
     "comp_reroll": "🔄 Role Reroll",
+    "comp_role_swap": "🔀 Role Swap",
+    "comp_weight": "⚖️ Role Weight",
+    "comp_curse": "💀 Role Curse",
 }
 
 
@@ -220,6 +223,9 @@ class Shop(commands.Cog):
             "comp_role_ban",
             "comp_agent_lock",
             "comp_reroll",
+            "comp_role_swap",
+            "comp_weight",
+            "comp_curse",
         }
         if shop_item["type"] not in CONSUMABLE_TYPES:
             if any(i["name"].lower() == shop_item["name"].lower() for i in inventory):
@@ -386,6 +392,10 @@ class Shop(commands.Cog):
         item_type="Type of item",
         description="Short description shown in the shop",
         role="The role to grant (for role items only)",
+        weight_role="For Comp: Weight — which role to favour (Duelist/Initiator/Controller/Sentinel)",
+        weight_pct="For Comp: Weight — percentage chance (1-99) of landing that role",
+        curse_role="For Comp: Curse — which role to push the target toward",
+        curse_pct="For Comp: Curse — percentage chance (1-99) of target landing that role",
     )
     @app_commands.choices(
         item_type=[
@@ -396,6 +406,9 @@ class Shop(commands.Cog):
             app_commands.Choice(name="Comp: Role Ban", value="comp_role_ban"),
             app_commands.Choice(name="Comp: Agent Lock", value="comp_agent_lock"),
             app_commands.Choice(name="Comp: Reroll", value="comp_reroll"),
+            app_commands.Choice(name="Comp: Role Swap", value="comp_role_swap"),
+            app_commands.Choice(name="Comp: Weight", value="comp_weight"),
+            app_commands.Choice(name="Comp: Curse", value="comp_curse"),
         ]
     )
     @app_commands.default_permissions(administrator=True)
@@ -407,6 +420,10 @@ class Shop(commands.Cog):
         item_type: app_commands.Choice[str],
         description: str = "no description",
         role: discord.Role = None,
+        weight_role: str = None,
+        weight_pct: int = None,
+        curse_role: str = None,
+        curse_pct: int = None,
     ):
         if item_type.value == "role" and role is None:
             await interaction.response.send_message(
@@ -414,6 +431,22 @@ class Shop(commands.Cog):
                 ephemeral=True,
             )
             return
+
+        VALID_WEIGHT_ROLES = {"Duelist", "Initiator", "Controller", "Sentinel"}
+        if item_type.value == "comp_weight":
+            if not weight_role or weight_role not in VALID_WEIGHT_ROLES:
+                await interaction.response.send_message(
+                    f"⚠️ `weight_role` is required for Comp: Weight items. "
+                    f"Must be one of: {', '.join(VALID_WEIGHT_ROLES)}",
+                    ephemeral=True,
+                )
+                return
+            if weight_pct is None or not (1 <= weight_pct <= 99):
+                await interaction.response.send_message(
+                    "⚠️ `weight_pct` is required for Comp: Weight items and must be between 1 and 99.",
+                    ephemeral=True,
+                )
+                return
 
         existing = await _get_item(self.items_col, interaction.guild_id, name)
         if existing:
@@ -435,6 +468,26 @@ class Shop(commands.Cog):
             doc["role_colour"] = (
                 f"{role.colour.value:06X}" if role.colour.value else None
             )
+        if item_type.value == "comp_weight":
+            doc["weight_role"] = weight_role
+            doc["weight_pct"] = weight_pct
+
+        if item_type.value == "comp_curse":
+            if not curse_role or curse_role not in VALID_WEIGHT_ROLES:
+                await interaction.response.send_message(
+                    f"⚠️ `curse_role` is required for Comp: Curse items. "
+                    f"Must be one of: {', '.join(VALID_WEIGHT_ROLES)}",
+                    ephemeral=True,
+                )
+                return
+            if curse_pct is None or not (1 <= curse_pct <= 99):
+                await interaction.response.send_message(
+                    "⚠️ `curse_pct` is required for Comp: Curse items and must be between 1 and 99.",
+                    ephemeral=True,
+                )
+                return
+            doc["curse_role"] = curse_role
+            doc["curse_pct"] = curse_pct
 
         await self.items_col.insert_one(doc)
         await interaction.response.send_message(

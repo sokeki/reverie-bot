@@ -114,8 +114,39 @@ class Points(commands.Cog):
 
         embed.set_thumbnail(url=target.display_avatar.url)
         progress_bar = _progress_bar(rank["progress_pct"])
+
+        # Show queued comp items if viewing your own profile
+        footer_extra = ""
+        if target.id == interaction.user.id:
+            user_doc2 = await self.bot.users_col.find_one(
+                {"guild_id": interaction.guild_id, "user_id": target.id}
+            )
+            d = user_doc2 or {}
+            queued = []
+            active = d.get("active_comp_item")
+            if active:
+                ITEM_LABELS = {
+                    "comp_role_lock": "🎯 Lock",
+                    "comp_role_ban": "🚫 Ban",
+                    "comp_agent_lock": "🌟 Agent Lock",
+                    "comp_reroll": "🔄 Reroll",
+                    "comp_role_swap": "🔀 Swap",
+                }
+                label = ITEM_LABELS.get(active.get("type", ""), active.get("type", ""))
+                val = active.get("value", "")
+                queued.append(f"{label}" + (f":{val}" if val else ""))
+            weights = d.get("active_comp_weights", [])
+            if weights:
+                total = min(sum(w["weight"] for w in weights), 95)
+                queued.append(f"⚖️{weights[0]['value']} {total}%")
+            curses = d.get("active_comp_curses", [])
+            if curses:
+                queued.append(f"💀×{len(curses)}")
+            if queued:
+                footer_extra = "  •  queued: " + ", ".join(queued) + " — /cancelitem"
+
         embed.set_footer(
-            text=f"{rank['symbol']} {rank['name']}  {progress_bar}  {rank['progress_pct']}%  •  Reverie  •  {interaction.guild.name}"
+            text=f"{rank['symbol']} {rank['name']}  {progress_bar}  {rank['progress_pct']}%  •  Reverie  •  {interaction.guild.name}{footer_extra}"
         )
         await interaction.response.send_message(embed=embed)
 
