@@ -435,9 +435,19 @@ class TFTTracker(commands.Cog):
                     f"[TFT] Skipping old match {mid[:16]}... dt:{game_dt} lgs:{last_game_start}"
                 )
                 continue
-            if match["info"].get("queue_id") != 1100:
+            queue_id = match["info"].get("queue_id")
+            # 1100 = ranked TFT, 1130 = ranked double up
+            if queue_id not in (1100, 1130):
                 known_ids.add(mid)
                 skipped_ids.add(mid)
+                if queue_id is not None:
+                    print(
+                        f"[TFT] Skipping non-ranked match {mid[:16]}... queue_id:{queue_id}"
+                    )
+                else:
+                    print(
+                        f"[TFT] Skipping match {mid[:16]}... — no queue_id in response"
+                    )
                 continue
             new_match_id = mid
             new_match_data = match
