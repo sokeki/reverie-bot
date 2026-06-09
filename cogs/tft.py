@@ -359,9 +359,6 @@ class TFTTracker(commands.Cog):
         baselined = tft.get("baselined", False)
         last_msg_id = tft.get("last_message_id", "")
         last_game_start = tft.get("last_game_start", 0)
-        print(
-            f"[TFT] {name}#{tag} — known_ids:{len(known_ids)} baselined:{baselined} lgs:{last_game_start}"
-        )
 
         # Re-baseline if last_match_ids is too small (only if not done recently)
         last_rebaseline = tft.get("last_rebaseline", 0)
@@ -423,9 +420,6 @@ class TFTTracker(commands.Cog):
         for mid in match_ids:
             if mid in known_ids:
                 continue
-            print(
-                f"[TFT] New candidate: {mid[:16]}... for {name}#{tag} (known:{len(known_ids)})"
-            )
             match = await self.riot.get_match(routing, mid)
             if not match:
                 continue
@@ -434,23 +428,13 @@ class TFTTracker(commands.Cog):
             if last_game_start and game_dt and game_dt <= last_game_start:
                 known_ids.add(mid)
                 skipped_ids.add(mid)
-                print(
-                    f"[TFT] Skipping old match {mid[:16]}... dt:{game_dt} lgs:{last_game_start}"
-                )
                 continue
             queue_id = match["info"].get("queue_id")
             # 1100 = ranked TFT, 1130 = ranked double up
             if queue_id not in (1100, 1130):
                 known_ids.add(mid)
                 skipped_ids.add(mid)
-                if queue_id is not None:
-                    print(
-                        f"[TFT] Skipping non-ranked match {mid[:16]}... queue_id:{queue_id}"
-                    )
-                else:
-                    print(
-                        f"[TFT] Skipping match {mid[:16]}... — no queue_id in response"
-                    )
+
                 continue
             new_match_id = mid
             new_match_data = match
@@ -627,9 +611,7 @@ class TFTTracker(commands.Cog):
                     {"_id": account["_id"]},
                     {"$set": update_fields},
                 )
-                print(
-                    f"[TFT] Saved {new_match_id[:12]}... for {name}#{tag} — matched:{result.matched_count} modified:{result.modified_count} ids_count:{len(all_new_ids)}"
-                )
+                print(f"[TFT] Saved {new_match_id[:12]}... for {name}#{tag}")
             except Exception as e:
                 print(f"[TFT] ERROR saving match IDs for {name}#{tag}: {e}")
             return
