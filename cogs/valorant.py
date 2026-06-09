@@ -455,12 +455,11 @@ class PreRollView(discord.ui.View):
 
         # Show auto-detected reroll/swap from inventory (no activation needed)
         for itype, label_icon in (("comp_reroll", "🔄"), ("comp_role_swap", "🔀")):
-            if not active or active.get("type") != itype:
-                match = next((i for i in inv_items if i["type"] == itype), None)
-                if match:
-                    lines.append(
-                        f"• {label_icon} **{LABEL_MAP[itype]}** ready *(auto-activates)*"
-                    )
+            match = next((i for i in inv_items if i["type"] == itype), None)
+            if match:
+                lines.append(
+                    f"• {label_icon} **{LABEL_MAP[itype]}** ready *(auto-activates)*"
+                )
 
         desc = "\n".join(lines) if lines else "*no items queued — rolling clean*"
         embed = discord.Embed(
@@ -594,8 +593,10 @@ class Valorant(commands.Cog):
         active_items: dict[int, dict] = {}
         all_weights: dict[int, list] = {}
         all_curses: dict[int, list] = {}
-        all_reductions: dict[int, list] = {}  # own role reductions
-        all_curse_reds: dict[int, list] = {}  # curse-reductions aimed at others
+        all_reductions: dict[int, list] = {}
+        all_curse_reds: dict[int, list] = {}
+        auto_reroll: set[int] = set()  # players with reroll in inventory
+        auto_swap: set[int] = set()  # players with swap in inventory
 
         for player in players:
             doc = await self.bot.users_col.find_one(
@@ -610,17 +611,12 @@ class Valorant(commands.Cog):
                 continue
             if doc.get("active_comp_item"):
                 active_items[player.id] = doc["active_comp_item"]
-            elif not active_items.get(player.id):
-                # Auto-detect reroll/swap from inventory — no pre-activation needed
-                for itype in ("comp_reroll", "comp_role_swap"):
-                    match = next((i for i in inv_items if i["type"] == itype), None)
-                    if match:
-                        active_items[player.id] = {
-                            "type": itype,
-                            "value": "",
-                            "item_name": match.get("name", ""),
-                        }
-                        break
+
+            # Auto-detect reroll/swap directly from inventory — independent of active_comp_item
+            if next((i for i in inv_items if i["type"] == "comp_reroll"), None):
+                auto_reroll.add(player.id)
+            if next((i for i in inv_items if i["type"] == "comp_role_swap"), None):
+                auto_swap.add(player.id)
             if doc.get("active_comp_weights"):
                 all_weights[player.id] = doc["active_comp_weights"]
             if doc.get("active_comp_curses"):
@@ -670,12 +666,18 @@ class Valorant(commands.Cog):
                     item_notes.append(f"🚫 {player.mention} banned **{value}**")
 
                 elif itype == "comp_role_swap":
-                    swap_players.add(player.id)
-                    item_notes.append(f"🔀 {player.mention} has a **Role Swap** ready")
+                    pass  # handled via auto_swap below
 
                 elif itype == "comp_reroll":
-                    reroll_players.add(player.id)
-                    item_notes.append(f"🔄 {player.mention} has a **Reshuffle** ready")
+                    pass  # handled via auto_reroll below
+
+            # Reroll/swap come from inventory scan, not active_comp_item
+            if player.id in auto_reroll:
+                reroll_players.add(player.id)
+                item_notes.append(f"🔄 {player.mention} has a **Reshuffle** ready")
+            if player.id in auto_swap:
+                swap_players.add(player.id)
+                item_notes.append(f"🔀 {player.mention} has a **Role Swap** ready")
 
             # Stacked weights (own) — build per-role delta map (+boost, -reduce), cap at 100%
             weights_list = all_weights.get(player.id, [])
