@@ -140,6 +140,9 @@ def _val_to_tft_region(val_region: str) -> str:
     return mapping.get(val_region, "euw1")
 
 
+_tft_group = app_commands.Group(name="tft", description="TFT commands")
+
+
 class TFTTracker(commands.Cog):
     """TFT LP tracker — monitors registered accounts and posts rank changes."""
 
@@ -175,8 +178,8 @@ class TFTTracker(commands.Cog):
 
     # ── /tftlist ──────────────────────────────────────────────────────────────
 
-    @app_commands.command(
-        name="tftleaderboard",
+    @_tft_group.command(
+        name="leaderboard",
         description="Show the TFT LP leaderboard for all tracked accounts",
     )
     async def tftleaderboard(self, interaction: discord.Interaction):
@@ -244,8 +247,8 @@ class TFTTracker(commands.Cog):
 
     # ── /tftstats ─────────────────────────────────────────────────────────────
 
-    @app_commands.command(
-        name="tftstats", description="Show TFT ranked stats for any player"
+    @_tft_group.command(
+        name="stats", description="Show TFT ranked stats for any player"
     )
     @app_commands.describe(
         username="Riot ID including tag, e.g. Name#EUW",
@@ -661,3 +664,4 @@ class TFTTracker(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(TFTTracker(bot))
+    bot.tree.add_command(_tft_group)

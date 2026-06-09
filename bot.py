@@ -48,7 +48,7 @@ COGS = [
     "cogs.shop",
     "cogs.valorant",
     "cogs.guest_invite",
-    "cogs.anonymous",
+    # "cogs.anonymous",  # disabled — guessing game archived
     "cogs.recap",
     "cogs.rr_tracker",
     "cogs.mudae_cleaner",
