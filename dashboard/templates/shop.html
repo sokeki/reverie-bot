@@ -125,7 +125,10 @@
                     <div class="field-row">
                         <label>Type</label>
                         <select name="type" class="add-type-select" onchange="toggleRoleField(this)">
-                            {% for t in cat['types'] %}
+                            {% set type_order =
+                            ["role","title","custom_title","comp_role_lock","comp_role_ban","comp_agent_lock","comp_reroll","comp_role_swap","comp_weight","comp_curse"]
+                            %}
+                            {% for t in type_order if t in cat['types'] %}
                             <option value="{{ t }}">
                                 {% if t == "role" %}🎭 Colour Role
                                 {% elif t == "title" %}✨ Title
@@ -134,9 +137,9 @@
                                 {% elif t == "comp_role_ban" %}🚫 Role Ban
                                 {% elif t == "comp_agent_lock" %}🌟 Agent Lock
                                 {% elif t == "comp_reroll" %}🔄 Role Reroll
-                                {% elif t == "comp_curse" %}💀 Role Curse
                                 {% elif t == "comp_role_swap" %}🔀 Role Swap
                                 {% elif t == "comp_weight" %}⚖️ Role Weight
+                                {% elif t == "comp_curse" %}💀 Role Curse
                                 {% endif %}
                             </option>
                             {% endfor %}

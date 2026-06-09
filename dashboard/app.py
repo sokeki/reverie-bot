@@ -488,7 +488,15 @@ SHOP_CATEGORIES = [
     (
         "Comp Items",
         "🎮",
-        {"comp_role_lock", "comp_role_ban", "comp_agent_lock", "comp_reroll"},
+        {
+            "comp_role_lock",
+            "comp_role_ban",
+            "comp_agent_lock",
+            "comp_reroll",
+            "comp_role_swap",
+            "comp_weight",
+            "comp_curse",
+        },
     ),
 ]
 
