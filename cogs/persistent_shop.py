@@ -122,7 +122,6 @@ def _colour_name(hex_val: int) -> str:
 TYPE_EMOJI = {
     "role": "🎭",
     "title": "✨",
-    "role_remover": "🗑️",
     "custom_title": "🖊️",
     "comp_role_lock": "🎯",
     "comp_role_ban": "🚫",
@@ -133,7 +132,6 @@ TYPE_EMOJI = {
 TYPE_LABEL = {
     "role": "🎭 Colour Role",
     "title": "✨ Title",
-    "role_remover": "🗑️ Role Remover",
     "custom_title": "🖊️ Custom Title",
     "comp_role_lock": "🎯 Role Lock  *(consumable)*",
     "comp_role_ban": "🚫 Role Ban  *(consumable)*",
@@ -168,13 +166,10 @@ ITEMS_PER_PAGE = 10
 def _build_embed(
     items: list[dict], guild: discord.Guild, page: int = 0
 ) -> discord.Embed:
-    """Pinned channel embed — shows category summary with item counts, not a full item list."""
+    """Pinned channel embed — clean overview with category counts only."""
     embed = discord.Embed(
         title="🌙 The Dream Shop",
-        description=(
-            "*spend your dream points on something wonderful...*\n"
-            "Click **Browse & Buy** below to browse by category and purchase."
-        ),
+        description="*spend your dream points on something wonderful...*\nClick a category below to browse and buy.",
         color=COLOUR_LB,
     )
 
@@ -185,49 +180,24 @@ def _build_embed(
         embed.set_footer(text=f"Reverie  •  {guild.name}")
         return embed
 
+    lines = []
     for label, emoji, types in CATEGORIES:
         cat_items = [i for i in items if i["type"] in types]
         if not cat_items:
             continue
+        min_cost = min(i["cost"] for i in cat_items)
+        max_cost = max(i["cost"] for i in cat_items)
+        cost_str = (
+            f"✨ {min_cost:,}"
+            if min_cost == max_cost
+            else f"✨ {min_cost:,}–{max_cost:,} pts"
+        )
+        lines.append(
+            f"{emoji} **{label}** — {len(cat_items)} item{'s' if len(cat_items) != 1 else ''}  ·  {cost_str}"
+        )
 
-        # Build a short summary line per item
-        lines = []
-        for item in cat_items:
-            item_emoji = TYPE_EMOJI.get(item["type"], "•")
-            colour_str = ""
-            if item["type"] == "role" and item.get("role_id"):
-                role = guild.get_role(item["role_id"])
-                if role and role.colour.value:
-                    cname = _colour_name(role.colour.value)
-                    colour_str = f" — {cname} (`#{role.colour.value:06X}`)"
-            lines.append(
-                f"{item_emoji} **{item['name']}** · ✨ {item['cost']:,} pts{colour_str}"
-            )
-
-        # Split into chunks that fit within Discord's 1024 char field value limit
-        chunks: list[list[str]] = []
-        current: list[str] = []
-        current_len = 0
-        for line in lines:
-            if current and current_len + len(line) + 1 > 1024:
-                chunks.append(current)
-                current = [line]
-                current_len = len(line)
-            else:
-                current.append(line)
-                current_len += len(line) + 1
-        if current:
-            chunks.append(current)
-
-        for i, chunk in enumerate(chunks):
-            if len(embed.fields) >= 25:
-                break
-            field_name = (
-                f"{emoji}  {label}  ({len(cat_items)} item{'s' if len(cat_items) != 1 else ''})"
-                if i == 0
-                else f"{emoji}  {label}  (cont.)"
-            )
-            embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
+    if lines:
+        embed.description += "\n\n" + "\n".join(lines)
 
     embed.set_footer(text=f"Reverie  •  {guild.name}")
     return embed
@@ -238,26 +208,51 @@ def _build_embed(
 
 class PersistentShopView(discord.ui.View):
     """
-    Attached to the permanent shop message.  timeout=None + stable custom_ids
-    means Discord re-attaches it automatically on every restart.
+    One button per category, each with a stable custom_id so Discord
+    re-attaches them automatically on every restart.
     """
 
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="🛒  Browse & Buy",
+        label="🎭 Colour Roles",
         style=discord.ButtonStyle.primary,
-        custom_id="persistent_shop:browse",
+        custom_id="persistent_shop:cat:role",
     )
-    async def browse(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cat_roles(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await self._open(interaction, "Colour Roles")
+
+    @discord.ui.button(
+        label="✨ Titles",
+        style=discord.ButtonStyle.secondary,
+        custom_id="persistent_shop:cat:title",
+    )
+    async def cat_titles(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await self._open(interaction, "Titles")
+
+    @discord.ui.button(
+        label="🎮 Comp Items",
+        style=discord.ButtonStyle.secondary,
+        custom_id="persistent_shop:cat:comp",
+    )
+    async def cat_comp(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await self._open(interaction, "Comp Items")
+
+    async def _open(self, interaction: discord.Interaction, category_label: str):
         cog: PersistentShop | None = interaction.client.cogs.get("PersistentShop")
         if cog is None:
             await interaction.response.send_message(
                 "⚠️ Shop is temporarily unavailable.", ephemeral=True
             )
             return
-        await cog._show_buy_menu(interaction, page=0)
+        await cog._show_category(interaction, category_label)
 
 
 # ── Category definitions ──────────────────────────────────────────────────────
@@ -271,7 +266,6 @@ CATEGORIES: list[tuple[str, str, set[str]]] = [
         "🎮",
         {"comp_role_lock", "comp_role_ban", "comp_agent_lock", "comp_reroll"},
     ),
-    ("Utilities", "🗑️", {"role_remover"}),
 ]
 
 
@@ -583,26 +577,6 @@ def _preview_custom_title(
     return embed
 
 
-def _preview_role_remover(
-    item: dict, balance: int, already_owned: bool
-) -> discord.Embed:
-    desc = item.get("description") or "no description"
-    embed = discord.Embed(
-        title=f"🗑️  {item['name']}",
-        description=(
-            f"*{desc}*\n\n"
-            f"**Type:** {TYPE_LABEL['role_remover']}\n"
-            f"**Cost:** ✨ {item['cost']:,} dream pts\n\n"
-            f"A consumable item. Use `/removerole` to strip one of your purchased "
-            f"colour roles from your profile — useful if you want to switch colours "
-            f"without keeping old ones. Can own multiple.\n\n"
-            f"{_afford_line(item, balance, already_owned, consumable=True)}"
-        ),
-        color=COLOUR_MAIN,
-    )
-    return embed
-
-
 def _preview_comp_role_lock(
     item: dict, balance: int, already_owned: bool
 ) -> discord.Embed:
@@ -714,8 +688,6 @@ def _build_preview_embed(
         embed = _preview_title(item, balance, already_owned)
     elif t == "custom_title":
         embed = _preview_custom_title(item, balance, already_owned)
-    elif t == "role_remover":
-        embed = _preview_role_remover(item, balance, already_owned)
     elif t == "comp_role_lock":
         embed = _preview_comp_role_lock(item, balance, already_owned)
     elif t == "comp_role_ban":
@@ -866,7 +838,47 @@ class PersistentShop(commands.Cog):
 
     # ── Buy flow ──────────────────────────────────────────────────────────────
 
+    async def _show_category(
+        self, interaction: discord.Interaction, category_label: str
+    ):
+        """Open the ephemeral browse menu directly at a specific category."""
+        all_items = await self._fetch_items(interaction.guild_id)
+        if not all_items:
+            await interaction.response.send_message(
+                "*the shop is empty right now...* 🌫️", ephemeral=True
+            )
+            return
+
+        types = next(
+            (types for label, _, types in CATEGORIES if label == category_label), None
+        )
+        filtered = [i for i in all_items if i["type"] in types] if types else all_items
+
+        if not filtered:
+            await interaction.response.send_message(
+                f"*no items in **{category_label}** right now.*", ephemeral=True
+            )
+            return
+
+        user_doc = await self.bot.users_col.find_one(
+            {"user_id": interaction.user.id, "guild_id": interaction.guild_id}
+        )
+        balance = user_doc.get("points", 0) if user_doc else 0
+
+        view = BuyMenuView(
+            filtered,
+            interaction.guild,
+            page=0,
+            balance=balance,
+            all_items=all_items,
+            category_label=category_label,
+        )
+        await interaction.response.send_message(
+            embed=view._menu_embed(), view=view, ephemeral=True
+        )
+
     async def _show_buy_menu(self, interaction: discord.Interaction, page: int = 0):
+        """Open the ephemeral category picker (used by /shop command fallback)."""
         items = await self._fetch_items(interaction.guild_id)
         if not items:
             await interaction.response.send_message(
@@ -905,7 +917,6 @@ class PersistentShop(commands.Cog):
             return
 
         CONSUMABLE_TYPES = {
-            "role_remover",
             "comp_role_lock",
             "comp_role_ban",
             "comp_agent_lock",
@@ -951,7 +962,6 @@ class PersistentShop(commands.Cog):
             return
 
         CONSUMABLE_TYPES = {
-            "role_remover",
             "comp_role_lock",
             "comp_role_ban",
             "comp_agent_lock",
@@ -1025,11 +1035,7 @@ class PersistentShop(commands.Cog):
             description=f"**{shop_item['name']}** is now yours, {interaction.user.mention}.",
             color=COLOUR_CONFIRM,
         )
-        if shop_item["type"] == "role_remover":
-            embed.description += (
-                "\n\nUse `/removerole` to remove one of your shop roles."
-            )
-        elif shop_item["type"] == "custom_title":
+        if shop_item["type"] == "custom_title":
             embed.description += "\n\nUse `/setcustomtitle` to set your title."
         elif shop_item["type"] == "title":
             embed.description += "\n\nUse `/settitle` to equip it on your profile."

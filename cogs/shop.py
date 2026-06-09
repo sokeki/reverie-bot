@@ -23,15 +23,6 @@ CUSTOM_TITLE_MAX_LEN = 32
 CUSTOM_TITLE_PATTERN = re.compile(r"^[a-zA-Z0-9 '\-!?.]+$")
 
 
-def _item_type_label(item_type: str) -> str:
-    return {
-        "role": "🎭 Role",
-        "title": "✨ Title",
-        "role_remover": "🗑️ Role Remover",
-        "custom_title": "🖊️ Custom Title",
-    }.get(item_type, item_type.capitalize())
-
-
 async def _get_item(items_col, guild_id: int, name: str) -> dict | None:
     return await items_col.find_one(
         {"guild_id": guild_id, "name": {"$regex": f"^{name}$", "$options": "i"}}
@@ -43,103 +34,20 @@ async def _get_inventory(inv_col, user_id: int, guild_id: int) -> list:
     return doc.get("items", []) if doc else []
 
 
-# ── Role remover select menu ───────────────────────────────────────────────────
-
-
-class RoleRemoverSelect(discord.ui.Select):
-    def __init__(self, purchasable_roles: list[discord.Role]):
-        options = [
-            discord.SelectOption(
-                label=role.name,
-                value=str(role.id),
-                description=f"Remove the {role.name} role",
-                emoji="🎭",
-            )
-            for role in purchasable_roles
-        ]
-        super().__init__(
-            placeholder="Choose a role to remove...",
-            min_values=1,
-            max_values=1,
-            options=options,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        role_id = int(self.values[0])
-        role = interaction.guild.get_role(role_id)
-
-        if not role:
-            await interaction.response.send_message(
-                "⚠️ That role no longer exists on the server.",
-                ephemeral=True,
-            )
-            return
-
-        try:
-            await interaction.user.remove_roles(
-                role, reason="Reverie role remover used"
-            )
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "⚠️ I don't have permission to remove that role. Please let an admin know!",
-                ephemeral=True,
-            )
-            return
-
-        # Remove the role from inventory
-        await self.view.inv_col.update_one(
-            {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
-            {
-                "$pull": {
-                    "items": {
-                        "type": "role",
-                        "name": self.view.role_item_names.get(role_id, ""),
-                    }
-                }
-            },
-        )
-
-        # Consume one role remover from inventory
-        await self.view.inv_col.update_one(
-            {"user_id": interaction.user.id, "guild_id": interaction.guild_id},
-            {
-                "$pull": {
-                    "items": {"type": "role_remover", "name": self.view.remover_name}
-                }
-            },
-        )
-
-        embed = discord.Embed(
-            title="🗑️ Role Removed",
-            description=f"The **{role.name}** role has been removed from your profile.",
-            color=COLOUR_CONFIRM,
-        )
-        embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
-        await interaction.response.edit_message(embed=embed, view=None)
-
-
-class RoleRemoverView(discord.ui.View):
-    def __init__(
-        self,
-        purchasable_roles: list[discord.Role],
-        inv_col,
-        role_item_names: dict,
-        remover_name: str,
-    ):
-        super().__init__(timeout=60)
-        self.inv_col = inv_col
-        self.role_item_names = role_item_names  # role_id -> item name in inventory
-        self.remover_name = remover_name
-        self.add_item(RoleRemoverSelect(purchasable_roles))
-
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
-
-
 # ── Shop paginator ───────────────────────────────────────────────────────────
 
 ITEMS_PER_PAGE = 10
+
+
+TYPE_LABEL_SLASH = {
+    "role": "🎭 Role",
+    "title": "✨ Title",
+    "custom_title": "🖊️ Custom Title",
+    "comp_role_lock": "🎯 Role Lock",
+    "comp_role_ban": "🚫 Role Ban",
+    "comp_agent_lock": "🌟 Agent Lock",
+    "comp_reroll": "🔄 Role Reroll",
+}
 
 
 def _build_shop_embed(
@@ -152,7 +60,7 @@ def _build_shop_embed(
     )
     start = page * ITEMS_PER_PAGE
     for item in items[start : start + ITEMS_PER_PAGE]:
-        label = _item_type_label(item["type"])
+        label = TYPE_LABEL_SLASH.get(item["type"], item["type"].capitalize())
         colour_str = ""
         if item["type"] == "role" and item.get("role_id"):
             role = guild.get_role(item["role_id"])
@@ -307,8 +215,13 @@ class Shop(commands.Cog):
             self.inv_col, interaction.user.id, interaction.guild_id
         )
 
-        # Role removers are consumable - can own multiple, so skip duplicate check
-        if shop_item["type"] != "role_remover":
+        CONSUMABLE_TYPES = {
+            "comp_role_lock",
+            "comp_role_ban",
+            "comp_agent_lock",
+            "comp_reroll",
+        }
+        if shop_item["type"] not in CONSUMABLE_TYPES:
             if any(i["name"].lower() == shop_item["name"].lower() for i in inventory):
                 await interaction.followup.send(
                     f"*you already own **{shop_item['name']}**!* ✨",
@@ -377,74 +290,10 @@ class Shop(commands.Cog):
             description=f"**{shop_item['name']}** is now yours, {interaction.user.mention}.",
             color=COLOUR_CONFIRM,
         )
-        if shop_item["type"] == "role_remover":
-            embed.description += "\n\nUse `/removerole` to use it and remove one of your purchased roles."
-        elif shop_item["type"] == "custom_title":
+        if shop_item["type"] == "custom_title":
             embed.description += "\n\nUse `/setcustomtitle` to set your custom title. It will consume this item."
         embed.set_footer(text=f"Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed, ephemeral=True)
-
-    # ── /removerole ───────────────────────────────────────────────────────────
-
-    @app_commands.command(
-        name="removerole",
-        description="Use a role remover to remove one of your shop roles",
-    )
-    async def removerole(self, interaction: discord.Interaction):
-        inventory = await _get_inventory(
-            self.inv_col, interaction.user.id, interaction.guild_id
-        )
-
-        # Check they own at least one role remover
-        remover = next((i for i in inventory if i["type"] == "role_remover"), None)
-        if not remover:
-            await interaction.response.send_message(
-                "*you don't own a role remover.* Pick one up in the `/shop`! 🛒",
-                ephemeral=True,
-            )
-            return
-
-        # Find all shop role items and build role_id -> item name map
-        all_shop_roles = await self.items_col.find(
-            {"guild_id": interaction.guild_id, "type": "role"}
-        ).to_list(length=100)
-
-        shop_role_id_map = {item["role_id"]: item["name"] for item in all_shop_roles}
-
-        # Show any shop role the member currently has, regardless of how they got it
-        member = interaction.user
-        member_role_ids = {r.id for r in member.roles}
-
-        purchasable_roles = []
-        role_item_names = {}
-
-        for role_id, item_name in shop_role_id_map.items():
-            if role_id in member_role_ids:
-                role = interaction.guild.get_role(role_id)
-                if role:
-                    purchasable_roles.append(role)
-                    role_item_names[role_id] = item_name
-
-        if not purchasable_roles:
-            await interaction.response.send_message(
-                "*you don't have any shop roles to remove.*",
-                ephemeral=True,
-            )
-            return
-
-        embed = discord.Embed(
-            title="🗑️ Remove a Role",
-            description="*choose which shop role to remove.*\n\nThis will consume one **Role Remover** from your inventory.",
-            color=COLOUR_MAIN,
-        )
-        embed.set_footer(
-            text=f"This menu expires in 60 seconds  •  Reverie  •  {interaction.guild.name}"
-        )
-
-        view = RoleRemoverView(
-            purchasable_roles, self.inv_col, role_item_names, remover["name"]
-        )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # ── /inventory ────────────────────────────────────────────────────────────
 
@@ -469,7 +318,7 @@ class Shop(commands.Cog):
             active_title = await self._get_active_title(target.id, interaction.guild_id)
             lines = []
             for i in inventory:
-                label = _item_type_label(i["type"])
+                label = TYPE_LABEL_SLASH.get(i["type"], i["type"].capitalize())
                 active = (
                     "  *(active)*"
                     if i["type"] == "title" and i["name"] == active_title
@@ -542,7 +391,6 @@ class Shop(commands.Cog):
         item_type=[
             app_commands.Choice(name="Role", value="role"),
             app_commands.Choice(name="Title", value="title"),
-            app_commands.Choice(name="Role Remover", value="role_remover"),
             app_commands.Choice(name="Custom Title", value="custom_title"),
             app_commands.Choice(name="Comp: Role Lock", value="comp_role_lock"),
             app_commands.Choice(name="Comp: Role Ban", value="comp_role_ban"),

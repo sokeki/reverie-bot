@@ -4,158 +4,240 @@
 {% block content %}
 <div class="page-header">
     <h1>🛒 The Dream Shop</h1>
-    <p class="subtitle"><em>{{ items | length }} item{% if items | length != 1 %}s{% endif %} available</em></p>
+    <p class="subtitle"><em>{{ total_items }} item{% if total_items != 1 %}s{% endif %} available</em></p>
 </div>
 
 {% if saved %}<div class="toast">✅ Shop updated!</div>{% endif %}
 {% if deleted %}<div class="toast toast-warn">🗑️ Item deleted.</div>{% endif %}
 {% if error %}<div class="toast toast-error">⚠️ {{ error }}</div>{% endif %}
 
-{% if not items and not user.is_admin %}
+{% if not total_items and not user.is_admin %}
 <div class="empty-state">
     <p>The shop shelves are bare...</p>
 </div>
 {% else %}
 
-<div class="shop-grid">
-    {% for item in items %}
-    <div class="shop-card" id="card-{{ item._id }}">
-        <div class="shop-type">
-            {% if item.type == "role" %}🎭 Role
-            {% elif item.type == "title" %}✨ Title
-            {% elif item.type == "role_remover" %}🗑️ Role Remover
-            {% elif item.type == "custom_title" %}🖊️ Custom Title
+<!-- Category tabs -->
+<div class="cat-tabs">
+    {% for cat in categories %}
+    <button class="cat-tab {% if loop.first %}active{% endif %}" data-target="cat-{{ loop.index }}">
+        {{ cat.emoji }} {{ cat.label }}
+        <span class="cat-count">{{ cat.items | length }}</span>
+    </button>
+    {% endfor %}
+</div>
+
+<!-- Category panels -->
+{% for cat in categories %}
+<div class="cat-panel {% if loop.first %}active{% endif %}" id="cat-{{ loop.index }}">
+
+    {% if not cat.items %}
+    <div class="empty-state">
+        <p>No {{ cat.label | lower }} in the shop yet.</p>
+    </div>
+    {% else %}
+    <div class="shop-grid">
+        {% for item in cat.items %}
+        <div class="shop-card" id="card-{{ item._id }}">
+            <div class="shop-type">{{ item.type_label }}</div>
+
+            <h3 class="shop-name" {% if item.get('role_colour') and item.role_colour !='None' %}
+                style="color:#{{ item.role_colour }}" {% endif %}>
+                {{ item.name }}
+            </h3>
+
+            <p class="shop-desc">{{ item.get("description", "no description") }}</p>
+
+            <div class="shop-footer">
+                <span class="shop-cost">✨ {{ "{:,}".format(item.cost) }} pts</span>
+                {% if item.get("role_colour") and item.role_colour != "None" %}
+                <span class="colour-pill" style="background:#{{ item.role_colour }}">#{{ item.role_colour }}</span>
+                {% endif %}
+            </div>
+
+            {% if user.is_admin %}
+            <details class="edit-panel">
+                <summary>✏️ Edit</summary>
+                <form method="POST" action="/shop/edit/{{ item._id }}" class="edit-form">
+                    <div class="field-row">
+                        <label>Name</label>
+                        <input type="text" name="name" value="{{ item.name }}">
+                    </div>
+                    <div class="field-row">
+                        <label>Cost</label>
+                        <input type="number" name="cost" value="{{ item.cost }}" min="0">
+                    </div>
+                    <div class="field-row">
+                        <label>Description</label>
+                        <input type="text" name="description" value="{{ item.get('description', '') }}">
+                    </div>
+                    {% if item.type == "role" %}
+                    <div class="field-row">
+                        <label>Role</label>
+                        <select name="role_id">
+                            <option value="">— keep current —</option>
+                            {% for role in guild_roles %}
+                            <option value="{{ role.id }}" {% if item.get("role_id")==role.id | int %}selected{% endif %}
+                                style="{% if role.colour_hex %}color:#{{ role.colour_hex }}{% endif %}">
+                                {{ role.name }}{% if role.colour_hex %} (#{{ role.colour_hex }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="field-row">
+                        <label>Override colour</label>
+                        <div class="colour-input-wrap">
+                            <input type="color" id="picker-{{ item._id }}"
+                                value="#{{ item.get('role_colour') or '9b8ec4' }}"
+                                oninput="document.getElementById('col-{{ item._id }}').value=this.value.slice(1)">
+                            <span>#</span>
+                            <input type="text" id="col-{{ item._id }}" name="role_colour"
+                                value="{{ item.get('role_colour', '') }}" maxlength="6"
+                                oninput="document.getElementById('picker-{{ item._id }}').value='#'+this.value">
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="edit-actions">
+                        <button type="submit" class="btn-edit-save">Save</button>
+                    </div>
+                </form>
+                <form method="POST" action="/shop/delete/{{ item._id }}"
+                    onsubmit="return confirm('Delete {{ item.name }}?')">
+                    <button type="submit" class="btn-delete">Delete item</button>
+                </form>
+            </details>
             {% endif %}
         </div>
-
-        <h3 class="shop-name" {% if item.get('role_colour') and item.role_colour !='None' %}
-            style="color:#{{ item.role_colour }}" {% endif %}>
-            {{ item.name }}
-        </h3>
-
-        <p class="shop-desc">{{ item.get("description", "no description") }}</p>
-
-        <div class="shop-footer">
-            <span class="shop-cost">✨ {{ "{:,}".format(item.cost) }} pts</span>
-            {% if item.get("role_colour") and item.role_colour != "None" %}
-            <span class="colour-pill" style="background:#{{ item.role_colour }}">#{{ item.role_colour }}</span>
-            {% endif %}
-        </div>
+        {% endfor %}
 
         {% if user.is_admin %}
-        <details class="edit-panel">
-            <summary>✏️ Edit</summary>
-            <form method="POST" action="/shop/edit/{{ item._id }}" class="edit-form">
-                <div class="field-row">
-                    <label>Name</label>
-                    <input type="text" name="name" value="{{ item.name }}">
-                </div>
-                <div class="field-row">
-                    <label>Cost</label>
-                    <input type="number" name="cost" value="{{ item.cost }}" min="0">
-                </div>
-                <div class="field-row">
-                    <label>Description</label>
-                    <input type="text" name="description" value="{{ item.get('description', '') }}">
-                </div>
-                {% if item.type == "role" %}
-                <div class="field-row">
-                    <label>Role</label>
-                    <select name="role_id">
-                        <option value="">— keep current —</option>
-                        {% for role in guild_roles %}
-                        <option value="{{ role.id }}" {% if item.get("role_id")==role.id | int %}selected{% endif %}
-                            style="{% if role.colour_hex %}color:#{{ role.colour_hex }}{% endif %}">
-                            {{ role.name }}{% if role.colour_hex %} (#{{ role.colour_hex }}){% endif %}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="field-row">
-                    <label>Override colour</label>
-                    <div class="colour-input-wrap">
-                        <input type="color" id="picker-{{ item._id }}"
-                            value="#{{ item.get('role_colour') or '9b8ec4' }}"
-                            oninput="document.getElementById('col-{{ item._id }}').value=this.value.slice(1)">
-                        <span>#</span>
-                        <input type="text" id="col-{{ item._id }}" name="role_colour"
-                            value="{{ item.get('role_colour', '') }}" maxlength="6"
-                            oninput="document.getElementById('picker-{{ item._id }}').value='#'+this.value">
+        <div class="shop-card add-card">
+            <div class="shop-type">➕ New item</div>
+            <details class="edit-panel" open>
+                <summary>Add item to shop</summary>
+                <form method="POST" action="/shop/add" class="edit-form">
+                    <div class="field-row">
+                        <label>Name <span class="req">*</span></label>
+                        <input type="text" name="name" placeholder="e.g. Night Owl" required>
                     </div>
-                </div>
-                {% endif %}
-                <div class="edit-actions">
-                    <button type="submit" class="btn-edit-save">Save</button>
-                </div>
-            </form>
-            <form method="POST" action="/shop/delete/{{ item._id }}"
-                onsubmit="return confirm('Delete {{ item.name }}?')">
-                <button type="submit" class="btn-delete">Delete item</button>
-            </form>
-        </details>
+                    <div class="field-row">
+                        <label>Type</label>
+                        <select name="type" class="add-type-select" onchange="toggleRoleField(this)">
+                            {% for t in cat.types %}
+                            <option value="{{ t }}">
+                                {% if t == "role" %}🎭 Colour Role
+                                {% elif t == "title" %}✨ Title
+                                {% elif t == "custom_title" %}🖊️ Custom Title
+                                {% elif t == "comp_role_lock" %}🎯 Role Lock
+                                {% elif t == "comp_role_ban" %}🚫 Role Ban
+                                {% elif t == "comp_agent_lock" %}🌟 Agent Lock
+                                {% elif t == "comp_reroll" %}🔄 Role Reroll
+                                {% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="field-row">
+                        <label>Cost</label>
+                        <input type="number" name="cost" value="100" min="0">
+                    </div>
+                    <div class="field-row">
+                        <label>Description</label>
+                        <input type="text" name="description" placeholder="A short description...">
+                    </div>
+                    <div class="field-row role-field" style="{% if 'role' not in cat.types %}display:none{% endif %}">
+                        <label>Role <span class="req">*</span></label>
+                        <select name="role_id" onchange="syncColourFromRole(this)">
+                            <option value="">— select a role —</option>
+                            {% for role in guild_roles %}
+                            <option value="{{ role.id }}" data-colour="{{ role.colour_hex or '' }}"
+                                style="{% if role.colour_hex %}color:#{{ role.colour_hex }}{% endif %}">
+                                {{ role.name }}{% if role.colour_hex %} (#{{ role.colour_hex }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="edit-actions">
+                        <button type="submit" class="btn-edit-save">Add item</button>
+                    </div>
+                </form>
+            </details>
+        </div>
         {% endif %}
-    </div>
-    {% endfor %}
-
-    {% if user.is_admin %}
-    <div class="shop-card add-card">
-        <div class="shop-type">➕ New item</div>
-        <details class="edit-panel" open>
-            <summary>Add item to shop</summary>
-            <form method="POST" action="/shop/add" class="edit-form">
-                <div class="field-row">
-                    <label>Name <span class="req">*</span></label>
-                    <input type="text" name="name" placeholder="e.g. Night Owl" required>
-                </div>
-                <div class="field-row">
-                    <label>Type</label>
-                    <select name="type" id="add-type" onchange="toggleRoleField()">
-                        <option value="role">🎭 Role</option>
-                        <option value="title">✨ Title</option>
-                        <option value="role_remover">🗑️ Role Remover</option>
-                        <option value="custom_title">🖊️ Custom Title</option>
-                    </select>
-                </div>
-                <div class="field-row">
-                    <label>Cost</label>
-                    <input type="number" name="cost" value="100" min="0">
-                </div>
-                <div class="field-row">
-                    <label>Description</label>
-                    <input type="text" name="description" placeholder="A short description...">
-                </div>
-                <div class="field-row" id="role-field">
-                    <label>Role <span class="req">*</span></label>
-                    <select name="role_id" id="add-role-select" onchange="syncColourFromRole(this)">
-                        <option value="">— select a role —</option>
-                        {% for role in guild_roles %}
-                        <option value="{{ role.id }}" data-colour="{{ role.colour_hex or '' }}"
-                            style="{% if role.colour_hex %}color:#{{ role.colour_hex }}{% endif %}">
-                            {{ role.name }}{% if role.colour_hex %} (#{{ role.colour_hex }}){% endif %}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="edit-actions">
-                    <button type="submit" class="btn-edit-save">Add item</button>
-                </div>
-            </form>
-        </details>
     </div>
     {% endif %}
 </div>
+{% endfor %}
+
 {% endif %}
 
+<style>
+    .cat-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .cat-tab {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--text-muted, #aaa);
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .cat-tab:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+
+    .cat-tab.active {
+        background: rgba(155, 142, 196, 0.25);
+        border-color: #9b8ec4;
+        color: #fff;
+    }
+
+    .cat-count {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 999px;
+        padding: 0.1rem 0.45rem;
+        font-size: 0.75rem;
+    }
+
+    .cat-panel {
+        display: none;
+    }
+
+    .cat-panel.active {
+        display: block;
+    }
+</style>
+
 <script>
-    function toggleRoleField() {
-        const type = document.getElementById('add-type').value;
-        document.getElementById('role-field').style.display = type === 'role' ? 'flex' : 'none';
+    document.querySelectorAll('.cat-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.cat-panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(tab.dataset.target).classList.add('active');
+        });
+    });
+
+    function toggleRoleField(select) {
+        const card = select.closest('.shop-card');
+        const roleField = card.querySelector('.role-field');
+        if (roleField) roleField.style.display = select.value === 'role' ? 'flex' : 'none';
     }
 
     function syncColourFromRole(select) {
-        const colour = select.options[select.selectedIndex].dataset.colour;
+        // colour preview hook — extend if needed
     }
-
-    toggleRoleField();
 </script>
 {% endblock %}

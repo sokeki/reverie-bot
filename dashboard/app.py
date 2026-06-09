@@ -482,16 +482,52 @@ async def leaderboard(request: Request, user: dict = Depends(require_user)):
     )
 
 
+SHOP_CATEGORIES = [
+    ("Colour Roles", "🎭", {"role"}),
+    ("Titles", "✨", {"title", "custom_title"}),
+    (
+        "Comp Items",
+        "🎮",
+        {"comp_role_lock", "comp_role_ban", "comp_agent_lock", "comp_reroll"},
+    ),
+]
+
+ITEM_TYPE_LABEL = {
+    "role": "🎭 Colour Role",
+    "title": "✨ Title",
+    "custom_title": "🖊️ Custom Title",
+    "comp_role_lock": "🎯 Role Lock",
+    "comp_role_ban": "🚫 Role Ban",
+    "comp_agent_lock": "🌟 Agent Lock",
+    "comp_reroll": "🔄 Role Reroll",
+}
+
+
 @app.get("/shop", response_class=HTMLResponse)
 async def shop(request: Request, user: dict = Depends(require_user)):
     items = (
-        await items_col.find({"guild_id": GUILD_ID})
-        .sort("cost", -1)
-        .to_list(length=100)
+        await items_col.find({"guild_id": GUILD_ID}).sort("cost", 1).to_list(length=200)
     )
     for item in items:
         item["_id"] = str(item["_id"])
-    # Fetch guild roles for admin dropdowns
+        item["type_label"] = ITEM_TYPE_LABEL.get(
+            item.get("type", ""), item.get("type", "")
+        )
+
+    # Group by category
+    categories = []
+    for label, emoji, types in SHOP_CATEGORIES:
+        cat_items = [i for i in items if i.get("type") in types]
+        if cat_items or user.get("is_admin"):
+            categories.append(
+                {
+                    "label": label,
+                    "emoji": emoji,
+                    "types": list(types),
+                    "items": cat_items,
+                }
+            )
+
     guild_roles = await fetch_guild_roles() if user.get("is_admin") else []
     return templates.TemplateResponse(
         "shop.html",
@@ -499,7 +535,8 @@ async def shop(request: Request, user: dict = Depends(require_user)):
             "request": request,
             "guild_name": GUILD_NAME,
             "user": user,
-            "items": items,
+            "categories": categories,
+            "total_items": len(items),
             "guild_roles": guild_roles,
             "saved": request.query_params.get("saved"),
             "deleted": request.query_params.get("deleted"),
