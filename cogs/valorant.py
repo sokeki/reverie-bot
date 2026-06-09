@@ -374,6 +374,10 @@ class PreRollView(discord.ui.View):
         user_doc = await self.cog.bot.users_col.find_one(
             {"user_id": self.invoker.id, "guild_id": self.guild_id}
         )
+        inv = await self.cog.bot.inv_col.find_one(
+            {"user_id": self.invoker.id, "guild_id": self.guild_id}
+        )
+        inv_items = (inv or {}).get("items", [])
         lines = []
         active = (user_doc or {}).get("active_comp_item")
         if active:
@@ -414,6 +418,15 @@ class PreRollView(discord.ui.View):
             tname = target.display_name if target else f"<{cr['target_id']}>"
             role = cr.get("role") or cr.get("value", "?")
             lines.append(f"• 🪄 Curse Reduce → {tname}: **{role}** -{cr['weight']}%")
+
+        # Show auto-detected reroll/swap from inventory (no activation needed)
+        for itype, label_icon in (("comp_reroll", "🔄"), ("comp_role_swap", "🔀")):
+            if not active or active.get("type") != itype:
+                match = next((i for i in inv_items if i["type"] == itype), None)
+                if match:
+                    lines.append(
+                        f"• {label_icon} **{LABEL_MAP[itype]}** ready *(auto-activates)*"
+                    )
 
         desc = "\n".join(lines) if lines else "*no items queued — rolling clean*"
         embed = discord.Embed(
@@ -554,10 +567,26 @@ class Valorant(commands.Cog):
             doc = await self.bot.users_col.find_one(
                 {"user_id": player.id, "guild_id": guild_id}
             )
+            inv = await self.bot.inv_col.find_one(
+                {"user_id": player.id, "guild_id": guild_id}
+            )
+            inv_items = (inv or {}).get("items", [])
+
             if not doc:
                 continue
             if doc.get("active_comp_item"):
                 active_items[player.id] = doc["active_comp_item"]
+            elif not active_items.get(player.id):
+                # Auto-detect reroll/swap from inventory — no pre-activation needed
+                for itype in ("comp_reroll", "comp_role_swap"):
+                    match = next((i for i in inv_items if i["type"] == itype), None)
+                    if match:
+                        active_items[player.id] = {
+                            "type": itype,
+                            "value": "",
+                            "item_name": match.get("name", ""),
+                        }
+                        break
             if doc.get("active_comp_weights"):
                 all_weights[player.id] = doc["active_comp_weights"]
             if doc.get("active_comp_curses"):
@@ -880,12 +909,21 @@ class Valorant(commands.Cog):
             pulls: list = []
 
             item = active_items.get(player.id)
-            if item and item.get("type") != "comp_role_swap":
+            if item and item.get("type") not in ("comp_role_swap", "comp_reroll"):
+                # Locks/bans/weights consumed immediately
                 if player.id in refund_set:
-                    unsets["active_comp_item"] = ""  # clear queue but keep item
+                    unsets["active_comp_item"] = ""
                 else:
                     pulls.append({"type": item["type"]})
                     unsets["active_comp_item"] = ""
+            elif item and item.get("type") == "comp_reroll":
+                # Reroll consumed only when button is clicked (handled in CompPostView)
+                # Just clear the active queue field if it was manually queued
+                if doc := await self.bot.users_col.find_one(
+                    {"user_id": player.id, "guild_id": guild_id}
+                ):
+                    if doc.get("active_comp_item", {}).get("type") == "comp_reroll":
+                        unsets["active_comp_item"] = ""
 
             if player.id in all_weights:
                 for w in all_weights[player.id]:
