@@ -134,6 +134,21 @@ def _build_comp_embed(
     return embed
 
 
+async def _record_comp(bot, guild_id: int, week: str, assignments: dict) -> None:
+    """Write final role assignments to weekly recap and all-time comp_roles."""
+    for role, member in assignments.items():
+        await bot.comp_rolls_col.update_one(
+            {"guild_id": guild_id, "user_id": member.id, "week": week, "role": role},
+            {"$inc": {"count": 1}},
+            upsert=True,
+        )
+        await bot.users_col.update_one(
+            {"guild_id": guild_id, "user_id": member.id},
+            {"$inc": {f"comp_roles.{role}": 1}},
+            upsert=True,
+        )
+
+
 # ── Comp post-roll view (swap + reroll buttons) ───────────────────────────────
 
 
@@ -150,6 +165,7 @@ class CompPostView(discord.ui.View):
         bot,
         roll_agents,
         rolled_agents,
+        week: str,
     ):
         super().__init__(timeout=120)
         self.assignments = assignments
@@ -160,6 +176,8 @@ class CompPostView(discord.ui.View):
         self.bot = bot
         self.roll_agents = roll_agents
         self.rolled_agents = rolled_agents
+        self.week = week
+        self.recorded = False
         self.role_of: dict[int, str] = {m.id: r for r, m in assignments.items()}
         self._rebuild()
 
@@ -177,6 +195,16 @@ class CompPostView(discord.ui.View):
             )
             btn.callback = self._on_reroll
             self.add_item(btn)
+        # If no buttons remain, record now
+        if not self.children:
+            import asyncio
+
+            asyncio.ensure_future(self._record())
+
+    async def _record(self):
+        if not self.recorded:
+            self.recorded = True
+            await _record_comp(self.bot, self.guild_id, self.week, self.assignments)
 
     def _current_embed(self, extra_note: str = "") -> discord.Embed:
         embed = _build_comp_embed(
@@ -329,6 +357,7 @@ class CompPostView(discord.ui.View):
     async def on_timeout(self):
         for c in self.children:
             c.disabled = True
+        await self._record()
 
 
 class PreRollView(discord.ui.View):
@@ -971,6 +1000,9 @@ class Valorant(commands.Cog):
 
         # ── Post result ───────────────────────────────────────────────────────
         locked_player_ids = {m.id for m in locked_roles.values()}
+        now = datetime.now(timezone.utc)
+        week = (now - timedelta(days=(now.weekday() + 1) % 7)).strftime("%Y-%m-%d")
+
         embed = _build_comp_embed(
             assignments,
             rolled_agents,
@@ -990,6 +1022,7 @@ class Valorant(commands.Cog):
                 self.bot,
                 roll_agents,
                 rolled_agents,
+                week=week,
             )
             if needs_view
             else None
@@ -999,26 +1032,8 @@ class Valorant(commands.Cog):
             await interaction.followup.send(content=pings, embed=embed, view=view)
         else:
             await interaction.followup.send(content=pings, embed=embed)
-
-        # ── Record for weekly recap ───────────────────────────────────────────
-        now = datetime.now(timezone.utc)
-        week = (now - timedelta(days=(now.weekday() + 1) % 7)).strftime("%Y-%m-%d")
-        for role, member in assignments.items():
-            await self.bot.comp_rolls_col.update_one(
-                {
-                    "guild_id": guild_id,
-                    "user_id": member.id,
-                    "week": week,
-                    "role": role,
-                },
-                {"$inc": {"count": 1}},
-                upsert=True,
-            )
-            await self.bot.users_col.update_one(
-                {"guild_id": guild_id, "user_id": member.id},
-                {"$inc": {f"comp_roles.{role}": 1}},
-                upsert=True,
-            )
+            # No post-roll actions pending — record immediately
+            await _record_comp(self.bot, guild_id, week, assignments)
 
     # ── Pre-roll item select (shown from the pre-roll dialogue) ───────────────
 
