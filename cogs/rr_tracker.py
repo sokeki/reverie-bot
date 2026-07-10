@@ -1514,20 +1514,23 @@ class RRTracker(commands.Cog):
         width_a = max(len(sa) for _, sa, _, _, _ in formatted)
         width_b = max(len(sb) for _, _, sb, _, _ in formatted)
 
-        stats_lines = []
+        label_lines, a_lines, b_lines = [], [], []
         for label, sa, sb, va, vb in formatted:
-            if va > vb:
-                marker = "◀"
-            elif vb > va:
-                marker = "▶"
-            else:
-                marker = "·"
-            stats_lines.append(
-                f"{sa:>{width_a}} {marker} {sb:<{width_b}}  {label}"
-            )
+            a_mark = "◀" if va > vb else " "
+            b_mark = "▶" if vb > va else " "
+            label_lines.append(label)
+            a_lines.append(f"{sa:>{width_a}} {a_mark}")
+            b_lines.append(f"{b_mark} {sb:<{width_b}}")
 
-        value = "```\n" + "\n".join(stats_lines) + "\n```"
-        embed.add_field(name=games_label, value=value, inline=False)
+        a_block = "```\n" + "\n".join(a_lines) + "\n```"
+        label_block = "```\n" + "\n".join(label_lines) + "\n```"
+        b_block = "```\n" + "\n".join(b_lines) + "\n```"
+
+        # Same 3-inline-field pattern as the name row above (name / spacer / name)
+        # so this row snaps into the exact same columns and lines up under them.
+        embed.add_field(name="\u200b", value=a_block, inline=True)
+        embed.add_field(name=games_label, value=label_block, inline=True)
+        embed.add_field(name="\u200b", value=b_block, inline=True)
         embed.set_footer(text=f"{footer_note}  •  Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
