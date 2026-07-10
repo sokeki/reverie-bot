@@ -1472,15 +1472,6 @@ class RRTracker(commands.Cog):
 
         rr_sign = lambda v: f"+{v}" if v >= 0 else str(v)
 
-        def row(label, va, vb, fmt):
-            sa, sb = fmt(va), fmt(vb)
-            if va > vb:
-                return f"**{sa}** — {sb}  |  {label}"
-            elif vb > va:
-                return f"{sa} — **{sb}**  |  {label}"
-            else:
-                return f"{sa} — {sb}  |  {label}"
-
         a_streak = _streak_str(a["streak"])
         b_streak = _streak_str(b["streak"])
         a_val = f"{a['tier']}  {a['rr']} RR" + (f"\n{a_streak}" if a_streak else "")
@@ -1503,27 +1494,40 @@ class RRTracker(commands.Cog):
             games_label = f"Last {ga} games"
             footer_note = f"Last {ga} competitive games"
 
-        def row_note(label, va, vb, fmt, note_a="", note_b=""):
-            sa = fmt(va) + (f" ({note_a})" if note_a else "")
-            sb = fmt(vb) + (f" ({note_b})" if note_b else "")
-            if va > vb:
-                return f"**{sa}** — {sb}  |  {label}"
-            elif vb > va:
-                return f"{sa} — **{sb}**  |  {label}"
-            else:
-                return f"{sa} — {sb}  |  {label}"
-
-        stats_lines = [
-            row("wins", a["wins"], b["wins"], str),
-            row("losses", a["losses"], b["losses"], str),
-            row("RR", a["rr_gained"], b["rr_gained"], rr_sign),
-            row("KDA", a["kda"], b["kda"], str),
-            row("HS%", a["hs_pct"], b["hs_pct"], lambda v: f"{v}%"),
-            row("ACS", a["avg_acs"], b["avg_acs"], str),
-            row("DMG/game", a["avg_dmg"], b["avg_dmg"], str),
-            row("Clutch%", a["clutch_pct"], b["clutch_pct"], lambda v: f"{v}%"),
+        stat_defs = [
+            ("wins", a["wins"], b["wins"], str),
+            ("losses", a["losses"], b["losses"], str),
+            ("RR", a["rr_gained"], b["rr_gained"], rr_sign),
+            ("KDA", a["kda"], b["kda"], str),
+            ("HS%", a["hs_pct"], b["hs_pct"], lambda v: f"{v}%"),
+            ("ACS", a["avg_acs"], b["avg_acs"], str),
+            ("DMG/game", a["avg_dmg"], b["avg_dmg"], str),
+            ("Clutch%", a["clutch_pct"], b["clutch_pct"], lambda v: f"{v}%"),
         ]
-        embed.add_field(name=games_label, value="\n".join(stats_lines), inline=False)
+
+        # Pre-format every value, then pad every row to the same column widths
+        # so the two number columns always line up, no matter how many digits
+        # each value has (e.g. "10" next to "3311").
+        formatted = [
+            (label, fmt(va), fmt(vb), va, vb) for label, va, vb, fmt in stat_defs
+        ]
+        width_a = max(len(sa) for _, sa, _, _, _ in formatted)
+        width_b = max(len(sb) for _, _, sb, _, _ in formatted)
+
+        stats_lines = []
+        for label, sa, sb, va, vb in formatted:
+            if va > vb:
+                marker = "◀"
+            elif vb > va:
+                marker = "▶"
+            else:
+                marker = "·"
+            stats_lines.append(
+                f"{sa:>{width_a}} {marker} {sb:<{width_b}}  {label}"
+            )
+
+        value = "```\n" + "\n".join(stats_lines) + "\n```"
+        embed.add_field(name=games_label, value=value, inline=False)
         embed.set_footer(text=f"{footer_note}  •  Reverie  •  {interaction.guild.name}")
         await interaction.followup.send(embed=embed)
 
