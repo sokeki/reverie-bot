@@ -456,21 +456,32 @@ class TFTTracker(commands.Cog):
             set()
         )  # new IDs we've seen but aren't posting (too old / non-ranked)
 
+        already_known = 0
         for mid in match_ids:
             if mid in known_ids:
+                already_known += 1
                 continue
             match = await self.riot.get_match(routing, mid)
             if not match:
+                print(f"[TFT] {name}#{tag}: get_match returned nothing for {mid}")
                 continue
             # Skip matches older than last known posted game
             game_dt = (match.get("info", {}).get("game_datetime", 0) or 0) // 1000
             if last_game_start and game_dt and game_dt <= last_game_start:
+                print(
+                    f"[TFT] {name}#{tag}: skipping {mid} as too old "
+                    f"(game_dt={game_dt}, last_game_start={last_game_start})"
+                )
                 known_ids.add(mid)
                 skipped_ids.add(mid)
                 continue
             queue_id = match["info"].get("queue_id")
             # 1100 = ranked TFT, 1130 = ranked double up
             if queue_id not in (1100, 1130):
+                print(
+                    f"[TFT] {name}#{tag}: skipping {mid}, queue_id={queue_id} "
+                    f"not in whitelist (1100, 1130)"
+                )
                 known_ids.add(mid)
                 skipped_ids.add(mid)
 
@@ -478,6 +489,13 @@ class TFTTracker(commands.Cog):
             new_match_id = mid
             new_match_data = match
             break
+
+        if not new_match_id:
+            print(
+                f"[TFT] {name}#{tag}: Phase 1 found {len(match_ids)} match id(s) "
+                f"({already_known} already known, {len(skipped_ids)} rejected), "
+                f"none accepted this poll"
+            )
 
         # ── Phase 2: check for LP change ─────────────────────────────────────
         entries = await self.riot.get_league_entries(region, puuid)
@@ -602,6 +620,7 @@ class TFTTracker(commands.Cog):
 
             if last_msg_id:
                 # Edit existing LP embed with placement data
+                edited = False
                 try:
                     msg = await channel.fetch_message(int(last_msg_id))
                     embed = msg.embeds[0]
@@ -616,9 +635,44 @@ class TFTTracker(commands.Cog):
                     if icon_url:
                         embed.set_thumbnail(url=icon_url)
                     await msg.edit(embed=embed)
+                    edited = True
                     print(f"[TFT] Edited embed for {name}#{tag}: #{placement}")
                 except Exception as e:
-                    print(f"[TFT] Failed to edit embed for {name}#{tag}: {e}")
+                    print(
+                        f"[TFT] Failed to edit embed for {name}#{tag} "
+                        f"(msg_id={last_msg_id}): {e!r}"
+                    )
+                if not edited:
+                    # The pending "*updating...*" message can no longer be fixed
+                    # (deleted, uncached, wrong channel, etc). Rather than leave
+                    # it stuck forever with no record of what happened, post the
+                    # placement as its own message so the info isn't lost.
+                    tier_lp_str = _format_rank(tier, div, raw_lp) if tier else "?"
+                    fallback_embed = discord.Embed(
+                        title=f"{name}#{tag}  •  Placement update",
+                        description=(
+                            f"Couldn't update the in-progress result message, "
+                            f"posting separately.\n**Rank:** {tier_lp_str}"
+                        ),
+                        color=0x4FBD6E if isinstance(placement, int) and placement <= 4 else 0x8B4A4A,
+                    )
+                    fallback_embed.add_field(
+                        name="Placement", value=f"**#{placement}**", inline=True
+                    )
+                    fallback_embed.add_field(
+                        name="Elims", value=f"**{eliminations}**", inline=True
+                    )
+                    fallback_embed.add_field(
+                        name="Damage", value=f"**{damage}**", inline=True
+                    )
+                    fallback_embed.add_field(
+                        name="Level", value=f"**{level}**", inline=True
+                    )
+                    if icon_url:
+                        fallback_embed.set_thumbnail(url=icon_url)
+                    fallback_embed.set_footer(text=f"Reverie  •  {channel.guild.name}")
+                    await channel.send(embed=fallback_embed)
+                    print(f"[TFT] Sent fallback placement message for {name}#{tag}")
             else:
                 # No pending LP embed — send fresh embed (placements / LP not yet updated)
                 won = isinstance(placement, int) and placement <= 4
