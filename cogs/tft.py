@@ -456,10 +456,8 @@ class TFTTracker(commands.Cog):
             set()
         )  # new IDs we've seen but aren't posting (too old / non-ranked)
 
-        already_known = 0
         for mid in match_ids:
             if mid in known_ids:
-                already_known += 1
                 continue
             match = await self.riot.get_match(routing, mid)
             if not match:
@@ -489,13 +487,6 @@ class TFTTracker(commands.Cog):
             new_match_id = mid
             new_match_data = match
             break
-
-        if not new_match_id:
-            print(
-                f"[TFT] {name}#{tag}: Phase 1 found {len(match_ids)} match id(s) "
-                f"({already_known} already known, {len(skipped_ids)} rejected), "
-                f"none accepted this poll"
-            )
 
         # ── Phase 2: check for LP change ─────────────────────────────────────
         entries = await self.riot.get_league_entries(region, puuid)
@@ -727,15 +718,25 @@ class TFTTracker(commands.Cog):
                 async with session.get(COMPANIONS_URL) as resp:
                     if resp.status == 200:
                         data = await resp.json(content_type=None)
+                        prefix = "/lol-game-data/assets/"
+                        base = "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/"
                         for c in data:
-                            raw = c.get("loadoutsIcon", "")
-                            url = raw.replace(
-                                "/lol-game-data/assets/ASSETS/Loadouts/Companions/",
-                                "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/loadouts/companions/",
-                            ).lower()
+                            raw = c.get("loadoutsIcon", "") or ""
+                            if raw.lower().startswith(prefix):
+                                url = base + raw[len(prefix):].lower()
+                            else:
+                                # Unexpected format — skip rather than store a broken link
+                                continue
                             self._companions[c.get("itemId")] = url
-            except Exception:
-                pass
+                        print(
+                            f"[TFT] Loaded {len(self._companions)} companion icons"
+                        )
+                    else:
+                        print(
+                            f"[TFT] Companions fetch returned status {resp.status}"
+                        )
+            except Exception as e:
+                print(f"[TFT] Failed to load companion icons: {e!r}")
 
         return self._companions.get(item_id)
 
