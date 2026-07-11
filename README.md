@@ -20,7 +20,22 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | 🎭 Role | Grants a Discord role on purchase |
 | ✨ Title | Equippable title shown on /points |
 | 🖊️ Custom Title | One-use item - member types their own title |
-| 🗑️ Role Remover | Consumable - removes one purchased shop role |
+| 🎯 Role Lock | Comp item - lock in a specific role for your next `/randomcomp` |
+| 🚫 Role Ban | Comp item - ban a role from being assigned to you |
+| 🌟 Agent Lock | Comp item - lock in a specific agent |
+| 🔄 Role Reroll | Comp item - reroll your assigned role |
+| 🔀 Role Swap | Comp item - swap roles with another player in the comp |
+| ⚖️ Role Weight | Comp item - bias the odds toward a chosen role |
+| 💀 Role Curse | Comp item - force a role onto another player |
+| ⬇️ Role Reduction | Comp item - reduce the odds of a chosen role |
+| 🪄 Curse Reduction | Comp item - reduce your odds of being cursed |
+
+Comp items are queued with `/useitem` (or during `/randomcomp` itself) and consumed on the next comp roll.
+
+### Persistent shop interface
+- `/setshopchannel` posts a permanent, self-updating shop message in a channel
+- Clicking **Browse & Buy** opens an ephemeral paginated menu, purchases process immediately
+- Auto-refreshes whenever items are added, removed or edited — survives bot restarts
 
 ### Valorant tracking
 - Polls the Henrik API every minute for new competitive games
@@ -58,7 +73,8 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | `/settitle <title>` | Equip a title to display on your /points profile |
 | `/setcustomtitle <text>` | Use a Custom Title item to set your own unique title (max 32 characters) |
 | `/rolepreview <item>` | Preview a role colour before buying |
-| `/removerole` | Use a Role Remover to remove one of your shop roles |
+| `/useitem` | Queue a comp item before your next `/randomcomp` |
+| `/cancelitem` | Cancel your currently queued comp item(s) |
 | `/answer` | Answer today's anonymous question - a modal appears with a random question |
 | `/dashboard` | Get the link to the Reverie dashboard |
 
@@ -71,7 +87,11 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | `/registerriot <name#tag> <region>` | Add a Riot account to server tracking (Valorant RR + TFT LP) |
 | `/unregisterriot <name#tag>` | Remove a Riot account from server tracking |
 | `/valleaderboard` | See current rank and RR for all registered players, sorted by ELO |
+| `/valduos [player1] [player2]` | Duo leaderboard for tracked players, or look up a specific pair |
+| `/valvs <player1> <player2> [region]` | Head-to-head stats comparison between two tracked players |
 | `/valstats <name#tag> <region> [detail]` | Valorant stats for any player. Detail options: `clutch`, `utility`, `behaviour`, `agents`, `maps` |
+| `/valclutches` | Clutch leaderboard for all tracked players, based on cached matches |
+| `/valtrend <name#tag>` | Performance trend — recent games compared to older cached games |
 | `/tftleaderboard` | TFT LP leaderboard for all tracked accounts |
 | `/tftstats <name#tag> <region>` | TFT ranked stats for any player: wins, losses, winrate and rank |
 | `/scoreboard` | Scoreboard for a match - provide a match ID or username, or reply to an RR update with `r!sb` |
@@ -106,7 +126,12 @@ Ranks use an infinite Greek letter system (alpha, beta, gamma... omega, alpha-al
 | `/setvalchannel #channel` | Set the channel for Valorant RR tracking updates and the daily summary |
 | `/valtrackerstatus` | Check if the RR tracker is running and see the status of all registered accounts |
 | `/valtrackertest <name#tag>` | Test the Henrik API for a specific account and see the raw response |
+| `/valforcepost <name#tag>` | Force-post the most recent match for a tracked account and update streak |
+| `/valcache` | Show how many matches are cached for each tracked account |
+| `/valbackfillstreak` | Backfill win/loss streaks from match history for all tracked accounts |
 | `/settftchannel #channel` | Set the channel for TFT LP tracking updates |
+| `/setshopchannel #channel` | Set the channel for the permanent shop interface |
+| `/refreshshop` | Force-rebuild and re-post the permanent shop embed |
 | `/mudaecleaner enabled:<bool> [delay:<duration>]` | Enable/disable the Mudae roll cleaner and set the deletion delay (e.g. `3h`) |
 
 ---
@@ -118,7 +143,8 @@ reverie/
 ├── bot.py                    - main entry point, DB setup, message tracking
 ├── config.py                 - constants and fallback settings
 ├── cogs/
-│   ├── shop.py               - dream shop, inventory, titles, role remover
+│   ├── shop.py               - dream shop, inventory, titles, comp items
+│   ├── persistent_shop.py    - self-updating permanent shop message in a channel
 │   ├── points.py             - /points, /leaderboard
 │   ├── voice.py              - voice session tracking
 │   ├── leaderboard.py        - extended leaderboard
@@ -157,6 +183,26 @@ cd reverie
 ```bash
 pip install -r requirements.txt
 ```
+
+`requirements.txt` is version-pinned for reproducible deploys. Over time, pins can go stale, for example, an old pinned version might not have a prebuilt wheel for whatever Python version you're developing with locally, causing a build failure. Two ways to refresh it:
+
+**Quick refresh (no extra tools):**
+```bash
+pip install --upgrade -r requirements.txt
+pip freeze > requirements.txt
+```
+
+**Using pip-tools (recommended if you update dependencies often):**
+
+`requirements.in` lists top-level dependencies without exact versions. `pip-compile` resolves it into a fully-pinned `requirements.txt`.
+
+```bash
+pip install pip-tools
+pip-compile requirements.in              # generate/refresh requirements.txt
+pip-compile --upgrade requirements.in    # bump everything to latest compatible versions
+```
+
+Either way, `requirements.txt` stays the single file used for actual installs/deploys, nothing else changes.
 
 ### 3. Configure environment
 
@@ -244,6 +290,7 @@ VOICE_TICK_SECONDS     = VOICE_BLOCK_MINUTES * 60
 | `questions` | Anonymous Q&A question pool |
 | `comp_rolls` | Valorant comp roll counts per member per week |
 | `val_games` | Per-game RR data for daily summaries |
+| `daily_snapshots` | Snapshot data used to build the Valorant daily summary |
 | `val_match_cache` | Cached Valorant match data for /valstats detail views |
 | `riot_accounts` | Registered Riot accounts, Valorant and TFT tracking state |
 | `mudae_deletions` | Pending Mudae message deletions |

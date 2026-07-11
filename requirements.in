@@ -1,0 +1,11 @@
+discord.py
+motor
+pymongo
+python-dotenv
+fastapi
+uvicorn
+jinja2
+httpx
+itsdangerous
+python-multipart
+aiohttp
