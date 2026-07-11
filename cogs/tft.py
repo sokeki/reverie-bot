@@ -109,7 +109,7 @@ class RiotAPI:
         url = f"https://{routing}.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids"
         params: dict = {"count": count}
         if start_time:
-            params["start"] = start_time
+            params["startTime"] = start_time
         result = await self._get(url, params=params)
         if isinstance(result, dict) and result.get("__bad_request__"):
             return "bad_request"
