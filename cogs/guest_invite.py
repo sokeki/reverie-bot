@@ -140,6 +140,7 @@ class GuestInvite(commands.Cog):
             "vc_id": vc_id,
             "vc_name": vc_name,
             "expires_at": datetime.now(timezone.utc).timestamp() + 600,
+            "uses": invite.uses,  # baseline use count, normally 0
         }
 
         embed = discord.Embed(
@@ -178,15 +179,36 @@ class GuestInvite(commands.Cog):
         except discord.Forbidden:
             return
 
-        # Find which pending invite was used
+        # Find which pending invite was actually used — by checking use
+        # counts, not just "some /guestinvite is gone or expired", which
+        # could wrongly attribute an unrelated join (e.g. via a manually
+        # created invite) to a stale, never-used guest invite.
         used_code = None
         for code, data in list(self.pending_invites.items()):
             if data["guild_id"] != guild.id:
                 continue
-            still_exists = any(i.code == code for i in current_invites)
-            if not still_exists or data.get("expires_at", 0) < now:
+
+            matched_invite = next(
+                (i for i in current_invites if i.code == code), None
+            )
+
+            if matched_invite is not None:
+                # Still exists — only a match if its use count actually rose
+                if matched_invite.uses > data.get("uses", 0):
+                    used_code = code
+                    break
+                continue
+
+            # Invite is gone entirely. Discord deletes a max_uses=1 invite
+            # the instant it's consumed, so disappearing *before* its own
+            # expiry means someone used it. Disappearing only once past its
+            # expiry means it just expired unused — don't attribute that to
+            # whoever happens to join next.
+            if now < data.get("expires_at", 0):
                 used_code = code
                 break
+            else:
+                del self.pending_invites[code]
 
         if not used_code:
             return
