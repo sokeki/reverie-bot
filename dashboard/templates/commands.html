@@ -7,20 +7,28 @@
     <p class="subtitle"><em>everything Reverie can do</em></p>
 </div>
 
+{% set tab_order = ['start', 'points', 'valorant', 'tft', 'dailyshop', 'social', 'admin', 'other'] %}
+{% set active_tabs = tab_order | select("in", categories.keys()) | list %}
+
+{% if not categories %}
+<div class="cmd-section">
+    <p style="opacity: 0.7;">Couldn't load the live command list from Discord right now. Try refreshing in a
+        moment — this page always reflects whatever's actually currently registered with Discord, so there's
+        nothing stale to fall back to.</p>
+</div>
+{% else %}
+
 <div class="toggle-pills docs-tabs" style="flex-wrap: wrap; margin-bottom: 1.5rem;">
-    <button class="toggle-pill active" data-tab="start" onclick="showDocsTab('start')">Getting Started</button>
-    <button class="toggle-pill" data-tab="points" onclick="showDocsTab('points')">Points &amp; Shop</button>
-    <button class="toggle-pill" data-tab="valorant" onclick="showDocsTab('valorant')">Valorant</button>
-    <button class="toggle-pill" data-tab="tft" onclick="showDocsTab('tft')">TFT</button>
-    <button class="toggle-pill" data-tab="dailyshop" onclick="showDocsTab('dailyshop')">Daily Shop</button>
-    <button class="toggle-pill" data-tab="social" onclick="showDocsTab('social')">Anonymous &amp; Guests</button>
-    <button class="toggle-pill" data-tab="admin" onclick="showDocsTab('admin')">Admin</button>
+    {% for tab in active_tabs %}
+    <button class="toggle-pill{% if loop.first %} active{% endif %}" data-tab="{{ tab }}"
+        onclick="showDocsTab('{{ tab }}')">{{ category_labels.get(tab, tab) }}</button>
+    {% endfor %}
 </div>
 
 <div class="commands-grid">
-
-    <!-- ── Getting Started ─────────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="start">
+    {% for tab in active_tabs %}
+    <div class="docs-panel" data-panel="{{ tab }}" {% if not loop.first %}style="display:none;"{% endif %}>
+        {% if tab == 'start' %}
         <div class="cmd-section">
             <h2>What is Reverie?</h2>
             <p style="line-height: 1.6; margin-bottom: 1rem;">
@@ -32,337 +40,31 @@
             </p>
             <a href="/" class="btn-sm">← Back to Overview</a>
         </div>
+        {% elif tab == 'tft' %}
         <div class="cmd-section">
-            <h2>Everyone</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/dashboard</div>
-                <div class="cmd-desc">Get the link to this dashboard.</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Points & Shop ────────────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="points" style="display:none;">
-        <div class="cmd-section">
-            <h2>Points</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/points [@user]</div>
-                <div class="cmd-desc">Check your dream points, voice time, rank, streak and comp roll history. Add
-                    <code>@user</code> to check someone else.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/leaderboard [top]</div>
-                <div class="cmd-desc">See the Hall of Dreamers. Sortable by points, rank, voice time or messages. Use
-                    <code>top</code> to change how many are shown.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Shop</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/shop</div>
-                <div class="cmd-desc">Browse the dream shop. 10 items per page, sorted by price then alphabetically.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/buy &lt;item&gt;</div>
-                <div class="cmd-desc">Purchase an item from the shop. Points are deducted instantly.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/inventory [@user]</div>
-                <div class="cmd-desc">See the items you own. Add <code>@user</code> to check someone else's inventory.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/equip</div>
-                <div class="cmd-desc">Equip a purchased role from your inventory. Shows a dropdown of your owned roles.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/unequip</div>
-                <div class="cmd-desc">Unequip a role you currently have equipped. Only shows roles you are currently wearing.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/settitle &lt;title&gt;</div>
-                <div class="cmd-desc">Equip a purchased title to display on your /points profile. Leave empty to remove your title.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setcustomtitle &lt;text&gt;</div>
-                <div class="cmd-desc">Use a Custom Title item to set your own unique title (max 32 characters). Consumes the item on use.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/rolepreview &lt;item&gt;</div>
-                <div class="cmd-desc">Preview a role item's colour before buying.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Comp Items</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/useitem</div>
-                <div class="cmd-desc">Queue a comp item before the next /randomcomp you're in.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/cancelitem</div>
-                <div class="cmd-desc">Cancel your currently queued comp items.</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Valorant ─────────────────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="valorant" style="display:none;">
-        <div class="cmd-section">
-            <h2>Tracking</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/registerriot &lt;name#tag&gt; &lt;region&gt;</div>
-                <div class="cmd-desc">Add a Riot account to server tracking. Automatically tracks both Valorant RR and TFT.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/unregisterriot &lt;name#tag&gt;</div>
-                <div class="cmd-desc">Remove a Riot account from server tracking.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Stats &amp; Leaderboards</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/valleaderboard</div>
-                <div class="cmd-desc">See the Valorant RR leaderboard for registered players.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valduos [player1] [player2]</div>
-                <div class="cmd-desc">Duo leaderboard for tracked players, or look up a specific pair.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valvs &lt;player1&gt; &lt;player2&gt;</div>
-                <div class="cmd-desc">Head-to-head stats comparison between two tracked Valorant players.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valstats &lt;name#tag&gt; &lt;region&gt; [detail]</div>
-                <div class="cmd-desc">Show Valorant stats for any player. Detail options: <code>clutch</code>, <code>utility</code>,
-                    <code>behaviour</code>, <code>agents</code>, <code>maps</code>.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/footshot &lt;name#tag&gt;</div>
-                <div class="cmd-desc">Check a player's shot accuracy across their last 10 competitive games.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/scoreboard [match id / username]</div>
-                <div class="cmd-desc">Show the scoreboard for a match. Provide a match ID or a username to use their latest game,
-                    or reply to an RR update with <code>r!sb</code>.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valclutches</div>
-                <div class="cmd-desc">Clutch leaderboard for all tracked players, based on cached matches.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valtrend &lt;name#tag&gt;</div>
-                <div class="cmd-desc">Performance trend — compares recent games vs older cached games.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Comp Roller</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/randomagent [role]</div>
-                <div class="cmd-desc">Get a random Valorant agent, optionally filtered by role.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/randomrole</div>
-                <div class="cmd-desc">Get a random Valorant role.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/randomcomp</div>
-                <div class="cmd-desc">Randomly assign 5 players to Valorant roles. Respects queued comp items — see
-                    <a href="#" onclick="showDocsTab('points'); return false;">Comp Items</a>.</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── TFT ──────────────────────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="tft" style="display:none;">
-        <div class="cmd-section">
-            <h2>TFT</h2>
             <p style="margin-bottom: 1rem; opacity: 0.8;">TFT tracking is enabled automatically for any account
                 added with <code>/registerriot</code>, there's no separate registration command.</p>
-            <div class="cmd-card">
-                <div class="cmd-name">/tftleaderboard</div>
-                <div class="cmd-desc">Show the TFT LP leaderboard for all tracked accounts. Fetches live LP on demand.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/tftstats &lt;name#tag&gt; &lt;region&gt;</div>
-                <div class="cmd-desc">Show detailed TFT ranked stats for any player — wins, losses, winrate and rank.</div>
-            </div>
         </div>
-    </div>
-
-    <!-- ── Daily Shop ───────────────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="dailyshop" style="display:none;">
+        {% elif tab == 'dailyshop' %}
         <div class="cmd-section">
-            <h2>Daily Shop</h2>
             <p style="margin-bottom: 1rem; opacity: 0.8;">Lets you check your personal Valorant storefront from
                 Discord. This is separate from the rank/stat tracking above, and requires linking your own Riot
-                account via a secure DM flow — your password is only ever typed into Riot's own login page, never
+                account via a secure DM flow, your password is only ever typed into Riot's own login page, never
                 stored.</p>
+        </div>
+        {% endif %}
+
+        <div class="cmd-section">
+            <h2>{{ category_labels.get(tab, tab) }}</h2>
+            {% for cmd in categories.get(tab, []) %}
             <div class="cmd-card">
-                <div class="cmd-name">/linkriot</div>
-                <div class="cmd-desc">Link your Riot account (via DM) to check your daily shop.</div>
+                <div class="cmd-name">{{ cmd.signature }}</div>
+                <div class="cmd-desc">{{ cmd.description }}</div>
             </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/dailyshop [member]</div>
-                <div class="cmd-desc">See your (or a linked friend's) daily Valorant shop.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/unlinkriot</div>
-                <div class="cmd-desc">Remove your linked Riot account from this bot.</div>
-            </div>
+            {% endfor %}
         </div>
     </div>
-
-    <!-- ── Anonymous & Guests ───────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="social" style="display:none;">
-        <div class="cmd-section">
-            <h2>Anonymous Q&amp;A</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/answer</div>
-                <div class="cmd-desc">Answer today's anonymous question.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Guest Invites</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/guestinvite</div>
-                <div class="cmd-desc">Generate a one-use guest invite — guest is moved to your VC when they join one,
-                    and removed if they leave it.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/drag @member</div>
-                <div class="cmd-desc">Drag a member into your current voice channel.</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── Admin ────────────────────────────────────────────────────────── -->
-    <div class="docs-panel" data-panel="admin" style="display:none;">
-        <div class="cmd-section">
-            <h2>Points &amp; Shop</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/addpoints @user &lt;amount&gt;</div>
-                <div class="cmd-desc">Add or remove dream points from a member.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/additem</div>
-                <div class="cmd-desc">Add an item to the dream shop.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/removeitem</div>
-                <div class="cmd-desc">Remove an item from the dream shop.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/edititem</div>
-                <div class="cmd-desc">Edit an existing item in the dream shop.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setshopchannel #channel</div>
-                <div class="cmd-desc">Set the channel for the permanent, self-updating shop interface.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/refreshshop</div>
-                <div class="cmd-desc">Force-rebuild and re-post the permanent shop embed.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Valorant &amp; TFT</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/setvalchannel #channel</div>
-                <div class="cmd-desc">Set the channel for Valorant RR and TFT tracking updates and the daily summary.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/settftchannel #channel</div>
-                <div class="cmd-desc">Set the channel for TFT LP tracking updates.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valtrackerstatus</div>
-                <div class="cmd-desc">Check if the RR tracker poll is running and see the status of all registered accounts.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valtrackertest &lt;name#tag&gt;</div>
-                <div class="cmd-desc">Test the Henrik API for a specific account and see the raw response.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valforcepost &lt;name#tag&gt;</div>
-                <div class="cmd-desc">Force-post the most recent match for a tracked account and update streak.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valcache</div>
-                <div class="cmd-desc">Show how many matches are cached for each tracked account.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/valbackfillstreak</div>
-                <div class="cmd-desc">Backfill win/loss streaks from match history for all tracked accounts.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Anonymous Q&amp;A</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/addquestion &lt;text&gt;</div>
-                <div class="cmd-desc">Add a question to the anonymous pool.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/removequestion</div>
-                <div class="cmd-desc">Remove a question from the anonymous pool.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/listquestions</div>
-                <div class="cmd-desc">List all questions in the pool.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setanswerchannel #channel</div>
-                <div class="cmd-desc">Set the channel where anonymous answers are posted.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setguessingrole @role</div>
-                <div class="cmd-desc">Set the role required to guess in the anonymous game.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setguesstimeout &lt;hours&gt;</div>
-                <div class="cmd-desc">Set how many hours guessing stays open.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setanonymouspoints &lt;amount&gt;</div>
-                <div class="cmd-desc">Set points awarded to the answerer after 3 wrong guesses.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setguesspoints &lt;amount&gt;</div>
-                <div class="cmd-desc">Set points awarded for a correct guess.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Recap &amp; Comp Winners</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/setrecapchannel #channel</div>
-                <div class="cmd-desc">Set the channel where the weekly recap is posted every Monday at midnight UTC.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/sendrecap [week:YYYY-MM-DD]</div>
-                <div class="cmd-desc">Manually trigger the weekly recap. Optionally specify a week start date.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setcompwinnerrole @role</div>
-                <div class="cmd-desc">Set the shared role given to all comp roll winners each week.</div>
-            </div>
-        </div>
-        <div class="cmd-section">
-            <h2>Guests &amp; Moderation</h2>
-            <div class="cmd-card">
-                <div class="cmd-name">/setinviterole @role</div>
-                <div class="cmd-desc">Set the role required to generate guest invites.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/setlingeringrole @role</div>
-                <div class="cmd-desc">Set the role that members must have to be dragged with /drag.</div>
-            </div>
-            <div class="cmd-card">
-                <div class="cmd-name">/mudaecleaner enabled:&lt;bool&gt; [delay:&lt;duration&gt;]</div>
-                <div class="cmd-desc">Enable or disable the Mudae roll cleaner. Set the delay before unclaimed rolls are
-                    deleted (e.g. <code>3h</code>). Defaults to 3 hours.</div>
-            </div>
-        </div>
-    </div>
-
+    {% endfor %}
 </div>
 
 <script>
@@ -378,10 +80,11 @@
 
     (function () {
         var initial = window.location.hash.replace('#', '');
-        var valid = ['start', 'points', 'valorant', 'tft', 'dailyshop', 'social', 'admin'];
+        var valid = {{ active_tabs | tojson }};
         if (valid.indexOf(initial) !== -1) {
             showDocsTab(initial);
         }
     })();
 </script>
+{% endif %}
 {% endblock %}

@@ -58,6 +58,108 @@ async def fetch_guild_roles() -> list[dict]:
         return roles
 
 
+# ── Live command docs ──────────────────────────────────────────────────────────
+# Rather than hand-maintain HTML for every command (which drifts the moment
+# a description or parameter changes in code), /commands fetches the actual
+# live, synced slash commands straight from Discord's API — the same data
+# Discord's own command picker uses. The one thing Discord's API can't tell
+# us is *which doc tab* a command belongs in, so that part stays a small,
+# manually-maintained map. A command missing from this map still shows up
+# (in "Uncategorized"), it just won't be silently lost.
+
+COMMAND_CATEGORIES: dict[str, list[str]] = {
+    "start": ["dashboard"],
+    "points": [
+        "points", "leaderboard", "shop", "buy", "inventory", "equip", "unequip",
+        "settitle", "setcustomtitle", "rolepreview", "useitem", "cancelitem",
+        "additem", "removeitem", "edititem", "addpoints", "setshopchannel",
+        "refreshshop",
+    ],
+    "valorant": [
+        "registerriot", "unregisterriot", "valleaderboard", "valduos", "valvs",
+        "valstats", "footshot", "scoreboard", "valclutches", "valtrend",
+        "randomagent", "randomrole", "randomcomp", "setvalchannel",
+        "valtrackerstatus", "valtrackertest", "valforcepost", "valcache",
+        "valbackfillstreak",
+    ],
+    "tft": ["tftleaderboard", "tftstats", "settftchannel"],
+    "dailyshop": ["linkriot", "dailyshop", "unlinkriot"],
+    "social": [
+        "answer", "addquestion", "removequestion", "listquestions",
+        "setanswerchannel", "setguessingrole", "setguesstimeout",
+        "setanonymouspoints", "setguesspoints", "guestinvite", "drag",
+        "setinviterole", "setlingeringrole", "setrecapchannel", "sendrecap",
+        "setcompwinnerrole", "mudaecleaner",
+    ],
+}
+
+CATEGORY_LABELS = {
+    "start": "Getting Started",
+    "points": "Points & Shop",
+    "valorant": "Valorant",
+    "tft": "TFT",
+    "dailyshop": "Daily Shop",
+    "social": "Anonymous & Guests",
+    "admin": "Admin",
+    "other": "Uncategorized",
+}
+
+
+def _format_command_signature(cmd: dict) -> str:
+    """Build a readable '/name <required> [optional]' string from Discord's
+    raw option list."""
+    parts = [f"/{cmd['name']}"]
+    for opt in cmd.get("options", []):
+        # Only top-level value options have a "name" meant to be shown as a
+        # param — subcommands/subcommand groups (type 1/2) aren't used by
+        # this bot, so we don't need to handle nesting here.
+        name = opt.get("name", "")
+        if opt.get("required"):
+            parts.append(f"<{name}>")
+        else:
+            parts.append(f"[{name}]")
+    return " ".join(parts)
+
+
+async def fetch_bot_commands() -> dict[str, list[dict]]:
+    """Fetch the live, currently-synced global slash commands from Discord
+    and sort them into doc categories. Returns {} on any failure — the
+    template handles that by showing a friendly message rather than
+    crashing the page."""
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"{DISCORD_API}/applications/{DISCORD_CLIENT_ID}/commands",
+                headers={"Authorization": f"Bot {BOT_TOKEN}"},
+            )
+            data = r.json()
+    except Exception:
+        return {}
+
+    if not isinstance(data, list):
+        return {}
+
+    name_to_category = {
+        name: cat for cat, names in COMMAND_CATEGORIES.items() for name in names
+    }
+
+    grouped: dict[str, list[dict]] = {}
+    for cmd in data:
+        is_admin = cmd.get("description", "").strip().startswith("[Admin]")
+        category = "admin" if is_admin else name_to_category.get(cmd["name"], "other")
+        grouped.setdefault(category, []).append(
+            {
+                "signature": _format_command_signature(cmd),
+                "description": cmd.get("description", "").removeprefix("[Admin]").strip(),
+            }
+        )
+
+    for cat in grouped:
+        grouped[cat].sort(key=lambda c: c["signature"])
+
+    return grouped
+
+
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -153,7 +255,9 @@ async def is_guild_admin(token: str) -> bool:
 
 @app.get("/login", response_class=HTMLResponse)
 async def login(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        "login.html", {"request": request, "guild_name": GUILD_NAME}
+    )
 
 
 @app.get("/auth")
@@ -757,12 +861,15 @@ async def commands_page(request: Request, user: dict | None = Depends(get_curren
     # Deliberately not require_user — this page should be viewable without
     # logging in (e.g. for a Riot Games reviewer who can't create a Discord
     # account or join the server during review).
+    categories = await fetch_bot_commands()
     return templates.TemplateResponse(
         "commands.html",
         {
             "request": request,
             "guild_name": GUILD_NAME,
             "user": user,
+            "categories": categories,
+            "category_labels": CATEGORY_LABELS,
         },
     )
 
