@@ -488,6 +488,17 @@ class TFTTracker(commands.Cog):
             new_match_data = match
             break
 
+        # Persist skipped/rejected IDs right away — without this, a non-ranked
+        # or too-old match that got rejected here would never be remembered,
+        # and would get re-fetched from Riot and re-logged on every single
+        # poll forever, since Case 1/Case 2 below only save known_ids when a
+        # ranked match is *also* found in the same poll.
+        if skipped_ids:
+            await self.bot.riot_accounts_col.update_one(
+                {"_id": account["_id"]},
+                {"$set": {"tft.last_match_ids": list(known_ids)[-50:]}},
+            )
+
         # ── Phase 2: check for LP change ─────────────────────────────────────
         entries = await self.riot.get_league_entries(region, puuid)
         if entries == "bad_request":
