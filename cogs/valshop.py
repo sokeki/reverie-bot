@@ -49,12 +49,52 @@ LOGIN_EMBED_DESCRIPTION = (
     "🔗 **[Click here to login]({url})**\n\n"
     "**Step 2:** After logging in, your browser will show an error page — "
     "this is normal!\n\n"
-    "**Step 3:** Copy the *entire* URL from your browser's address bar and "
-    "send it back here.\n\n"
+    "**Step 3:** Click the button below and paste the URL from your browser.\n\n"
     "-# Works with 2FA, Google, Facebook, Apple and all login methods. Tip: "
-    "check 'Stay signed in' to avoid being signed out. Delete your message "
-    "with the pasted URL afterwards, same as you would a password."
+    "check 'Stay signed in' to avoid being signed out."
 )
+
+
+class RiotLoginModal(discord.ui.Modal, title="Paste your login URL"):
+    url_input = discord.ui.TextInput(
+        label="URL from your browser's address bar",
+        style=discord.TextStyle.paragraph,
+        placeholder="http://localhost/redirect#access_token=...",
+        max_length=4000,
+    )
+
+    def __init__(self, on_submit_callback):
+        super().__init__()
+        self._on_submit_callback = on_submit_callback
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self._on_submit_callback(interaction, self.url_input.value)
+
+
+class RiotLoginView(discord.ui.View):
+    def __init__(self, on_submit_callback, timeout: int = 300):
+        super().__init__(timeout=timeout)
+        self._on_submit_callback = on_submit_callback
+        self.message: discord.Message | None = None
+
+    @discord.ui.button(
+        label="I've logged in — paste URL",
+        style=discord.ButtonStyle.primary,
+        emoji="📋",
+    )
+    async def paste_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_modal(RiotLoginModal(self._on_submit_callback))
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
 
 
 class ValShop(commands.Cog):
@@ -66,22 +106,33 @@ class ValShop(commands.Cog):
     async def _do_dm_login_flow(
         self, user: discord.User, dm: discord.DMChannel
     ) -> riot_auth.AuthSuccess | None:
-        """Sends the login link, waits for the user to paste back the
-        resulting URL, and returns the parsed tokens. Returns None (having
-        already told the user what happened) on timeout or a bad paste."""
+        """Sends the login link + a button that opens a paste-URL form, waits
+        for it to be submitted, and returns the parsed tokens. Returns None
+        (having already told the user what happened) on timeout or a bad
+        paste."""
         login_url = riot_auth.build_login_url()
         embed = discord.Embed(
             title="🔒 Login to your Riot Account",
             description=LOGIN_EMBED_DESCRIPTION.format(url=login_url),
             color=COLOUR_MAIN,
         )
-        await dm.send(embed=embed)
 
-        def check(m: discord.Message) -> bool:
-            return m.author.id == user.id and m.channel.id == dm.id
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+
+        async def handle_submit(modal_interaction: discord.Interaction, pasted_url: str):
+            if not future.done():
+                future.set_result(pasted_url)
+            await modal_interaction.response.send_message(
+                "✅ Got it, logging you in...", ephemeral=True
+            )
+
+        view = RiotLoginView(handle_submit)
+        msg = await dm.send(embed=embed, view=view)
+        view.message = msg
 
         try:
-            msg = await self.bot.wait_for("message", check=check, timeout=300)
+            pasted_url = await asyncio.wait_for(future, timeout=300)
         except asyncio.TimeoutError:
             await dm.send(
                 "⚠️ Timed out waiting for the URL — run the command again when ready."
@@ -89,13 +140,10 @@ class ValShop(commands.Cog):
             return None
 
         try:
-            auth = riot_auth.redeem_redirect_url(msg.content)
+            return riot_auth.redeem_redirect_url(pasted_url)
         except riot_auth.AuthenticationError as e:
             await dm.send(f"⚠️ {e}")
             return None
-
-        await dm.send("✅ Got it, logging you in...")
-        return auth
 
     # ── /linkriot ─────────────────────────────────────────────────────────────
 
