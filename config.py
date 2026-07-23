@@ -12,6 +12,11 @@ DB_NAME   = os.getenv("DB_NAME", "discord_points")
 # Generate one with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 FERNET_KEY = os.getenv("FERNET_KEY", "")
 
+# Full URL of the dashboard's /riot-callback route, e.g.
+# https://yourapp.herokuapp.com/riot-callback — used to build the /linkriot
+# login link so Riot redirects there instead of a dead localhost address.
+RIOT_CALLBACK_URL = os.getenv("RIOT_CALLBACK_URL", "")
+
 # ── Point rules ───────────────────────────────────────────────────────────────
 MESSAGES_PER_POINT     = 10   # messages needed to earn 1 point
 POINTS_PER_VOICE_BLOCK = 1    # points awarded per voice block

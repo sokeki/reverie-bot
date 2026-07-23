@@ -128,6 +128,47 @@ def _check_cloudflare_block(response: aiohttp.ClientResponse):
         )
 
 
+def build_login_url(redirect_uri: str, state: str) -> str:
+    """Login link for the dashboard auto-capture flow. redirect_uri should
+    point at the dashboard's /riot-callback route, with `state` baked into
+    its own query string (?state=...) so the query string survives the
+    redirect — Riot appends the tokens as a URL *fragment*
+    (#access_token=...), which sits after any existing query string and
+    never gets sent to any server on its own, the callback page's own JS
+    is what reads it and posts it back to us."""
+    from urllib.parse import urlencode
+
+    full_redirect = f"{redirect_uri}?{urlencode({'state': state})}"
+    params = {
+        "redirect_uri": full_redirect,
+        "client_id": "riot-client",
+        "response_type": "token id_token",
+        "scope": "openid link ban lol_region",
+        "nonce": "1",
+    }
+    return f"{AUTH_BASE}/authorize?{urlencode(params)}"
+
+
+def parse_cookie_string(raw: str) -> dict:
+    """Parses a raw 'Cookie:' request-header value (as copied from browser
+    DevTools) like 'name1=value1; name2=value2' into a dict. Used for the
+    manual/advanced linking path, for users who'd rather do this than the
+    normal login flow."""
+    cookies = {}
+    for part in raw.strip().split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        cookies[name.strip()] = value.strip()
+    if "ssid" not in cookies:
+        raise AuthenticationError(
+            "Couldn't find an 'ssid' cookie in that text — make sure you copied "
+            "the entire Cookie header value, not just part of it."
+        )
+    return cookies
+
+
 async def authorize(username: str, password: str) -> AuthSuccess:
     """Log in with username + password. Raises MFARequired if a 2FA code is
     needed, in which case call submit_mfa() with the attached cookies."""

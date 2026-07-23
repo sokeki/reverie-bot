@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reverie — Linking your Riot account</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+    <div class="grain"></div>
+    <main>
+        <div style="max-width: 480px; margin: 6rem auto; text-align: center; padding: 0 1.5rem;">
+            <h1 style="font-size: 1.5rem; margin-bottom: 0.5rem;" id="status">🌙 Logging you in...</h1>
+            <p style="opacity: 0.7;" id="detail">One moment.</p>
+        </div>
+    </main>
+
+    <script>
+    (async () => {
+        const statusEl = document.getElementById("status");
+        const detailEl = document.getElementById("detail");
+
+        const query = new URLSearchParams(window.location.search);
+        const state = query.get("state");
+        const fragment = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = fragment.get("access_token");
+        const idToken = fragment.get("id_token");
+
+        // Clear the sensitive fragment from the visible URL/history right away
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+
+        if (!state || !accessToken || !idToken) {
+            statusEl.textContent = "⚠️ Something went wrong";
+            detailEl.textContent = "Missing login information. Go back to Discord and run /linkriot again.";
+            return;
+        }
+
+        try {
+            const res = await fetch("/riot-callback/submit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ state, access_token: accessToken, id_token: idToken }),
+            });
+
+            if (res.ok) {
+                statusEl.textContent = "✅ You're linked!";
+                detailEl.textContent = "You can close this tab and go back to Discord.";
+            } else {
+                const data = await res.json().catch(() => ({}));
+                statusEl.textContent = "⚠️ Something went wrong";
+                detailEl.textContent = data.detail || "Go back to Discord and run /linkriot again.";
+            }
+        } catch (e) {
+            statusEl.textContent = "⚠️ Something went wrong";
+            detailEl.textContent = "Couldn't reach the server. Please try again.";
+        }
+    })();
+    </script>
+</body>
+</html>

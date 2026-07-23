@@ -86,6 +86,7 @@ items_col = _db["shop_items"]
 settings_col = _db["guild_settings"]
 questions_col = _db["questions"]
 daily_snapshots_col = _db["daily_snapshots"]
+riot_login_col = _db["riot_logins"]
 
 
 async def get_settings() -> dict:
@@ -232,6 +233,62 @@ async def avatar_proxy(url: str):
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login")
+
+
+# ── Riot account linking (auto-capture callback) ──────────────────────────────
+# This is NOT part of the dashboard's own Discord login/session system above —
+# it's a separate, unauthenticated flow: /linkriot in Discord sends the user
+# here via a Riot login link, this page's own JS reads the token Riot put in
+# the URL fragment and posts it back to us, matched to the right Discord user
+# via the one-time `state` value baked into the link.
+
+
+@app.get("/riot-callback", response_class=HTMLResponse)
+async def riot_callback_page(request: Request):
+    return templates.TemplateResponse("riot_callback.html", {"request": request})
+
+
+@app.post("/riot-callback/submit")
+async def riot_callback_submit(request: Request):
+    from datetime import timezone as _tz
+    from utils import riot_auth
+    from utils.crypto import encrypt_session
+
+    body = await request.json()
+    state = body.get("state")
+    access_token = body.get("access_token")
+    id_token = body.get("id_token")
+    if not state or not access_token or not id_token:
+        raise HTTPException(status_code=400, detail="Missing state or tokens.")
+
+    doc = await riot_login_col.find_one({"pending_state": state})
+    if not doc:
+        raise HTTPException(
+            status_code=400,
+            detail="This login link has expired or was already used. "
+            "Go back to Discord and run /linkriot again.",
+        )
+
+    try:
+        puuid = await riot_auth.get_puuid(access_token)
+        shard = await riot_auth.get_region(access_token, id_token)
+    except riot_auth.AuthenticationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    encrypted = encrypt_session({"access_token": access_token, "id_token": id_token})
+    await riot_login_col.update_one(
+        {"pending_state": state},
+        {
+            "$set": {
+                "puuid": puuid,
+                "shard": shard,
+                "session": encrypted,
+                "linked_at": datetime.now(_tz.utc),
+            },
+            "$unset": {"pending_state": ""},
+        },
+    )
+    return {"ok": True}
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
