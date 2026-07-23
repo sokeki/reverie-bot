@@ -54,6 +54,7 @@ COGS = [
     "cogs.rr_tracker",
     "cogs.mudae_cleaner",
     "cogs.tft",
+    "cogs.valshop",
 ]
 
 
@@ -80,6 +81,7 @@ async def on_ready():
     bot.val_match_cache_col = db["val_match_cache"]
     bot.mudae_deletions_col = db["mudae_deletions"]
     bot.daily_snapshots_col = db["daily_snapshots"]
+    bot.riot_login_col = db["riot_logins"]
 
     # Start daily snapshot task
     if not daily_snapshot.is_running():

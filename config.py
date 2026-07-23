@@ -8,6 +8,10 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DB_NAME   = os.getenv("DB_NAME", "discord_points")
 
+# Used to encrypt stored Riot session cookies for /linkriot + /dailyshop.
+# Generate one with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FERNET_KEY = os.getenv("FERNET_KEY", "")
+
 # ── Point rules ───────────────────────────────────────────────────────────────
 MESSAGES_PER_POINT     = 10   # messages needed to earn 1 point
 POINTS_PER_VOICE_BLOCK = 1    # points awarded per voice block
