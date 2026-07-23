@@ -11,7 +11,7 @@ from utils.crypto import encrypt_session, decrypt_session, is_configured
 
 COOKIE_WALKTHROUGH_DESCRIPTION = (
     "This is more technical, only use it if you're comfortable with browser "
-    "DevTools. In exchange, your session lasts **1-3 weeks** instead of ~1 hour.\n\n"
+    "DevTools.\n\n"
     "**Step 1:** Go to <https://account.riotgames.com> and make sure you're logged "
     "in (check 'Remember me').\n"
     "**Step 2:** Open a new tab, press F12 (or Ctrl+Shift+I) to open DevTools, and "
@@ -20,17 +20,31 @@ COOKIE_WALKTHROUGH_DESCRIPTION = (
     "you'll see \"An error occurred!\", that's expected, ignore it.\n"
     "**Step 4:** In the Network tab, find the request called `auth.riotgames.com`, "
     "click it, scroll to **Request Headers**, and find the **cookie** field.\n"
-    "**Step 5:** Copy the *entire* value of that field.\n"
-    "**Step 6:** Click the button below and paste it in.\n\n"
+    "**Step 5:** Pick one:\n"
+    "  • **Quick (~1 week session):** find **`ssid=`** inside the cookie field and "
+    "copy just that piece, from `ssid=` to the next semicolon (or the end, if it's "
+    "last). Paste it in the first box below.\n"
+    "  • **Longer (~3 week session):** copy the *entire* cookie field. If it's too "
+    "long for one box, split it roughly in half, ideally right at a `;` between two "
+    "cookies, paste the first half in the first box, the second half in the second "
+    "box, with no extra spaces added between them.\n"
+    "**Step 6:** Click the button below and paste using whichever method you picked.\n\n"
     "-# Works in Chrome/Edge/Opera. Firefox truncates long cookies and won't work here."
 )
 
 
 class CookiePasteModal(discord.ui.Modal, title="Paste your Riot cookie"):
-    cookie_input = discord.ui.TextInput(
-        label="Cookie header value from DevTools",
+    cookie_part1 = discord.ui.TextInput(
+        label="Cookie value (or first half, if it's long)",
         style=discord.TextStyle.paragraph,
-        placeholder="ssid=...; clid=...; asid=...",
+        placeholder="ssid=eyJhbGci... (or the full cookie header)",
+        max_length=4000,
+    )
+    cookie_part2 = discord.ui.TextInput(
+        label="Second half (only if you had to split it)",
+        style=discord.TextStyle.paragraph,
+        placeholder="Leave blank if everything fit in the box above",
+        required=False,
         max_length=4000,
     )
 
@@ -39,7 +53,8 @@ class CookiePasteModal(discord.ui.Modal, title="Paste your Riot cookie"):
         self._on_submit_callback = on_submit_callback
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self._on_submit_callback(interaction, self.cookie_input.value)
+        combined = self.cookie_part1.value + self.cookie_part2.value
+        await self._on_submit_callback(interaction, combined)
 
 
 class CookiePasteView(discord.ui.View):
