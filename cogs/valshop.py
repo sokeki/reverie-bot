@@ -1,12 +1,11 @@
 import asyncio
-import secrets
 from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import COLOUR_MAIN, RIOT_CALLBACK_URL
+from config import COLOUR_MAIN
 from utils import riot_auth
 from utils.crypto import encrypt_session, decrypt_session, is_configured
 
@@ -59,10 +58,40 @@ class CookiePasteView(discord.ui.View):
         await interaction.response.send_modal(CookiePasteModal(self._on_submit_callback))
 
 
-class CookieWalkthroughEntryView(discord.ui.View):
-    def __init__(self, cog: "ValShop", timeout: int = 600):
+class RiotLoginModal(discord.ui.Modal, title="Paste your login URL"):
+    url_input = discord.ui.TextInput(
+        label="URL from your browser's address bar",
+        style=discord.TextStyle.paragraph,
+        placeholder="http://localhost/redirect#access_token=...",
+        max_length=4000,
+    )
+
+    def __init__(self, on_submit_callback):
+        super().__init__()
+        self._on_submit_callback = on_submit_callback
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self._on_submit_callback(interaction, self.url_input.value)
+
+
+class RiotLoginView(discord.ui.View):
+    def __init__(self, cog: "ValShop", on_submit_callback, timeout: int = 300):
         super().__init__(timeout=timeout)
         self.cog = cog
+        self._on_submit_callback = on_submit_callback
+        self.message: discord.Message | None = None
+
+    @discord.ui.button(
+        label="I've logged in — paste URL",
+        style=discord.ButtonStyle.primary,
+        emoji="📋",
+    )
+    async def paste_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_modal(
+            RiotLoginModal(self._on_submit_callback)
+        )
 
     @discord.ui.button(
         label="Advanced: use browser cookies (lasts longer)",
@@ -83,6 +112,15 @@ class CookieWalkthroughEntryView(discord.ui.View):
         await interaction.response.send_message(
             embed=embed, view=CookiePasteView(handle_submit)
         )
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
 
 
 class ValShop(commands.Cog):
@@ -147,68 +185,85 @@ class ValShop(commands.Cog):
             ephemeral=True,
         )
 
-    async def _do_dashboard_login_flow(
+    async def _do_login_flow(
         self, user: discord.User, dm: discord.DMChannel
     ) -> bool:
-        """Sends the login link (dashboard auto-capture) + the advanced
-        cookie option, and polls the DB until either completes. Returns True
-        if a session was successfully stored, having already messaged the
-        user either way."""
-        if not RIOT_CALLBACK_URL:
-            await dm.send(
-                "⚠️ This feature isn't fully configured yet (missing "
-                "RIOT_CALLBACK_URL). Ask the bot owner to set it up."
-            )
-            return False
-
-        state = secrets.token_urlsafe(24)
-        await self.bot.riot_login_col.update_one(
-            {"user_id": user.id},
-            {
-                "$set": {
-                    "user_id": user.id,
-                    "pending_state": state,
-                    "pending_since": datetime.now(timezone.utc),
-                }
-            },
-            upsert=True,
-        )
-
-        login_url = riot_auth.build_login_url(RIOT_CALLBACK_URL, state)
+        """Sends the login link + paste-URL button (and the advanced cookie
+        option), waits for a submission, and stores whichever type of
+        session results. Returns True on success, having already messaged
+        the user either way."""
+        login_url = riot_auth.build_login_url()
         embed = discord.Embed(
             title="🔒 Login to your Riot Account",
             description=(
                 f"**Click the link below to log in:**\n\n"
                 f"🔗 **[Click here to login]({login_url})**\n\n"
-                f"Log in like normal, 2FA, Google, Apple, Facebook all work. "
-                f"Once you're done, come back here — it'll pick it up "
-                f"automatically, no need to copy/paste anything.\n\n"
+                f"After logging in, your browser will show an error page — "
+                f"this is normal! Copy the *entire* URL from your address bar "
+                f"and click the button below to paste it in.\n\n"
                 f"-# Session lasts about an hour this way. Want it to last "
-                f"1-3 weeks instead? Use the button below."
+                f"1-3 weeks instead? Use the advanced button below."
             ),
             color=COLOUR_MAIN,
         )
-        view = CookieWalkthroughEntryView(self)
-        await dm.send(embed=embed, view=view)
 
-        elapsed = 0
-        interval = 3
-        timeout = 300
-        while elapsed < timeout:
-            await asyncio.sleep(interval)
-            elapsed += interval
-            doc = await self.bot.riot_login_col.find_one({"user_id": user.id})
-            if doc and doc.get("pending_state") != state:
-                await dm.send("✅ You're linked!")
-                return True
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
 
+        async def handle_url_submit(modal_interaction: discord.Interaction, pasted_url: str):
+            if not future.done():
+                future.set_result(pasted_url)
+            await modal_interaction.response.send_message(
+                "✅ Got it, logging you in...", ephemeral=True
+            )
+
+        view = RiotLoginView(self, handle_url_submit)
+        msg = await dm.send(embed=embed, view=view)
+        view.message = msg
+
+        try:
+            pasted_url = await asyncio.wait_for(future, timeout=300)
+        except asyncio.TimeoutError:
+            await dm.send(
+                "⚠️ Timed out waiting for the URL — run the command again when ready."
+            )
+            return False
+
+        try:
+            auth = riot_auth.redeem_redirect_url(pasted_url)
+        except riot_auth.AuthenticationError as e:
+            await dm.send(f"⚠️ {e}")
+            return False
+
+        try:
+            puuid = await riot_auth.get_puuid(auth.access_token)
+            shard = await riot_auth.get_region(auth.access_token, auth.id_token)
+        except riot_auth.AuthenticationError as e:
+            await dm.send(f"⚠️ {e}")
+            return False
+
+        encrypted = encrypt_session(
+            {
+                "access_token": auth.access_token,
+                "id_token": auth.id_token,
+                "expires_at": auth.expires_at,
+            }
+        )
         await self.bot.riot_login_col.update_one(
-            {"user_id": user.id}, {"$unset": {"pending_state": ""}}
+            {"user_id": user.id},
+            {
+                "$set": {
+                    "user_id": user.id,
+                    "puuid": puuid,
+                    "shard": shard,
+                    "session": encrypted,
+                    "linked_at": datetime.now(timezone.utc),
+                }
+            },
+            upsert=True,
         )
-        await dm.send(
-            "⚠️ Timed out waiting for login — run the command again when ready."
-        )
-        return False
+        await dm.send("✅ You're linked!")
+        return True
 
     # ── /linkriot ─────────────────────────────────────────────────────────────
 
@@ -242,7 +297,7 @@ class ValShop(commands.Cog):
         else:
             await interaction.response.send_message("🌙 Let's get you linked!")
 
-        await self._do_dashboard_login_flow(interaction.user, dm)
+        await self._do_login_flow(interaction.user, dm)
 
     # ── /unlinkriot ───────────────────────────────────────────────────────────
 
@@ -344,7 +399,7 @@ class ValShop(commands.Cog):
                         ephemeral=True,
                     )
                     return
-                success = await self._do_dashboard_login_flow(interaction.user, dm)
+                success = await self._do_login_flow(interaction.user, dm)
                 if not success:
                     return
                 fresh_doc = await self.bot.riot_login_col.find_one(

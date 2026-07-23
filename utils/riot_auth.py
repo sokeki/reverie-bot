@@ -128,25 +128,35 @@ def _check_cloudflare_block(response: aiohttp.ClientResponse):
         )
 
 
-def build_login_url(redirect_uri: str, state: str) -> str:
-    """Login link for the dashboard auto-capture flow. redirect_uri should
-    point at the dashboard's /riot-callback route, with `state` baked into
-    its own query string (?state=...) so the query string survives the
-    redirect — Riot appends the tokens as a URL *fragment*
-    (#access_token=...), which sits after any existing query string and
-    never gets sent to any server on its own, the callback page's own JS
-    is what reads it and posts it back to us."""
+# Deliberately a non-existent local address. Riot's "riot-client" login only
+# accepts this one pre-registered redirect — it will reject (Illegal
+# redirect_uri parameter) any attempt to point it at our own domain instead,
+# since allowing arbitrary third-party redirect URIs under Riot's own client
+# ID would be a security hole. Since nothing's listening on localhost, the
+# browser shows a "can't reach this page" error — but the tokens are already
+# sitting in the address bar for the user to copy.
+LOGIN_REDIRECT_URI = "http://localhost/redirect"
+
+
+def build_login_url() -> str:
+    """The link the user opens in their own browser to log in normally."""
     from urllib.parse import urlencode
 
-    full_redirect = f"{redirect_uri}?{urlencode({'state': state})}"
     params = {
-        "redirect_uri": full_redirect,
+        "redirect_uri": LOGIN_REDIRECT_URI,
         "client_id": "riot-client",
         "response_type": "token id_token",
         "scope": "openid link ban lol_region",
         "nonce": "1",
     }
     return f"{AUTH_BASE}/authorize?{urlencode(params)}"
+
+
+def redeem_redirect_url(url: str) -> AuthSuccess:
+    """Parse the tokens out of the URL the user pastes back. No network
+    call — the tokens are already right there in the URL fragment."""
+    access_token, id_token = _extract_tokens_from_redirect(url.strip())
+    return AuthSuccess(access_token, id_token, {}, _decode_jwt_exp(access_token))
 
 
 def parse_cookie_string(raw: str) -> dict:
