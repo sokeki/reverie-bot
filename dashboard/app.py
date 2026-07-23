@@ -76,13 +76,16 @@ COMMAND_CATEGORIES: dict[str, list[str]] = {
         "refreshshop",
     ],
     "valorant": [
+        # Flat command names (if this bot ever reverts to that structure)...
         "registerriot", "unregisterriot", "valleaderboard", "valduos", "valvs",
         "valstats", "footshot", "scoreboard", "valclutches", "valtrend",
         "randomagent", "randomrole", "randomcomp", "setvalchannel",
         "valtrackerstatus", "valtrackertest", "valforcepost", "valcache",
         "valbackfillstreak",
+        # ...or the parent name, if they're grouped as /val <subcommand>
+        "val",
     ],
-    "tft": ["tftleaderboard", "tftstats", "settftchannel"],
+    "tft": ["tftleaderboard", "tftstats", "settftchannel", "tft"],
     "dailyshop": ["linkriot", "dailyshop", "unlinkriot"],
     "social": [
         "answer", "addquestion", "removequestion", "listquestions",
@@ -104,28 +107,33 @@ CATEGORY_LABELS = {
     "other": "Uncategorized",
 }
 
+# Discord option types that represent a subcommand level, not a real
+# parameter — 1 = SUB_COMMAND, 2 = SUB_COMMAND_GROUP. Everything else (3
+# STRING, 4 INTEGER, 5 BOOLEAN, 6 USER, 7 CHANNEL, 8 ROLE, 9 MENTIONABLE,
+# 10 NUMBER, 11 ATTACHMENT) is an actual parameter to display.
+_SUBCOMMAND_TYPES = (1, 2)
 
-def _format_command_signature(cmd: dict) -> str:
-    """Build a readable '/name <required> [optional]' string from Discord's
-    raw option list."""
-    parts = [f"/{cmd['name']}"]
-    for opt in cmd.get("options", []):
-        # Only top-level value options have a "name" meant to be shown as a
-        # param — subcommands/subcommand groups (type 1/2) aren't used by
-        # this bot, so we don't need to handle nesting here.
+
+def _format_params(options: list[dict]) -> str:
+    parts = []
+    for opt in options:
         name = opt.get("name", "")
-        if opt.get("required"):
-            parts.append(f"<{name}>")
-        else:
-            parts.append(f"[{name}]")
+        parts.append(f"<{name}>" if opt.get("required") else f"[{name}]")
     return " ".join(parts)
+
+
+def _strip_admin_prefix(description: str) -> tuple[str, bool]:
+    is_admin = description.strip().startswith("[Admin]")
+    return description.removeprefix("[Admin]").strip(), is_admin
 
 
 async def fetch_bot_commands() -> dict[str, list[dict]]:
     """Fetch the live, currently-synced global slash commands from Discord
-    and sort them into doc categories. Returns {} on any failure — the
-    template handles that by showing a friendly message rather than
-    crashing the page."""
+    and sort them into doc categories. Correctly handles both flat commands
+    (/addpoints) and grouped commands with subcommands (/val stats,
+    /tft leaderboard), rather than flattening subcommands into fake
+    parameters. Returns {} on any failure — the template handles that by
+    showing a friendly message rather than crashing the page."""
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get(
@@ -144,15 +152,45 @@ async def fetch_bot_commands() -> dict[str, list[dict]]:
     }
 
     grouped: dict[str, list[dict]] = {}
-    for cmd in data:
-        is_admin = cmd.get("description", "").strip().startswith("[Admin]")
-        category = "admin" if is_admin else name_to_category.get(cmd["name"], "other")
+
+    def add_entry(signature: str, description: str, category: str):
         grouped.setdefault(category, []).append(
-            {
-                "signature": _format_command_signature(cmd),
-                "description": cmd.get("description", "").removeprefix("[Admin]").strip(),
-            }
+            {"signature": signature.strip(), "description": description}
         )
+
+    for cmd in data:
+        top_options = cmd.get("options", [])
+        subcommands = [o for o in top_options if o.get("type") in _SUBCOMMAND_TYPES]
+        parent_category = name_to_category.get(cmd["name"])
+
+        if not subcommands:
+            # Flat command, e.g. /addpoints <member> <amount>
+            description, is_admin = _strip_admin_prefix(cmd.get("description", ""))
+            category = "admin" if is_admin else (parent_category or "other")
+            add_entry(
+                f"/{cmd['name']} " + _format_params(top_options), description, category
+            )
+            continue
+
+        for sub in subcommands:
+            if sub.get("type") == 2:
+                # SUB_COMMAND_GROUP — one more level of nesting to unwrap
+                nested = [o for o in sub.get("options", []) if o.get("type") == 1]
+                for n in nested:
+                    description, is_admin = _strip_admin_prefix(n.get("description", ""))
+                    category = "admin" if is_admin else (parent_category or "other")
+                    sig = f"/{cmd['name']} {sub['name']} {n['name']} " + _format_params(
+                        n.get("options", [])
+                    )
+                    add_entry(sig, description, category)
+            else:
+                # SUB_COMMAND, e.g. /val stats <name#tag> <region>
+                description, is_admin = _strip_admin_prefix(sub.get("description", ""))
+                category = "admin" if is_admin else (parent_category or "other")
+                sig = f"/{cmd['name']} {sub['name']} " + _format_params(
+                    sub.get("options", [])
+                )
+                add_entry(sig, description, category)
 
     for cat in grouped:
         grouped[cat].sort(key=lambda c: c["signature"])
