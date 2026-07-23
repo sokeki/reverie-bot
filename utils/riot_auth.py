@@ -1,27 +1,38 @@
 """
-Riot account linking via the browser-redirect flow — the user logs in on
-Riot's own real login page in their own browser, then pastes back the
-resulting (broken-looking) redirect URL, which has the tokens sitting in it.
+Riot RSO ("Riot Sign-On") authentication — scripted username/password login,
+with cookie-based reauth afterward so the user only has to log in again every
+1-3 weeks instead of every ~hour.
 
-This replaced an earlier version that POSTed the username/password directly
-from the bot's server. That approach hit Riot's hCaptcha/Cloudflare
-anti-automation wall reliably, since it looks exactly like what it is: a
-script logging in, not a person. This version never sends credentials
-anywhere from the bot at all — it can't be told apart from a normal login
-because it IS a normal login, just in the user's own browser.
+Flow:
+    1. authorize(username, password)  -> AuthSuccess | raises MFARequired
+    2. (if MFARequired) submit_mfa(cookies, code) -> AuthSuccess
+    3. Store AuthSuccess.cookies (encrypted!) — this is what makes long-lived
+       sessions possible without ever storing the password.
+    4. reauth_with_cookies(cookies) -> fresh AuthSuccess, using the stored
+       cookies, no password needed. Call this whenever you need a fresh
+       access_token — cheap, and doesn't consume the cookie's remaining
+       lifetime.
+    5. get_entitlement / get_puuid / get_region / get_storefront as needed.
 
-Trade-off: because the bot never sees the browser's session cookie (only the
-final URL the user copies), there's no silent background reauth. The access
-token is only good for about an hour; once it expires the user needs to
-click the login link and paste the URL again. That's an intentional
-trade-off for not touching credentials or long-lived session cookies at all.
+IMPORTANT — this uses a fixed set of request parameters (User-Agent,
+client_id, redirect_uri, scope, empty PKCE fields) confirmed against
+SkinPeek's current production source, since Riot's login endpoint will throw
+a hidden hCaptcha requirement at requests that don't match this shape
+closely enough (this is what broke an earlier version of this file that
+used a plain "RiotClient/..." User-Agent). If login starts failing again in
+the future, these are the values to check against SkinPeek's own repo again.
+
+Riot's login sometimes still blocks automated attempts outright (Cloudflare
+IP/hosting-reputation checks) — this can't be fixed with code, only by
+running from a different network. AuthenticationError messages try to make
+clear when that's what happened vs. genuinely wrong credentials.
 """
 
 import base64
 import json
 import time
-from dataclasses import dataclass
-from urllib.parse import parse_qsl, urlencode, urlparse
+from dataclasses import dataclass, field
+from urllib.parse import parse_qsl, urlparse
 
 import aiohttp
 
@@ -29,13 +40,6 @@ AUTH_BASE = "https://auth.riotgames.com"
 ENTITLEMENTS_URL = "https://entitlements.auth.riotgames.com/api/token/v1"
 USERINFO_URL = "https://auth.riotgames.com/userinfo"
 GEO_URL = "https://riot-geo.pas.si.riotgames.com/pas/v1/product/valorant"
-
-# Deliberately a non-existent local address. Riot still redirects here after
-# a successful login; since nothing's listening, the browser shows a "can't
-# reach this page" error — but the tokens are already sitting in the address
-# bar's URL for the user to copy. Using a real page (e.g. playvalorant.com)
-# instead would risk that page's own JS consuming/hiding the token first.
-LOGIN_REDIRECT_URI = "http://localhost/redirect"
 
 CLIENT_PLATFORM = base64.b64encode(
     json.dumps(
@@ -48,11 +52,255 @@ CLIENT_PLATFORM = base64.b64encode(
     ).encode()
 ).decode()
 
+HEADERS = {
+    "Content-Type": "application/json",
+    # NOT a RiotClient/... UA on purpose — that string currently triggers an
+    # hCaptcha requirement on auth.riotgames.com that a plain HTTP client
+    # can't solve. This value is what SkinPeek's own codebase switched to for
+    # the same reason (see their GitHub issue #93).
+    "User-Agent": "ShooterGame/13 Windows/10.0.19043.1.256.64bit",
+}
+
 # Riot Client version — fetched dynamically and cached, rather than
 # hardcoded, since a hardcoded value silently goes stale and starts causing
 # 404s on storefront requests. This community-maintained endpoint tracks
 # Riot's current build automatically (same source SkinPeek itself uses).
 _client_version_cache: str | None = None
+
+
+class AuthenticationError(Exception):
+    """Raised for bad credentials, rate limiting, or an unrecognized response."""
+
+
+class MFARequired(Exception):
+    """Raised when Riot wants a 2FA code. Carries the cookies needed to continue."""
+
+    def __init__(self, cookies: dict, email_hint: str = ""):
+        self.cookies = cookies
+        self.email_hint = email_hint
+        super().__init__("Multi-factor authentication code required")
+
+
+@dataclass
+class AuthSuccess:
+    access_token: str
+    id_token: str
+    cookies: dict = field(default_factory=dict)
+    expires_at: float = 0.0  # unix timestamp, from the access_token's own exp claim
+
+
+def _decode_jwt_exp(token: str) -> float:
+    try:
+        payload_b64 = token.split(".")[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+        exp = payload.get("exp")
+        if exp:
+            return float(exp)
+    except Exception:
+        pass
+    return time.time() + 3600
+
+
+def _cookies_to_dict(session: aiohttp.ClientSession) -> dict:
+    jar = session.cookie_jar.filter_cookies("https://auth.riotgames.com")
+    return {k: morsel.value for k, morsel in jar.items()}
+
+
+def _extract_tokens_from_redirect(uri: str) -> tuple[str, str]:
+    fragment = urlparse(uri).fragment
+    params = dict(parse_qsl(fragment))
+    access_token = params.get("access_token")
+    id_token = params.get("id_token")
+    if not access_token or not id_token:
+        raise AuthenticationError("Couldn't parse tokens from Riot's response.")
+    return access_token, id_token
+
+
+def _check_cloudflare_block(response: aiohttp.ClientResponse):
+    """A different failure mode from a real auth_failure — no amount of
+    request-body tweaking fixes this, only hosting on a different IP does."""
+    if response.status == 403 and response.headers.get("X-Frame-Options") == "SAMEORIGIN":
+        raise AuthenticationError(
+            "Blocked by Riot's Cloudflare firewall (HTTP 403). This usually means "
+            "the server's IP address/hosting provider is flagged — try running "
+            "this from a residential connection instead of a cloud host to confirm."
+        )
+
+
+async def authorize(username: str, password: str) -> AuthSuccess:
+    """Log in with username + password. Raises MFARequired if a 2FA code is
+    needed, in which case call submit_mfa() with the attached cookies."""
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        # Step 1: establish cookies.
+        # client_id "riot-client" + redirect_uri "http://localhost/redirect"
+        # is the native-client login shape — using the web client_id here
+        # instead is one of the things that causes a blanket auth_failure
+        # regardless of correct credentials.
+        await session.post(
+            f"{AUTH_BASE}/api/v1/authorization",
+            json={
+                "client_id": "riot-client",
+                "code_challenge": "",
+                "code_challenge_method": "",
+                "acr_values": "",
+                "claims": "",
+                "nonce": "1",
+                "redirect_uri": "http://localhost/redirect",
+                "response_type": "token id_token",
+                "scope": "openid link ban lol_region",
+            },
+        )
+
+        # Step 2: submit credentials
+        async with session.put(
+            f"{AUTH_BASE}/api/v1/authorization",
+            json={
+                "type": "auth",
+                "username": username,
+                "password": password,
+                "remember": True,
+                "language": "en_US",
+            },
+        ) as r:
+            _check_cloudflare_block(r)
+            data = await r.json()
+
+        cookies = _cookies_to_dict(session)
+        return _handle_auth_response(data, cookies)
+
+
+async def submit_mfa(cookies: dict, code: str) -> AuthSuccess:
+    """Complete login after MFARequired was raised."""
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        session.cookie_jar.update_cookies(cookies)
+        async with session.put(
+            f"{AUTH_BASE}/api/v1/authorization",
+            json={"type": "multifactor", "code": code, "rememberDevice": True},
+        ) as r:
+            _check_cloudflare_block(r)
+            data = await r.json()
+
+        new_cookies = _cookies_to_dict(session)
+        merged = {**cookies, **new_cookies}
+        return _handle_auth_response(data, merged, is_mfa_step=True)
+
+
+async def reauth_with_cookies(cookies: dict) -> AuthSuccess:
+    """Refresh tokens using previously stored cookies — no password needed.
+    This is what makes /dailyshop work without re-prompting login every
+    time. Eventually the cookie itself expires (Riot-side — roughly 1 week
+    if only the ssid cookie was kept, roughly 3 weeks with the full set —
+    at which point this raises AuthenticationError and the user needs to
+    /linkriot again."""
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        session.cookie_jar.update_cookies(cookies)
+        params = {
+            "redirect_uri": "https://playvalorant.com/opt_in",
+            "client_id": "play-valorant-web-prod",
+            "response_type": "token id_token",
+            "scope": "account openid",
+            "nonce": "1",
+        }
+        async with session.get(
+            f"{AUTH_BASE}/authorize", params=params, allow_redirects=False
+        ) as r:
+            _check_cloudflare_block(r)
+            location = r.headers.get("Location", "")
+
+        if not location or "access_token" not in location:
+            raise AuthenticationError(
+                "Stored session has expired — please /linkriot again."
+            )
+
+        access_token, id_token = _extract_tokens_from_redirect(location)
+        new_cookies = _cookies_to_dict(session)
+        return AuthSuccess(
+            access_token,
+            id_token,
+            {**cookies, **new_cookies},
+            _decode_jwt_exp(access_token),
+        )
+
+
+def _handle_auth_response(
+    data: dict, cookies: dict, is_mfa_step: bool = False
+) -> AuthSuccess:
+    resp_type = data.get("type")
+
+    if resp_type == "response":
+        uri = data["response"]["parameters"]["uri"]
+        access_token, id_token = _extract_tokens_from_redirect(uri)
+        return AuthSuccess(access_token, id_token, cookies, _decode_jwt_exp(access_token))
+
+    if resp_type == "multifactor" and not is_mfa_step:
+        email = data.get("multifactor", {}).get("email", "")
+        raise MFARequired(cookies, email_hint=email)
+
+    # Not a success — log the raw response so we can see exactly what Riot
+    # actually said, rather than guessing at error string names.
+    print(f"[RiotAuth] Non-success auth response: {json.dumps(data)}")
+
+    error = data.get("error", "")
+    if error in ("auth_failure", "invalid_credentials"):
+        raise AuthenticationError("Incorrect username or password.")
+    if error == "rate_limited":
+        raise AuthenticationError(
+            "Riot is rate-limiting login attempts — please wait a few minutes and try again."
+        )
+    if "captcha" in json.dumps(data).lower():
+        raise AuthenticationError(
+            "Riot's anti-bot check (CAPTCHA) blocked this login attempt. "
+            "This happens occasionally with automated logins — try again in a bit."
+        )
+
+    raise AuthenticationError(
+        f"Unexpected response from Riot during login (type={resp_type!r}). "
+        f"This usually means Riot changed something — the bot owner should check the logs."
+    )
+
+
+async def get_entitlement(access_token: str) -> str:
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        async with session.post(
+            ENTITLEMENTS_URL,
+            json={},
+            headers={"Authorization": f"Bearer {access_token}"},
+        ) as r:
+            data = await r.json()
+    token = data.get("entitlements_token")
+    if not token:
+        raise AuthenticationError("Couldn't fetch entitlement token.")
+    return token
+
+
+async def get_puuid(access_token: str) -> str:
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        async with session.get(
+            USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
+        ) as r:
+            data = await r.json()
+    puuid = data.get("sub")
+    if not puuid:
+        raise AuthenticationError("Couldn't fetch account PUUID.")
+    return puuid
+
+
+async def get_region(access_token: str, id_token: str) -> str:
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        async with session.put(
+            GEO_URL,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            json={"id_token": id_token},
+        ) as r:
+            data = await r.json()
+    shard = data.get("affinities", {}).get("live")
+    if not shard:
+        raise AuthenticationError("Couldn't determine account region/shard.")
+    return shard
 
 
 async def _get_client_version() -> str:
@@ -76,104 +324,6 @@ async def _get_client_version() -> str:
     return version
 
 
-class AuthenticationError(Exception):
-    """Raised when tokens can't be parsed or a Riot API call fails."""
-
-
-@dataclass
-class AuthSuccess:
-    access_token: str
-    id_token: str
-    expires_at: float  # unix timestamp
-
-
-def build_login_url() -> str:
-    """The link the user opens in their own browser to log in normally."""
-    params = {
-        "redirect_uri": LOGIN_REDIRECT_URI,
-        "client_id": "riot-client",
-        "response_type": "token id_token",
-        "scope": "openid link ban lol_region",
-        "nonce": "1",
-    }
-    return f"{AUTH_BASE}/authorize?{urlencode(params)}"
-
-
-def _decode_jwt_exp(token: str) -> float:
-    """Best-effort read of a JWT's exp claim, without verifying signature —
-    we're just reading our own token's stated lifetime, not trusting a
-    third party's, so this is fine."""
-    try:
-        payload_b64 = token.split(".")[1]
-        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(padded))
-        exp = payload.get("exp")
-        if exp:
-            return float(exp)
-    except Exception:
-        pass
-    return time.time() + 3600  # fallback: assume 1 hour
-
-
-def redeem_redirect_url(url: str) -> AuthSuccess:
-    """Parse the tokens out of the URL the user pastes back. No network
-    call — the tokens are already right there in the URL fragment."""
-    fragment = urlparse(url.strip()).fragment
-    params = dict(parse_qsl(fragment))
-    access_token = params.get("access_token")
-    id_token = params.get("id_token")
-    if not access_token or not id_token:
-        raise AuthenticationError(
-            "Couldn't find login tokens in that URL. Make sure you copied the "
-            "*entire* address bar contents after the error page loaded, "
-            "including everything after the #."
-        )
-    return AuthSuccess(access_token, id_token, _decode_jwt_exp(access_token))
-
-
-async def get_entitlement(access_token: str) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            ENTITLEMENTS_URL,
-            json={},
-            headers={"Authorization": f"Bearer {access_token}"},
-        ) as r:
-            data = await r.json()
-    token = data.get("entitlements_token")
-    if not token:
-        raise AuthenticationError("Couldn't fetch entitlement token.")
-    return token
-
-
-async def get_puuid(access_token: str) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(
-            USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
-        ) as r:
-            data = await r.json()
-    puuid = data.get("sub")
-    if not puuid:
-        raise AuthenticationError("Couldn't fetch account PUUID.")
-    return puuid
-
-
-async def get_region(access_token: str, id_token: str) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.put(
-            GEO_URL,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-            },
-            json={"id_token": id_token},
-        ) as r:
-            data = await r.json()
-    shard = data.get("affinities", {}).get("live")
-    if not shard:
-        raise AuthenticationError("Couldn't determine account region/shard.")
-    return shard
-
-
 async def get_storefront(
     access_token: str, entitlement: str, puuid: str, shard: str
 ) -> dict:
@@ -188,11 +338,7 @@ async def get_storefront(
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json={}) as r:
             if r.status != 200:
-                # Client version might have rotated mid-flight — clear the
-                # cache so the next attempt re-fetches a fresh one.
                 global _client_version_cache
                 _client_version_cache = None
-                raise AuthenticationError(
-                    f"Storefront request failed (HTTP {r.status})."
-                )
+                raise AuthenticationError(f"Storefront request failed (HTTP {r.status}).")
             return await r.json()

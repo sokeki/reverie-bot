@@ -44,106 +44,32 @@ def _decrypt(token) -> dict | None:
         return None
 
 
-LOGIN_EMBED_DESCRIPTION = (
-    "**Step 1:** Click the link below to log in:\n\n"
-    "🔗 **[Click here to login]({url})**\n\n"
-    "**Step 2:** After logging in, your browser will show an error page — "
-    "this is normal!\n\n"
-    "**Step 3:** Click the button below and paste the URL from your browser.\n\n"
-    "-# Works with 2FA, Google, Facebook, Apple and all login methods. Tip: "
-    "check 'Stay signed in' to avoid being signed out."
-)
-
-
-class RiotLoginModal(discord.ui.Modal, title="Paste your login URL"):
-    url_input = discord.ui.TextInput(
-        label="URL from your browser's address bar",
-        style=discord.TextStyle.paragraph,
-        placeholder="http://localhost/redirect#access_token=...",
-        max_length=4000,
-    )
-
-    def __init__(self, on_submit_callback):
-        super().__init__()
-        self._on_submit_callback = on_submit_callback
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await self._on_submit_callback(interaction, self.url_input.value)
-
-
-class RiotLoginView(discord.ui.View):
-    def __init__(self, on_submit_callback, timeout: int = 300):
-        super().__init__(timeout=timeout)
-        self._on_submit_callback = on_submit_callback
-        self.message: discord.Message | None = None
-
-    @discord.ui.button(
-        label="I've logged in — paste URL",
-        style=discord.ButtonStyle.primary,
-        emoji="📋",
-    )
-    async def paste_button(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        await interaction.response.send_modal(RiotLoginModal(self._on_submit_callback))
-
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except discord.HTTPException:
-                pass
-
-
 class ValShop(commands.Cog):
-    """Personal Valorant daily shop, via each user's own Riot login (browser-redirect flow)."""
+    """Personal Valorant daily shop, via each user's own Riot login (DM-only).
+
+    Stores the session cookie Riot returns (encrypted), not the password —
+    the password is only ever held in memory for the few seconds it takes to
+    log in, then discarded. The stored cookie is what lets /dailyshop work
+    for roughly 1-3 weeks without asking the user to log in again."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _do_dm_login_flow(
-        self, user: discord.User, dm: discord.DMChannel
-    ) -> riot_auth.AuthSuccess | None:
-        """Sends the login link + a button that opens a paste-URL form, waits
-        for it to be submitted, and returns the parsed tokens. Returns None
-        (having already told the user what happened) on timeout or a bad
-        paste."""
-        login_url = riot_auth.build_login_url()
-        embed = discord.Embed(
-            title="🔒 Login to your Riot Account",
-            description=LOGIN_EMBED_DESCRIPTION.format(url=login_url),
-            color=COLOUR_MAIN,
+    async def _store_session(self, user_id: int, auth: riot_auth.AuthSuccess, puuid: str, shard: str):
+        encrypted = _encrypt({"cookies": auth.cookies})
+        await self.bot.riot_login_col.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "puuid": puuid,
+                    "shard": shard,
+                    "session": encrypted,
+                    "linked_at": datetime.now(timezone.utc),
+                }
+            },
+            upsert=True,
         )
-
-        loop = asyncio.get_event_loop()
-        future: asyncio.Future = loop.create_future()
-
-        async def handle_submit(modal_interaction: discord.Interaction, pasted_url: str):
-            if not future.done():
-                future.set_result(pasted_url)
-            await modal_interaction.response.send_message(
-                "✅ Got it, logging you in...", ephemeral=True
-            )
-
-        view = RiotLoginView(handle_submit)
-        msg = await dm.send(embed=embed, view=view)
-        view.message = msg
-
-        try:
-            pasted_url = await asyncio.wait_for(future, timeout=300)
-        except asyncio.TimeoutError:
-            await dm.send(
-                "⚠️ Timed out waiting for the URL — run the command again when ready."
-            )
-            return None
-
-        try:
-            return riot_auth.redeem_redirect_url(pasted_url)
-        except riot_auth.AuthenticationError as e:
-            await dm.send(f"⚠️ {e}")
-            return None
 
     # ── /linkriot ─────────────────────────────────────────────────────────────
 
@@ -160,66 +86,96 @@ class ValShop(commands.Cog):
             )
             return
 
-        try:
-            dm = await interaction.user.create_dm()
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "⚠️ Couldn't open a DM with you — check your privacy settings.",
-                ephemeral=True,
-            )
-            return
-
         if interaction.guild is not None:
             await interaction.response.send_message(
                 "🌙 Check your DMs — let's get your account linked securely.",
                 ephemeral=True,
             )
-        else:
-            await interaction.response.send_message("🌙 Let's get you linked!")
-
-        auth = await self._do_dm_login_flow(interaction.user, dm)
-        if not auth:
-            return
 
         try:
-            puuid = await riot_auth.get_puuid(auth.access_token)
-            shard = await riot_auth.get_region(auth.access_token, auth.id_token)
-        except riot_auth.AuthenticationError as e:
-            await dm.send(f"⚠️ {e}")
+            dm = await interaction.user.create_dm()
+        except discord.Forbidden:
+            if interaction.guild is None:
+                await interaction.response.send_message(
+                    "⚠️ Couldn't open a DM with you.", ephemeral=True
+                )
             return
 
-        encrypted = _encrypt(
-            {
-                "access_token": auth.access_token,
-                "id_token": auth.id_token,
-                "expires_at": auth.expires_at,
-            }
-        )
-        await self.bot.riot_login_col.update_one(
-            {"user_id": interaction.user.id},
-            {
-                "$set": {
-                    "user_id": interaction.user.id,
-                    "puuid": puuid,
-                    "shard": shard,
-                    "session": encrypted,
-                    "linked_at": datetime.now(timezone.utc),
-                }
-            },
-            upsert=True,
-        )
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "🌙 Let's get your account linked securely, right here in DMs.",
+            )
 
-        embed = discord.Embed(
-            title="✅ Account linked",
-            description=(
-                "You can now use `/dailyshop`. Your login is only good for "
-                "about an hour at a time — after that, running `/dailyshop` "
-                "will just walk you through this same quick link + paste "
-                "step again."
-            ),
-            color=COLOUR_CONFIRM,
-        )
-        await dm.send(embed=embed)
+        def check(m: discord.Message) -> bool:
+            return m.author.id == interaction.user.id and m.channel.id == dm.id
+
+        try:
+            await dm.send(
+                "**Linking your Riot account**\n\n"
+                "This is only ever done here in DMs — never type your password "
+                "into a server channel or slash command.\n\n"
+                "First, what's the **username or email** you use to log into the "
+                "Riot Client? (Not your Riot ID/tag — the actual login name.)"
+            )
+            username_msg = await self.bot.wait_for(
+                "message", check=check, timeout=120
+            )
+            username = username_msg.content.strip()
+
+            await dm.send(
+                "Got it. Now send your **password**.\n"
+                "-# I can't delete this message for you in DMs — please delete it "
+                "yourself right after sending, as good practice."
+            )
+            password_msg = await self.bot.wait_for(
+                "message", check=check, timeout=120
+            )
+            password = password_msg.content.strip()
+
+            await dm.send("Logging in with Riot...")
+
+            try:
+                auth = await riot_auth.authorize(username, password)
+            except riot_auth.MFARequired as mfa:
+                hint = f" (sent to {mfa.email_hint})" if mfa.email_hint else ""
+                await dm.send(
+                    f"Riot sent a verification code{hint}. What's the code?"
+                )
+                code_msg = await self.bot.wait_for(
+                    "message", check=check, timeout=180
+                )
+                code = code_msg.content.strip()
+                auth = await riot_auth.submit_mfa(mfa.cookies, code)
+            finally:
+                # Discard credentials from memory as soon as we're done with them
+                username = password = None
+
+            puuid = await riot_auth.get_puuid(auth.access_token)
+            shard = await riot_auth.get_region(auth.access_token, auth.id_token)
+            await self._store_session(interaction.user.id, auth, puuid, shard)
+
+            embed = discord.Embed(
+                title="✅ Account linked",
+                description=(
+                    "You can now use `/dailyshop`. Your login should keep working "
+                    "for roughly 1-3 weeks without needing to relink — after that, "
+                    "or if Riot ends the session early, `/dailyshop` will just walk "
+                    "you through this again."
+                ),
+                color=COLOUR_CONFIRM,
+            )
+            await dm.send(embed=embed)
+
+        except asyncio.TimeoutError:
+            await dm.send("⚠️ Timed out waiting for a reply — run `/linkriot` again when ready.")
+        except riot_auth.AuthenticationError as e:
+            await dm.send(f"⚠️ {e}")
+        except Exception as e:
+            print(f"[ValShop] linkriot failed for {interaction.user}: {e!r}")
+            await dm.send(
+                "⚠️ Something went wrong linking your account. "
+                "The bot owner has been notified via console logs."
+            )
 
     # ── /unlinkriot ───────────────────────────────────────────────────────────
 
@@ -270,53 +226,23 @@ class ValShop(commands.Cog):
             )
             return
 
-        now = datetime.now(timezone.utc).timestamp()
-        needs_relogin = session.get("expires_at", 0) - 60 <= now
+        await interaction.response.defer()
 
-        if needs_relogin and target.id != interaction.user.id:
-            await interaction.response.send_message(
-                f"⚠️ **{target.display_name}**'s login has expired. "
-                f"They'll need to run `/linkriot` again themselves.",
-                ephemeral=True,
+        try:
+            auth = await riot_auth.reauth_with_cookies(session["cookies"])
+        except riot_auth.AuthenticationError:
+            await self.bot.riot_login_col.delete_one({"user_id": target.id})
+            who = "Your" if target.id == interaction.user.id else f"{target.display_name}'s"
+            await interaction.followup.send(
+                f"⚠️ {who} linked session has expired. Please `/linkriot` again."
             )
             return
 
-        if needs_relogin:
-            await interaction.response.send_message(
-                "🌙 Your login has expired — check your DMs to relink, "
-                "then I'll post your shop here once you're done.",
-                ephemeral=True,
-            )
-            try:
-                dm = await interaction.user.create_dm()
-            except discord.Forbidden:
-                await interaction.followup.send(
-                    "⚠️ Couldn't DM you — check your privacy settings.",
-                    ephemeral=True,
-                )
-                return
-            auth = await self._do_dm_login_flow(interaction.user, dm)
-            if not auth:
-                return
-            await self.bot.riot_login_col.update_one(
-                {"user_id": target.id},
-                {
-                    "$set": {
-                        "session": _encrypt(
-                            {
-                                "access_token": auth.access_token,
-                                "id_token": auth.id_token,
-                                "expires_at": auth.expires_at,
-                            }
-                        )
-                    }
-                },
-            )
-        else:
-            await interaction.response.defer()
-            auth = riot_auth.AuthSuccess(
-                session["access_token"], session["id_token"], session["expires_at"]
-            )
+        # Refresh stored cookies — Riot may rotate them on each reauth
+        await self.bot.riot_login_col.update_one(
+            {"user_id": target.id},
+            {"$set": {"session": _encrypt({"cookies": auth.cookies})}},
+        )
 
         try:
             entitlement = await riot_auth.get_entitlement(auth.access_token)
