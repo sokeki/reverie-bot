@@ -48,9 +48,32 @@ CLIENT_PLATFORM = base64.b64encode(
     ).encode()
 ).decode()
 
-# Riot Client version — this drifts over time. If storefront requests start
-# failing with 400s, this is the first thing to check/update.
-CLIENT_VERSION = "release-11.06-shipping-15-3831369"
+# Riot Client version — fetched dynamically and cached, rather than
+# hardcoded, since a hardcoded value silently goes stale and starts causing
+# 404s on storefront requests. This community-maintained endpoint tracks
+# Riot's current build automatically (same source SkinPeek itself uses).
+_client_version_cache: str | None = None
+
+
+async def _get_client_version() -> str:
+    global _client_version_cache
+    if _client_version_cache:
+        return _client_version_cache
+    async with aiohttp.ClientSession() as session:
+        async with session.get("https://valorant-api.com/v1/version") as r:
+            if r.status != 200:
+                raise AuthenticationError(
+                    "Couldn't fetch the current Valorant client version "
+                    "(valorant-api.com returned a non-200 status)."
+                )
+            data = await r.json()
+    version = data.get("data", {}).get("riotClientVersion")
+    if not version:
+        raise AuthenticationError(
+            "valorant-api.com/v1/version response didn't contain riotClientVersion."
+        )
+    _client_version_cache = version
+    return version
 
 
 class AuthenticationError(Exception):
@@ -154,18 +177,22 @@ async def get_region(access_token: str, id_token: str) -> str:
 async def get_storefront(
     access_token: str, entitlement: str, puuid: str, shard: str
 ) -> dict:
+    client_version = await _get_client_version()
     url = f"https://pd.{shard}.a.pvp.net/store/v3/storefront/{puuid}"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "X-Riot-Entitlements-JWT": entitlement,
-        "X-Riot-ClientVersion": CLIENT_VERSION,
+        "X-Riot-ClientVersion": client_version,
         "X-Riot-ClientPlatform": CLIENT_PLATFORM,
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json={}) as r:
             if r.status != 200:
+                # Client version might have rotated mid-flight — clear the
+                # cache so the next attempt re-fetches a fresh one.
+                global _client_version_cache
+                _client_version_cache = None
                 raise AuthenticationError(
-                    f"Storefront request failed (HTTP {r.status}). "
-                    f"If this persists, CLIENT_VERSION in riot_auth.py may need updating."
+                    f"Storefront request failed (HTTP {r.status})."
                 )
             return await r.json()
