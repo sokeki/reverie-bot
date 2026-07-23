@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reverie — Privacy Policy</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+    <div class="grain"></div>
+    <main>
+        <div style="max-width: 720px; margin: 3rem auto; padding: 0 1.5rem 4rem;">
+            <a href="/login" style="opacity: 0.7; text-decoration: none;">← Back</a>
+            <h1 style="margin-top: 1rem;">🌙 Reverie — Privacy Policy</h1>
+            <p style="opacity: 0.6; font-size: 0.9rem;">Last updated: 2026</p>
+
+            <h2>What we collect</h2>
+            <ul>
+                <li><strong>Discord account info:</strong> your Discord user ID, username, and avatar, used to
+                    identify you in the points/shop system and dashboard. We use Discord's own login
+                    (OAuth) for the dashboard, we never see your Discord password.</li>
+                <li><strong>Points/shop activity:</strong> your points balance, purchase history, and
+                    equipped items.</li>
+                <li><strong>Riot ID and match statistics:</strong> for players tracked in the Valorant/TFT
+                    features, we store their Riot ID, PUUID, and match statistics (rank, RR, K/D, headshot %,
+                    etc.) retrieved via the official Riot Games API, so we can post updates and stat
+                    comparisons.</li>
+                <li><strong>Optional: linked Riot session (daily shop feature).</strong> If you choose to use
+                    <code>/linkriot</code>, we store an encrypted session token so we can show your personal
+                    daily shop when you run <code>/dailyshop</code>. This is entirely opt-in. Your Riot
+                    password is never seen or stored at any point, only Riot's own login page ever sees it.
+                    You can remove this at any time with <code>/unlinkriot</code>, which deletes the stored
+                    session immediately.</li>
+            </ul>
+
+            <h2>How we use it</h2>
+            <p>Solely to provide the bot's features: posting updates, displaying stats, running the shop,
+               and fetching your daily shop when requested. We don't use this data for advertising, and we
+               don't sell or share it with third parties, other than the API calls to Riot Games' own
+               servers necessary to retrieve the data itself.</p>
+
+            <h2>Where it's stored</h2>
+            <p>Data is stored in a private database we control. Sensitive session tokens (from the optional
+               daily-shop feature) are encrypted at rest.</p>
+
+            <h2>Retention & deletion</h2>
+            <p>Points/shop and match-tracking data is kept for as long as you're tracked in the bot. You can
+               request full deletion of your data at any time by contacting a server admin. Linked Riot
+               sessions can be removed instantly and by yourself with <code>/unlinkriot</code>.</p>
+
+            <h2>Third-party services</h2>
+            <p>We use the official Riot Games API for match/rank data, and Discord's API for login and bot
+               functionality. Each is governed by its own privacy policy and terms.</p>
+
+            <h2>Changes</h2>
+            <p>This policy may be updated as the bot's features change. Material changes will be reflected
+               on this page.</p>
+
+            <h2>Contact</h2>
+            <p>For privacy questions or data deletion requests, contact the server admins through Discord.</p>
+        </div>
+    </main>
+</body>
+</html>

@@ -235,6 +235,21 @@ async def logout(request: Request):
     return RedirectResponse("/login")
 
 
+# ── Legal pages (public, no login required) ───────────────────────────────────
+# Deliberately NOT behind Depends(require_user) — reviewers (e.g. Riot's
+# developer relations team) need to view these without a Discord account.
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_page(request: Request):
+    return templates.TemplateResponse("terms.html", {"request": request})
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request):
+    return templates.TemplateResponse("privacy.html", {"request": request})
+
+
 # ── Riot account linking (auto-capture callback) ──────────────────────────────
 # This is NOT part of the dashboard's own Discord login/session system above —
 # it's a separate, unauthenticated flow: /linkriot in Discord sends the user
@@ -738,7 +753,10 @@ async def shop_delete(
 
 
 @app.get("/commands", response_class=HTMLResponse)
-async def commands_page(request: Request, user: dict = Depends(require_user)):
+async def commands_page(request: Request, user: dict | None = Depends(get_current_user)):
+    # Deliberately not require_user — this page should be viewable without
+    # logging in (e.g. for a Riot Games reviewer who can't create a Discord
+    # account or join the server during review).
     return templates.TemplateResponse(
         "commands.html",
         {

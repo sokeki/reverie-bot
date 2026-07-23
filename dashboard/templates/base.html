@@ -42,6 +42,7 @@
             {% endif %}
         </div>
         <div class="nav-user">
+            {% if user %}
             {% if user.avatar %}
             <img src="/avatar-proxy?url=https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png"
                 class="avatar" alt="avatar">
@@ -51,6 +52,9 @@
             <span class="username">{{ user.username }}</span>
             {% if user.is_admin %}<span class="badge">admin</span>{% endif %}
             <a href="/logout" class="logout">↩</a>
+            {% else %}
+            <a href="/login" class="discord-btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">Sign in</a>
+            {% endif %}
         </div>
     </nav>
 
