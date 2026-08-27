@@ -2751,6 +2751,14 @@ class RRTracker(commands.Cog):
                             rr_change=rc,
                             rr=r,
                             tier_from_history=t,
+                            # If this account's own directly-detected match is
+                            # a *different* one than what we're posting here
+                            # (they were just found as a co-participant in
+                            # someone else's match), their mmr-history will
+                            # already have moved past this match — retrying
+                            # for up to 3 minutes can't ever succeed, so skip
+                            # straight to the live-MMR fallback instead.
+                            skip_retry=puuid_ not in detected_puuids,
                         )
                     except Exception as e:
                         import traceback
@@ -2816,6 +2824,7 @@ class RRTracker(commands.Cog):
         rr_change: int = 0,
         rr: int = 0,
         tier_from_history: str = "",
+        skip_retry: bool = False,
     ):
         """Heavy lifting - build and send embed using RR data from history entry."""
         name = account["val_name"]
@@ -2843,8 +2852,11 @@ class RRTracker(commands.Cog):
                     f"[Val Tracker] RR change from match data for {name}#{tag}: {rr_change:+d}"
                 )
 
-        # Fallback: retry history until match appears (Henrik cache lag)
-        if rr_change == 0:
+        # Fallback: retry history until match appears (Henrik cache lag).
+        # Skipped entirely for co-participant posts (skip_retry=True) — for
+        # those, this match is guaranteed not to be the account's own most
+        # recent mmr-history entry, so no amount of retrying finds it.
+        if rr_change == 0 and not skip_retry:
             for attempt in range(12):  # up to 3 minutes (12 x 15s)
                 await asyncio.sleep(15)
                 print(
