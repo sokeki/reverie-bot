@@ -3664,47 +3664,27 @@ class RRTracker(commands.Cog):
         fb_per_game = round(stats.get("first_bloods", 0) / games, 2) if games else 0
         rounds = max(rounds_played, 1)
 
+        rows = [
+            ("Record", f"{wins}W - {losses}L ({winrate}%)"),
+            ("KDA", f"{kills}/{deaths}/{assists} ({kda})"),
+            ("HS%", f"{hs_pct}%"),
+            ("Avg Damage", f"{dmg_per_game}/game"),
+            ("ACS", f"{acs}"),
+            ("Clutch %", f"{clutch_pct}% ({clutch_wins}/{clutch_opps})"),
+            ("First Bloods", f"{fb_per_game}/game"),
+            ("Ability Casts", f"C {stats.get('c_cast', 0)} · Q {stats.get('q_cast', 0)} · E {stats.get('e_cast', 0)} · X {stats.get('x_cast', 0)}"),
+            ("AFK / Spawn", f"{stats.get('afk_rounds', 0)} / {stats.get('spawn_rounds', 0)} (of {rounds} rounds)"),
+            ("Friendly Fire", f"Out {stats.get('ff_outgoing', 0)} · In {stats.get('ff_incoming', 0)}"),
+        ]
+        label_width = max(len(label) for label, _ in rows)
+        table = "\n".join(f"{label:<{label_width}}  {value}" for label, value in rows)
+
         embed = discord.Embed(
             title=f"📊 {name}#{tag} — Lifetime Stats",
-            description=f"Across **{games}** tracked games",
-            color=COLOUR_MAIN,
-        )
-        embed.add_field(
-            name="Record", value=f"**{wins}W - {losses}L**\n({winrate}%)", inline=True
-        )
-        embed.add_field(
-            name="KDA", value=f"**{kills}/{deaths}/{assists}**\n({kda})", inline=True
-        )
-        embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
-        embed.add_field(
-            name="Avg Damage", value=f"**{dmg_per_game}**/game", inline=True
-        )
-        embed.add_field(name="ACS", value=f"**{acs}**", inline=True)
-        embed.add_field(
-            name="Clutch %",
-            value=f"**{clutch_pct}%**\n{clutch_wins}/{clutch_opps}",
-            inline=True,
-        )
-        embed.add_field(
-            name="First Bloods/g", value=f"**{fb_per_game}**", inline=True
-        )
-        embed.add_field(
-            name="Ability Casts",
-            value=(
-                f"C **{stats.get('c_cast', 0)}** · Q **{stats.get('q_cast', 0)}** · "
-                f"E **{stats.get('e_cast', 0)}** · X **{stats.get('x_cast', 0)}**"
+            description=(
+                f"Across **{games}** tracked games\n\n```\n{table}\n```"
             ),
-            inline=True,
-        )
-        embed.add_field(
-            name="AFK / Spawn Rounds",
-            value=f"**{stats.get('afk_rounds', 0)}** / **{stats.get('spawn_rounds', 0)}**\nof {rounds} rounds",
-            inline=True,
-        )
-        embed.add_field(
-            name="Friendly Fire",
-            value=f"Out **{stats.get('ff_outgoing', 0)}** · In **{stats.get('ff_incoming', 0)}**",
-            inline=True,
+            color=COLOUR_MAIN,
         )
         embed.set_footer(
             text="Only counts games tracked since lifetime tracking began, "
