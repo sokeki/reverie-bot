@@ -92,6 +92,7 @@ async def on_ready():
     await bot.users_col.create_index([("guild_id", 1), ("points", -1)])
     await bot.items_col.create_index([("guild_id", 1), ("name", 1)])
     await bot.val_match_cache_col.create_index([("puuid", 1), ("cached_at", -1)])
+    await bot.val_match_cache_col.create_index([("match_id", 1)])
 
     # Load all cogs
     for cog in COGS:

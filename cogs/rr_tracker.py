@@ -132,6 +132,164 @@ def _winning_team(match: dict) -> str:
     return ""
 
 
+def _match_all_players(match: dict) -> list[dict]:
+    raw_players = match.get("players", [])
+    if isinstance(raw_players, list):
+        return raw_players
+    if isinstance(raw_players, dict):
+        all_players = raw_players.get("all_players", [])
+        if not all_players:
+            all_players = []
+            for val in raw_players.values():
+                if isinstance(val, list):
+                    all_players.extend(val)
+        return all_players
+    return []
+
+
+def _match_map_name(match: dict) -> str:
+    raw_map = match.get("metadata", {}).get("map", "Unknown")
+    return raw_map if isinstance(raw_map, str) else raw_map.get("name", "Unknown")
+
+
+def _compute_clutches_and_first_bloods(match: dict, puuid: str) -> tuple[int, int, int]:
+    """Returns (clutch_opps, clutch_wins, first_bloods) for one player in one
+    match. Same round-by-round kill analysis as /valstats' clutch detail —
+    kept as its own function so both the live tracker and any backfill
+    script compute this identically."""
+    rounds = match.get("rounds", [])
+    all_p = _match_all_players(match)
+    team_map = {
+        p["puuid"]: p.get("team", "").lower() for p in all_p if isinstance(p, dict)
+    }
+    player_team = team_map.get(puuid, "")
+    if not player_team:
+        return 0, 0, 0
+
+    all_kills = match.get("kills", [])
+    kills_by_round: dict[int, list] = {}
+    for k in all_kills:
+        kills_by_round.setdefault(k.get("round", 0), []).append(k)
+
+    clutch_opps = clutch_wins = first_bloods = 0
+    teammate_puuids = {
+        p.get("puuid")
+        for p in all_p
+        if isinstance(p, dict)
+        and team_map.get(p.get("puuid", "")) == player_team
+        and p.get("puuid") != puuid
+    }
+
+    for rnd_idx, rnd in enumerate(rounds):
+        rnd_winner = rnd.get("winning_team", "").lower()
+        rnd_kills = sorted(
+            kills_by_round.get(rnd_idx, []),
+            key=lambda k: k.get("kill_time_in_round", 0),
+        )
+
+        if rnd_kills and rnd_kills[0].get("killer_puuid") == puuid:
+            first_bloods += 1
+
+        dead_puuids = {k.get("victim_puuid") for k in rnd_kills}
+        if not teammate_puuids.issubset(dead_puuids):
+            continue
+
+        player_death_time = next(
+            (
+                k.get("kill_time_in_round", 0)
+                for k in rnd_kills
+                if k.get("victim_puuid") == puuid
+            ),
+            float("inf"),
+        )
+        teammate_death_times = [
+            k.get("kill_time_in_round", 0)
+            for k in rnd_kills
+            if k.get("victim_puuid") in teammate_puuids
+        ]
+        if not teammate_death_times:
+            continue
+        last_teammate_death_time = max(teammate_death_times)
+
+        if last_teammate_death_time < player_death_time:
+            clutch_opps += 1
+            if rnd_winner == player_team:
+                clutch_wins += 1
+
+    return clutch_opps, clutch_wins, first_bloods
+
+
+def _extract_full_match_stats(match: dict, puuid: str) -> dict | None:
+    """Everything /valstats (base + all detail branches: clutch, utility,
+    behaviour, agents, maps) can show for one player in one match, in a
+    single pass. Used both live (when a new match is cached) and by any
+    backfill script, so lifetime records capture the full picture rather
+    than just K/D/A — once a match's raw cache entry gets evicted, this is
+    all that's left, so it needs to actually cover everything."""
+    all_p = _match_all_players(match)
+    player = next(
+        (p for p in all_p if isinstance(p, dict) and p.get("puuid") == puuid), None
+    )
+    if not player or "stats" not in player:
+        return None
+
+    stats = player["stats"]
+    team = (player.get("team_id") or player.get("team", "")).lower()
+    won = team == _winning_team(match).lower()
+    agent = player.get("agent", {}).get("name") or player.get("character", "Unknown")
+    rounds_played = match.get("metadata", {}).get("rounds_played", 0) or len(
+        match.get("rounds", [])
+    )
+    score = stats.get("score", 0)
+    acs = round(score / max(rounds_played, 1)) if rounds_played else 0
+
+    casts = player.get("ability_casts") or {}
+
+    afk_rounds = spawn_rounds = 0
+    for rnd in match.get("rounds", []):
+        for ps in rnd.get("player_stats", []):
+            if ps.get("player_puuid") == puuid:
+                if ps.get("was_afk"):
+                    afk_rounds += 1
+                if ps.get("stayed_in_spawn"):
+                    spawn_rounds += 1
+                break
+
+    behavior = player.get("behavior") or {}
+    ff = behavior.get("friendly_fire") or {}
+
+    clutch_opps, clutch_wins, first_bloods = _compute_clutches_and_first_bloods(
+        match, puuid
+    )
+
+    return {
+        "kills": stats.get("kills", 0),
+        "deaths": stats.get("deaths", 0),
+        "assists": stats.get("assists", 0),
+        "headshots": stats.get("headshots", 0),
+        "bodyshots": stats.get("bodyshots", 0),
+        "legshots": stats.get("legshots", 0),
+        "damage": player.get("damage_made", 0),
+        "score": score,
+        "rounds_played": rounds_played,
+        "acs": acs,
+        "won": won,
+        "agent": agent,
+        "map": _match_map_name(match),
+        "clutch_opps": clutch_opps,
+        "clutch_wins": clutch_wins,
+        "first_bloods": first_bloods,
+        "c_cast": casts.get("c_cast", 0),
+        "q_cast": casts.get("q_cast", 0),
+        "e_cast": casts.get("e_cast", 0),
+        "x_cast": casts.get("x_cast", 0),
+        "afk_rounds": afk_rounds,
+        "spawn_rounds": spawn_rounds,
+        "ff_outgoing": ff.get("outgoing", 0),
+        "ff_incoming": ff.get("incoming", 0),
+    }
+
+
 class RRTracker(commands.Cog):
     """Tracks Valorant RR gains and losses for registered members."""
 
@@ -145,11 +303,13 @@ class RRTracker(commands.Cog):
         self.poll_task.start()
         self.daily_summary_task.start()
         self.cache_repair_task.start()
+        self.match_cache_gc_task.start()
 
     def cog_unload(self):
         self.poll_task.cancel()
         self.daily_summary_task.cancel()
         self.cache_repair_task.cancel()
+        self.match_cache_gc_task.cancel()
         if self.session:
             self.bot.loop.create_task(self.session.close())
 
@@ -357,8 +517,14 @@ class RRTracker(commands.Cog):
         return full
 
     async def _trim_match_cache(self, puuid: str) -> None:
-        """No-op: deleting docs here removes match data for other tracked players.
-        Limit is applied at query time with .limit(20) instead."""
+        """No-op on every insert on purpose: per-player deletion here would
+        risk removing match data other tracked players' caches also rely on
+        (a single match can appear in multiple players' puuids lists).
+        Actual cleanup happens in match_cache_gc_task, once a day, which
+        keeps each tracked player's most recent 20 matches regardless of
+        calendar age and only deletes a match once it's fallen out of
+        EVERY tracked player's window — safe, since it's computed globally
+        rather than per-player."""
         pass
 
     # ── /registerriot ─────────────────────────────────────────────────────────
@@ -1265,7 +1431,13 @@ class RRTracker(commands.Cog):
                                             "puuids": all_puuids,
                                             "data": match,
                                             "cached_at": datetime.now(timezone.utc),
-                                            "has_rounds": True,
+                                            # Same fix as the live-posting
+                                            # insert — `match` here comes from
+                                            # the lightweight match-history
+                                            # endpoint, not the full-detail
+                                            # one, so it usually lacks
+                                            # rounds/kills data.
+                                            "has_rounds": bool(match.get("rounds")),
                                         }
                                     },
                                     upsert=True,
@@ -2785,6 +2957,7 @@ class RRTracker(commands.Cog):
                 headshots = player["stats"].get("headshots", 0)
                 bodyshots = player["stats"].get("bodyshots", 0)
                 legshots = player["stats"].get("legshots", 0)
+                damage = player.get("damage_made", 0)
                 total_shots = headshots + bodyshots + legshots
                 hs_pct = round(headshots / total_shots * 100) if total_shots > 0 else 0
                 agent = player.get("agent", {}).get("name") or player.get(
@@ -2794,6 +2967,13 @@ class RRTracker(commands.Cog):
                     player.get("team_id") or player.get("team", "")
                 ).lower() == _winning_team(latest).lower()
                 player_card_id = player.get("player_card")
+                # Full extraction (clutches, ACS, utility, behaviour) for the
+                # permanent lifetime record — separate from the variables
+                # above, which only feed this match's embed. Falls back to
+                # zeros for the extended fields if round data isn't in
+                # `latest` yet (cache_repair_task fills these in later once
+                # it is).
+                full_stats = _extract_full_match_stats(latest, puuid) or {}
 
                 player_team = (player.get("team_id") or player.get("team", "")).lower()
                 rounds_won = rounds_lost = 0
@@ -2909,7 +3089,16 @@ class RRTracker(commands.Cog):
                             "puuids": all_puuids,
                             "data": latest,
                             "cached_at": datetime.now(timezone.utc),
-                            "has_rounds": True,
+                            # Reflect reality rather than assuming — `latest`
+                            # here comes from a lightweight match-history
+                            # fetch (_get_match_details), not the full
+                            # match-detail endpoint, so it usually does NOT
+                            # have rounds/kills data. Hardcoding True here
+                            # meant cache_repair_task (which only looks for
+                            # has_rounds=False) would never find and correct
+                            # these — silently locking clutch/AFK/first-blood
+                            # stats at zero forever.
+                            "has_rounds": bool(latest.get("rounds")),
                         }
                     )
                     await self._trim_match_cache(account.get("puuid", ""))
@@ -2932,9 +3121,63 @@ class RRTracker(commands.Cog):
                 "kills": kills,
                 "deaths": deaths,
                 "assists": assists,
+                "headshots": headshots,
+                "bodyshots": bodyshots,
+                "legshots": legshots,
+                "damage": damage,
                 "agent": agent,
                 "map": map_name,
+                "score": full_stats.get("score", 0),
+                "rounds_played": full_stats.get("rounds_played", 0),
+                "acs": full_stats.get("acs", 0),
+                "clutch_opps": full_stats.get("clutch_opps", 0),
+                "clutch_wins": full_stats.get("clutch_wins", 0),
+                "first_bloods": full_stats.get("first_bloods", 0),
+                "c_cast": full_stats.get("c_cast", 0),
+                "q_cast": full_stats.get("q_cast", 0),
+                "e_cast": full_stats.get("e_cast", 0),
+                "x_cast": full_stats.get("x_cast", 0),
+                "afk_rounds": full_stats.get("afk_rounds", 0),
+                "spawn_rounds": full_stats.get("spawn_rounds", 0),
+                "ff_outgoing": full_stats.get("ff_outgoing", 0),
+                "ff_incoming": full_stats.get("ff_incoming", 0),
             }
+        )
+
+        # One-entry-per-player running rollup, kept on the account doc
+        # itself since that's already exactly one document per tracked
+        # player. Makes /vallifetime a single-document read instead of an
+        # aggregation over every game every time — matters as history grows.
+        # val_games_col stays the detailed per-game source of truth; this is
+        # a denormalized cache of the sums, incremented alongside it.
+        await self.bot.riot_accounts_col.update_one(
+            {"_id": account["_id"]},
+            {
+                "$inc": {
+                    "lifetime.games": 1,
+                    "lifetime.wins": 1 if won else 0,
+                    "lifetime.kills": kills,
+                    "lifetime.deaths": deaths,
+                    "lifetime.assists": assists,
+                    "lifetime.headshots": headshots,
+                    "lifetime.bodyshots": bodyshots,
+                    "lifetime.legshots": legshots,
+                    "lifetime.damage": damage,
+                    "lifetime.score": full_stats.get("score", 0),
+                    "lifetime.rounds_played": full_stats.get("rounds_played", 0),
+                    "lifetime.clutch_opps": full_stats.get("clutch_opps", 0),
+                    "lifetime.clutch_wins": full_stats.get("clutch_wins", 0),
+                    "lifetime.first_bloods": full_stats.get("first_bloods", 0),
+                    "lifetime.c_cast": full_stats.get("c_cast", 0),
+                    "lifetime.q_cast": full_stats.get("q_cast", 0),
+                    "lifetime.e_cast": full_stats.get("e_cast", 0),
+                    "lifetime.x_cast": full_stats.get("x_cast", 0),
+                    "lifetime.afk_rounds": full_stats.get("afk_rounds", 0),
+                    "lifetime.spawn_rounds": full_stats.get("spawn_rounds", 0),
+                    "lifetime.ff_outgoing": full_stats.get("ff_outgoing", 0),
+                    "lifetime.ff_incoming": full_stats.get("ff_incoming", 0),
+                }
+            },
         )
 
     # ── Daily summary (midnight UTC) ──────────────────────────────────────────
@@ -3070,16 +3313,82 @@ class RRTracker(commands.Cog):
                     for p in all_p
                     if isinstance(p, dict) and p.get("puuid")
                 ]
+                # Store the freshly-fetched full data right away — cheap and
+                # harmless either way. Deliberately NOT marking has_rounds
+                # True yet, though: that flag is what tells this task "don't
+                # revisit this match again", so if the lifetime-correction
+                # loop below fails partway through, we want this match to
+                # still show up next cycle rather than being silently
+                # skipped forever with its stats permanently uncorrected.
                 await self.bot.val_match_cache_col.update_one(
                     {"match_id": match_id},
                     {
                         "$set": {
                             "data": data,
                             "puuids": all_puuids,
-                            "has_rounds": True,
                             "cached_at": datetime.now(timezone.utc),
                         }
                     },
+                )
+
+                # Now that full round data exists, re-extract stats for any
+                # record — the initial live insert may have only had
+                # partial data, meaning clutch/AFK/utility fields could
+                # have been locked in at 0 just from fetch timing.
+                for p_puuid in all_puuids:
+                    accounts = await self.bot.riot_accounts_col.find(
+                        {"puuid": p_puuid}, {"guild_id": 1, "puuid": 1}
+                    ).to_list(length=None)
+                    if not accounts:
+                        continue
+                    full_stats = _extract_full_match_stats(data, p_puuid)
+                    if not full_stats:
+                        continue
+                    updated_fields = (
+                        "score", "rounds_played", "acs", "clutch_opps",
+                        "clutch_wins", "first_bloods", "c_cast", "q_cast",
+                        "e_cast", "x_cast", "afk_rounds", "spawn_rounds",
+                        "ff_outgoing", "ff_incoming",
+                    )
+                    for account in accounts:
+                        # Read the old values first so we can apply the
+                        # *delta* to the lifetime rollup below, rather than
+                        # blindly re-adding the new values (which would
+                        # double-count anything that was already non-zero).
+                        old_doc = await self.bot.val_games_col.find_one(
+                            {
+                                "puuid": p_puuid,
+                                "match_id": match_id,
+                                "guild_id": account.get("guild_id"),
+                            }
+                        )
+                        if not old_doc:
+                            continue  # nothing to correct if it was never recorded
+
+                        await self.bot.val_games_col.update_one(
+                            {"_id": old_doc["_id"]},
+                            {
+                                "$set": {
+                                    field: full_stats[field] for field in updated_fields
+                                }
+                            },
+                        )
+
+                        deltas = {
+                            f"lifetime.{field}": full_stats[field] - (old_doc.get(field) or 0)
+                            for field in updated_fields
+                        }
+                        # $inc with a value of 0 is harmless but pointless —
+                        # skip fields that didn't actually change.
+                        deltas = {k: v for k, v in deltas.items() if v}
+                        if deltas:
+                            await self.bot.riot_accounts_col.update_one(
+                                {"_id": account["_id"]}, {"$inc": deltas}
+                            )
+                # Only now, after the correction succeeded, mark this match
+                # as fully repaired so it isn't revisited again.
+                await self.bot.val_match_cache_col.update_one(
+                    {"match_id": match_id}, {"$set": {"has_rounds": True}}
                 )
                 repaired += 1
                 await asyncio.sleep(1)  # be gentle with the API
@@ -3092,6 +3401,59 @@ class RRTracker(commands.Cog):
     async def before_cache_repair(self):
         await self.bot.wait_until_ready()
         await asyncio.sleep(15)  # Let API session initialise
+
+    @tasks.loop(hours=24)
+    async def match_cache_gc_task(self):
+        """Keep each tracked player's most recent 20 cached matches, delete
+        anything that's fallen out of EVERY tracked player's recent window.
+
+        This replaces age-based expiry on purpose: a player who hasn't
+        played in months should still have their last 20 matches available,
+        not have them silently expire just because time passed. A match
+        only gets deleted once every tracked player who was ever in it has
+        played 20+ newer games since — i.e. genuinely nobody's stats need
+        it anymore, regardless of how long that took."""
+        try:
+            accounts = await self.bot.riot_accounts_col.find(
+                {}, {"puuid": 1}
+            ).to_list(length=None)
+            tracked_puuids = {a["puuid"] for a in accounts if a.get("puuid")}
+
+            keep_ids: set[str] = set()
+            for puuid in tracked_puuids:
+                recent = (
+                    await self.bot.val_match_cache_col.find(
+                        {"$or": [{"puuid": puuid}, {"puuids": puuid}]},
+                        {"match_id": 1},
+                    )
+                    .sort("cached_at", -1)
+                    .limit(20)
+                    .to_list(length=20)
+                )
+                keep_ids.update(m["match_id"] for m in recent if m.get("match_id"))
+
+            if not keep_ids:
+                # Safety guard: never wipe everything just because something
+                # went wrong building the keep-set (e.g. no accounts found).
+                print("[MatchCacheGC] keep_ids empty — skipping this run to be safe")
+                return
+
+            result = await self.bot.val_match_cache_col.delete_many(
+                {"match_id": {"$nin": list(keep_ids)}}
+            )
+            if result.deleted_count:
+                print(
+                    f"[MatchCacheGC] Deleted {result.deleted_count} stale cached "
+                    f"matches, kept {len(keep_ids)} across {len(tracked_puuids)} "
+                    f"tracked players"
+                )
+        except Exception as e:
+            print(f"[MatchCacheGC] Failed: {e!r}")
+
+    @match_cache_gc_task.before_loop
+    async def before_match_cache_gc(self):
+        await self.bot.wait_until_ready()
+        await asyncio.sleep(30)
 
     # ── /valclutches ─────────────────────────────────────────────────────────
 
@@ -3228,6 +3590,114 @@ class RRTracker(commands.Cog):
             color=COLOUR_LB,
         )
         embed.set_footer(text=f"Tracked matches only  •  Reverie  •  {guild.name}")
+        await interaction.followup.send(embed=embed)
+
+    # ── /vallifetime ──────────────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="vallifetime",
+        description="See a tracked player's lifetime Valorant stats",
+    )
+    @app_commands.describe(username="Riot ID e.g. Name#TAG")
+    @app_commands.autocomplete(username=_tracked_accounts_ac)
+    async def vallifetime(self, interaction: discord.Interaction, username: str):
+        if "#" not in username:
+            await interaction.response.send_message(
+                "⚠️ Include the tag, e.g. `Name#EUW`.", ephemeral=True
+            )
+            return
+        name, tag = username.split("#", 1)
+        await interaction.response.defer()
+
+        account = await self.bot.riot_accounts_col.find_one(
+            {"guild_id": interaction.guild_id, "val_name": name, "val_tag": tag}
+        )
+        if not account:
+            await interaction.followup.send(
+                f"⚠️ **{username}** isn't tracked in this server."
+            )
+            return
+
+        # Single-document read of the running rollup — no aggregation
+        # needed, val_games_col stays the detailed per-game history but
+        # isn't touched here at all.
+        stats = account.get("lifetime") or {}
+        if not stats.get("games"):
+            await interaction.followup.send(
+                f"⚠️ No lifetime data recorded yet for **{username}** — this builds up "
+                f"from games tracked going forward, not historical matches from before "
+                f"this feature existed."
+            )
+            return
+
+        games = stats.get("games", 0)
+        wins = stats.get("wins", 0)
+        losses = games - wins
+        winrate = round(wins / games * 100) if games else 0
+        kills = stats.get("kills", 0)
+        deaths = stats.get("deaths", 0)
+        assists = stats.get("assists", 0)
+        kda = round((kills + assists) / max(deaths, 1), 2)
+        headshots = stats.get("headshots", 0)
+        bodyshots = stats.get("bodyshots", 0)
+        legshots = stats.get("legshots", 0)
+        total_shots = headshots + bodyshots + legshots
+        hs_pct = round(headshots / total_shots * 100) if total_shots else 0
+        dmg_per_game = round(stats.get("damage", 0) / games) if games else 0
+        rounds_played = stats.get("rounds_played", 0)
+        acs = round(stats.get("score", 0) / max(rounds_played, 1))
+        clutch_opps = stats.get("clutch_opps", 0)
+        clutch_wins = stats.get("clutch_wins", 0)
+        clutch_pct = round(clutch_wins / clutch_opps * 100) if clutch_opps else 0
+        fb_per_game = round(stats.get("first_bloods", 0) / games, 2) if games else 0
+        rounds = max(rounds_played, 1)
+
+        embed = discord.Embed(
+            title=f"📊 {name}#{tag} — Lifetime Stats",
+            description=f"Across **{games}** tracked games",
+            color=COLOUR_MAIN,
+        )
+        embed.add_field(
+            name="Record", value=f"**{wins}W - {losses}L**\n({winrate}%)", inline=True
+        )
+        embed.add_field(
+            name="KDA", value=f"**{kills}/{deaths}/{assists}**\n({kda})", inline=True
+        )
+        embed.add_field(name="HS%", value=f"**{hs_pct}%**", inline=True)
+        embed.add_field(
+            name="Avg Damage", value=f"**{dmg_per_game}**/game", inline=True
+        )
+        embed.add_field(name="ACS", value=f"**{acs}**", inline=True)
+        embed.add_field(
+            name="Clutch %",
+            value=f"**{clutch_pct}%**\n{clutch_wins}/{clutch_opps}",
+            inline=True,
+        )
+        embed.add_field(
+            name="First Bloods/g", value=f"**{fb_per_game}**", inline=True
+        )
+        embed.add_field(
+            name="Ability Casts",
+            value=(
+                f"C **{stats.get('c_cast', 0)}** · Q **{stats.get('q_cast', 0)}** · "
+                f"E **{stats.get('e_cast', 0)}** · X **{stats.get('x_cast', 0)}**"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="AFK / Spawn Rounds",
+            value=f"**{stats.get('afk_rounds', 0)}** / **{stats.get('spawn_rounds', 0)}**\nof {rounds} rounds",
+            inline=True,
+        )
+        embed.add_field(
+            name="Friendly Fire",
+            value=f"Out **{stats.get('ff_outgoing', 0)}** · In **{stats.get('ff_incoming', 0)}**",
+            inline=True,
+        )
+        embed.set_footer(
+            text="Only counts games tracked since lifetime tracking began, "
+            "kept forever regardless of match cache cleanup"
+        )
         await interaction.followup.send(embed=embed)
 
     # ── /valtrend ─────────────────────────────────────────────────────────────
