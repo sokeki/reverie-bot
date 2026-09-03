@@ -2891,6 +2891,20 @@ class RRTracker(commands.Cog):
             rr = mmr["current"]["rr"]
             mmr_from_api = True
             print(f"[Val Tracker] MMR OK for {name}#{tag}: {tier_name} {rr}RR")
+            # rr_change is still 0 here for co-participant postings that
+            # skipped the mmr-history retry (skip_retry=True) — that's
+            # expected, they were never going to find their own match in
+            # that lookup. But leaving it at 0 means the daily summary
+            # silently drops this game's real RR change entirely (it's
+            # summed from this stored value, not recomputed later). Now
+            # that we have a fresh, real current RR, back-fill the delta
+            # from the account's own last-known RR, same tier only — same
+            # simplifying assumption the estimate-from-last-known fallback
+            # below already makes for tier changes.
+            if rr_change == 0 and tier_name == (account.get("val_tier") or tier_name):
+                last_rr = account.get("val_rr")
+                if last_rr is not None:
+                    rr_change = rr - last_rr
         else:
             # Use last known rank from DB + apply rr_change to estimate current RR
             tier_name = account.get("val_tier") or tier_from_history or "Unrated"

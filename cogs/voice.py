@@ -22,6 +22,21 @@ def _minutes_between(start: datetime, end: datetime) -> int:
     return int((end - start).total_seconds() // 60)
 
 
+# Hard ceiling on any single elapsed-time calculation used for a voice
+# increment. No real, honest voice session should ever produce a gap bigger
+# than this in one measurement — if one does, it means something else went
+# wrong upstream (a crashed task loop, a long outage, a clock issue), not
+# that someone was genuinely connected that whole time. Capping here means
+# a repeat of tonight's bug can silently under-count by a few hours at
+# worst, instead of silently awarding someone a physically impossible
+# amount of voice time.
+MAX_REASONABLE_GAP_MINUTES = 6 * 60  # 6 hours
+
+
+def _capped_minutes_between(start: datetime, end: datetime) -> int:
+    return min(_minutes_between(start, end), MAX_REASONABLE_GAP_MINUTES)
+
+
 def _minutes_since(dt: datetime) -> int:
     return _minutes_between(dt, _utcnow())
 
@@ -130,19 +145,22 @@ class Voice(commands.Cog):
             now = _utcnow()
             join_time = self.voice_join_times.pop(member.id)
             sync_time = self.last_sync.pop(member.id, join_time)
-            total_mins = _minutes_between(join_time, now)
-            unsynced_mins = _minutes_between(sync_time, now)
+            total_mins = _capped_minutes_between(join_time, now)
+            unsynced_mins = _capped_minutes_between(sync_time, now)
 
             pts = (total_mins // block_mins) * pts_per_block
             update = {"$inc": {"voice_minutes": unsynced_mins}}
             if pts:
                 update["$inc"]["points"] = pts
             if unsynced_mins > 0 or pts:
-                await self.bot.users_col.update_one(
-                    {"user_id": member.id, "guild_id": member.guild.id},
-                    update,
-                    upsert=True,
-                )
+                try:
+                    await self.bot.users_col.update_one(
+                        {"user_id": member.id, "guild_id": member.guild.id},
+                        update,
+                        upsert=True,
+                    )
+                except Exception as e:
+                    print(f"[Voice] Failed to record leave-session for {member.id}: {e!r}")
             await self._clear_session(member.id, member.guild.id)
 
     # ── Points ticker (every VOICE_BLOCK_MINUTES) ─────────────────────────────
@@ -161,18 +179,30 @@ class Voice(commands.Cog):
                         self.last_sync[member.id] = now
                         await self._save_session(member.id, guild.id, now, now)
                         continue
-                    minutes = _minutes_since(self.voice_join_times[member.id])
+                    minutes = min(
+                        _minutes_since(self.voice_join_times[member.id]),
+                        MAX_REASONABLE_GAP_MINUTES,
+                    )
                     if minutes >= block_mins:
                         pts = (minutes // block_mins) * pts_per_block
-                        await self.bot.users_col.update_one(
-                            {"user_id": member.id, "guild_id": guild.id},
-                            {"$inc": {"points": pts}},
-                            upsert=True,
-                        )
-                        self.voice_join_times[member.id] = now
-                        await self._save_session(
-                            member.id, guild.id, now, self.last_sync.get(member.id, now)
-                        )
+                        try:
+                            await self.bot.users_col.update_one(
+                                {"user_id": member.id, "guild_id": guild.id},
+                                {"$inc": {"points": pts}},
+                                upsert=True,
+                            )
+                            self.voice_join_times[member.id] = now
+                            await self._save_session(
+                                member.id,
+                                guild.id,
+                                now,
+                                self.last_sync.get(member.id, now),
+                            )
+                        except Exception as e:
+                            print(
+                                f"[Voice] Failed to award voice points for {member.id} "
+                                f"in {guild.id}: {e!r}"
+                            )
 
     # ── Minutes sync ticker (every 60 seconds) ────────────────────────────────
 
@@ -189,20 +219,36 @@ class Voice(commands.Cog):
                     last = self.last_sync.get(
                         member.id, self.voice_join_times[member.id]
                     )
-                    mins_since_sync = _minutes_between(last, now)
+                    # Capped, and wrapped per-member — a single bad write
+                    # (e.g. a transient DB error) used to crash this entire
+                    # loop for every member in every VC, permanently, until
+                    # the next bot restart. That's what silently produced
+                    # an impossible multi-hundred-hour voice time after the
+                    # earlier storage outage: the loop died mid-outage and
+                    # never ran again, so the next successful write summed
+                    # the *entire* frozen gap in one shot. Now a failure
+                    # here just logs and moves on to the next member, and
+                    # even the elapsed time itself can't exceed a sane cap.
+                    mins_since_sync = _capped_minutes_between(last, now)
                     if mins_since_sync >= 1:
-                        await self.bot.users_col.update_one(
-                            {"user_id": member.id, "guild_id": guild.id},
-                            {"$inc": {"voice_minutes": mins_since_sync}},
-                            upsert=True,
-                        )
-                        self.last_sync[member.id] = now
-                        await self._save_session(
-                            member.id,
-                            guild.id,
-                            self.voice_join_times[member.id],
-                            now,
-                        )
+                        try:
+                            await self.bot.users_col.update_one(
+                                {"user_id": member.id, "guild_id": guild.id},
+                                {"$inc": {"voice_minutes": mins_since_sync}},
+                                upsert=True,
+                            )
+                            self.last_sync[member.id] = now
+                            await self._save_session(
+                                member.id,
+                                guild.id,
+                                self.voice_join_times[member.id],
+                                now,
+                            )
+                        except Exception as e:
+                            print(
+                                f"[Voice] Failed to sync minutes for {member.id} "
+                                f"in {guild.id}: {e!r}"
+                            )
 
     @voice_point_ticker.before_loop
     async def before_point_ticker(self):
